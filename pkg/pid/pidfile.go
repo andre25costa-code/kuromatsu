@@ -15,7 +15,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
-const pidFileName = ".picoclaw.pid"
+const pidFileName = ".kuromatsu.pid"
 
 var errInvalidPidFile = errors.New("invalid pid file")
 

@@ -1,0 +1,27 @@
+package version
+
+import (
+	"github.com/spf13/cobra"
+
+	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal"
+	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/cliui"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+)
+
+func NewVersionCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     "version",
+		Aliases: []string{"v"},
+		Short:   "Show version information",
+		Run: func(_ *cobra.Command, _ []string) {
+			printVersion()
+		},
+	}
+
+	return cmd
+}
+
+func printVersion() {
+	build, goVer := config.FormatBuildInfo()
+	cliui.PrintVersion(internal.Logo, "picoclaw "+config.FormatVersion(), build, goVer)
+}

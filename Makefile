@@ -1,7 +1,7 @@
 .PHONY: all build install uninstall clean help test integration-test build-all
 
 # Build variables
-BINARY_NAME=picoclaw
+BINARY_NAME=kuromatsu
 BUILD_DIR=build
 CMD_DIR=cmd/$(BINARY_NAME)
 MAIN_GO=$(CMD_DIR)/main.go
@@ -198,7 +198,7 @@ else
 endif
 	@echo "Run generate complete"
 
-## build: Build the picoclaw binary for current platform
+## build: Build the kuromatsu binary for current platform
 build: generate
 	@echo "Building $(BINARY_NAME)$(EXT) for $(PLATFORM)/$(ARCH)..."
 ifeq ($(OS),Windows_NT)
@@ -264,7 +264,7 @@ build-android-arm64: generate
 build-pi-zero: build-linux-arm build-linux-arm64
 	@echo "Pi Zero 2 W builds: $(BUILD_DIR)/$(BINARY_NAME)-linux-arm (32-bit), $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 (64-bit)"
 
-## build-all: Build the picoclaw core binary for all Makefile-managed platforms
+## build-all: Build the kuromatsu core binary for all Makefile-managed platforms
 build-all: generate
 	@echo "Building for multiple platforms..."
 	@mkdir -p $(BUILD_DIR)
@@ -283,7 +283,7 @@ build-all: generate
 	GOOS=netbsd GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-netbsd-arm64 ./$(CMD_DIR)
 	@echo "Core builds complete"
 
-## install: Install picoclaw to system and copy builtin skills
+## install: Install kuromatsu to system and copy builtin skills
 install: build
 	@echo "Installing $(BINARY_NAME)..."
 	@mkdir -p $(INSTALL_BIN_DIR)
@@ -294,7 +294,7 @@ install: build
 	@echo "Installed binary to $(INSTALL_BIN_DIR)/$(BINARY_NAME)"
 	@echo "Installation complete!"
 
-## uninstall: Remove picoclaw from system
+## uninstall: Remove kuromatsu from system
 uninstall:
 	@echo "Uninstalling $(BINARY_NAME)..."
 	@rm -f $(INSTALL_BIN_DIR)/$(BINARY_NAME)
@@ -302,7 +302,7 @@ uninstall:
 	@echo "Note: Only the executable file has been deleted."
 	@echo "If you need to delete all configurations (config.json, workspace, etc.), run 'make uninstall-all'"
 
-## uninstall-all: Remove picoclaw and all data
+## uninstall-all: Remove kuromatsu and all data
 uninstall-all:
 	@echo "Removing workspace and skills..."
 	@rm -rf $(PICOCLAW_HOME)
@@ -361,19 +361,19 @@ update-deps:
 ## check: Run deps, fmt, vet, and tests
 check: deps fmt vet test
 
-## run: Build and run picoclaw
+## run: Build and run kuromatsu
 run: build
 	@$(BUILD_DIR)/$(BINARY_NAME) $(ARGS)
 
 ## docker-build: Build Docker image (minimal Alpine-based)
 docker-build:
 	@echo "Building minimal Docker image (Alpine-based)..."
-	docker compose -f docker/docker-compose.yml build picoclaw-agent picoclaw-gateway
+	docker compose -f docker/docker-compose.yml build kuromatsu-agent kuromatsu-gateway
 
 ## docker-build-full: Build Docker image with full MCP support (Node.js 24)
 docker-build-full:
 	@echo "Building full-featured Docker image (Node.js 24)..."
-	docker compose -f docker/docker-compose.full.yml build picoclaw-agent picoclaw-gateway
+	docker compose -f docker/docker-compose.full.yml build kuromatsu-agent kuromatsu-gateway
 
 ## docker-test: Test MCP tools in Docker container
 docker-test:
@@ -381,27 +381,27 @@ docker-test:
 	@chmod +x scripts/test-docker-mcp.sh
 	@./scripts/test-docker-mcp.sh
 
-## docker-run: Run picoclaw gateway in Docker (Alpine-based)
+## docker-run: Run kuromatsu gateway in Docker (Alpine-based)
 docker-run:
 	docker compose -f docker/docker-compose.yml --profile gateway up
 
-## docker-run-full: Run picoclaw gateway in Docker (full-featured)
+## docker-run-full: Run kuromatsu gateway in Docker (full-featured)
 docker-run-full:
 	docker compose -f docker/docker-compose.full.yml --profile gateway up
 
-## docker-run-agent: Run picoclaw agent in Docker (interactive, Alpine-based)
+## docker-run-agent: Run kuromatsu agent in Docker (interactive, Alpine-based)
 docker-run-agent:
-	docker compose -f docker/docker-compose.yml run --rm picoclaw-agent
+	docker compose -f docker/docker-compose.yml run --rm kuromatsu-agent
 
-## docker-run-agent-full: Run picoclaw agent in Docker (interactive, full-featured)
+## docker-run-agent-full: Run kuromatsu agent in Docker (interactive, full-featured)
 docker-run-agent-full:
-	docker compose -f docker/docker-compose.full.yml run --rm picoclaw-agent
+	docker compose -f docker/docker-compose.full.yml run --rm kuromatsu-agent
 
 ## docker-clean: Clean Docker images and volumes
 docker-clean:
 	docker compose -f docker/docker-compose.yml down -v
 	docker compose -f docker/docker-compose.full.yml down -v
-	docker rmi picoclaw:latest picoclaw:full 2>/dev/null || true
+	docker rmi kuromatsu:latest kuromatsu:full 2>/dev/null || true
 
 
 ## mem: Build membench, download LOCOMO data (if needed), run benchmark, and show results
@@ -425,7 +425,7 @@ mem:
 
 ## help: Show this help message
 help:
-	@echo "picoclaw Makefile"
+	@echo "kuromatsu Makefile"
 	@echo ""
 	@echo "Usage:"
 	@echo "  make [target]"

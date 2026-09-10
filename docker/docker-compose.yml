@@ -1,14 +1,14 @@
 services:
   # ─────────────────────────────────────────────
-  # PicoClaw Agent (one-shot query)
-  #   docker compose -f docker/docker-compose.yml run --rm picoclaw-agent -m "Hello"
+  # Kuromatsu Agent (one-shot query)
+  #   docker compose -f docker/docker-compose.yml run --rm kuromatsu-agent -m "Hello"
   # ─────────────────────────────────────────────
-  picoclaw-agent:
+  kuromatsu-agent:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: docker.io/sipeed/picoclaw:latest
-    container_name: picoclaw-agent
+    image: kuromatsu:latest
+    container_name: kuromatsu-agent
     profiles:
       - agent
     # Uncomment to access host network; leave commented unless needed.
@@ -16,20 +16,20 @@ services:
     #  - "host.docker.internal:host-gateway"
     volumes:
       - ./data:/root/.picoclaw
-    entrypoint: ["picoclaw", "agent"]
+    entrypoint: ["kuromatsu", "agent"]
     stdin_open: true
     tty: true
 
   # ─────────────────────────────────────────────
-  # PicoClaw Gateway (Long-running Bot)
+  # Kuromatsu Gateway (Long-running Bot)
   #   docker compose -f docker/docker-compose.yml --profile gateway up
   # ─────────────────────────────────────────────
-  picoclaw-gateway:
+  kuromatsu-gateway:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: docker.io/sipeed/picoclaw:latest
-    container_name: picoclaw-gateway
+    image: kuromatsu:latest
+    container_name: kuromatsu-gateway
     restart: unless-stopped
     profiles:
       - gateway

@@ -2,6 +2,8 @@
 # vim: set ts=2 sw=2 tw=0 fo=cnqoj
 version: 2
 
+project_name: kuromatsu
+
 git:
   ignore_tags:
     - nightly
@@ -12,7 +14,7 @@ before:
     - go generate ./...
 
 builds:
-  - id: picoclaw
+  - id: kuromatsu
     env:
       - CGO_ENABLED=0
     tags:
@@ -43,7 +45,7 @@ builds:
       - "7"
     gomips:
       - softfloat
-    main: ./cmd/picoclaw
+    main: ./cmd/kuromatsu
     ignore:
       - goos: windows
         goarch: arm
@@ -55,14 +57,14 @@ builds:
         goarch: arm
 
 dockers_v2:
-  - id: picoclaw
+  - id: kuromatsu
     dockerfile: docker/Dockerfile.goreleaser
     extra_files:
       - docker/entrypoint.sh
     ids:
-      - picoclaw
+      - kuromatsu
     images:
-      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/picoclaw"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/kuromatsu"
       - 'docker.io/{{ .Env.DOCKERHUB_IMAGE_NAME }}'
     tags:
       - '{{ if isEnvSet "NIGHTLY_BUILD" }}nightly{{ else }}{{ .Tag }}{{ end }}'
@@ -76,7 +78,7 @@ notarize:
   macos:
     - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
       ids:
-        - picoclaw
+        - kuromatsu
       sign:
         certificate: "{{.Env.MACOS_SIGN_P12}}"
         password: "{{.Env.MACOS_SIGN_PASSWORD}}"
@@ -103,20 +105,20 @@ archives:
         formats: [zip]
 
 nfpms:
-  - id: picoclaw
+  - id: kuromatsu
     ids:
-      - picoclaw
-    package_name: picoclaw
+      - kuromatsu
+    package_name: kuromatsu
     file_name_template: >-
       {{ .PackageName }}_
       {{- if eq .Arch "amd64" }}x86_64
       {{- else if eq .Arch "arm64" }}aarch64
       {{- else if eq .Arch "arm" }}armv{{ .Arm }}
       {{- else }}{{ .Arch }}{{ end }}
-    vendor: picoclaw
-    homepage: https://github.com/{{ .Env.GITHUB_REPOSITORY_OWNER }}/picoclaw
-    maintainer: picoclaw contributors
-    description: picoclaw - a tool for managing and running tasks
+    vendor: kuromatsu
+    homepage: https://github.com/{{ .Env.GITHUB_REPOSITORY_OWNER }}/kuromatsu
+    maintainer: kuromatsu contributors
+    description: kuromatsu - a tool for managing and running tasks
     license: MIT
     formats:
       - rpm
