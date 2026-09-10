@@ -950,18 +950,15 @@ type ToolsConfig struct {
 	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_APPEND_FILE_"`
 	EditFile        ToolConfig         `json:"edit_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_EDIT_FILE_"`
 	FindSkills      ToolConfig         `json:"find_skills"       yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_FIND_SKILLS_"`
-	I2C             ToolConfig         `json:"i2c"               yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_I2C_"`
 	InstallSkill    ToolConfig         `json:"install_skill"     yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_INSTALL_SKILL_"`
 	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_LIST_DIR_"`
 	LoadImage       ToolConfig         `json:"load_image"        yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_LOAD_IMAGE_"`
 	Message         MessageToolsConfig `json:"message"           yaml:"-"`
 	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_READ_FILE_"`
-	Serial          ToolConfig         `json:"serial"            yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SERIAL_"`
 	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SEND_FILE_"`
 	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SEND_TTS_"`
 	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SPAWN_"`
 	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SPAWN_STATUS_"`
-	SPI             ToolConfig         `json:"spi"               yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SPI_"`
 	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SUBAGENT_"`
 	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_WEB_FETCH_"`
 	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_WRITE_FILE_"`
@@ -1709,8 +1706,6 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.EditFile.Enabled
 	case "find_skills":
 		return t.FindSkills.Enabled
-	case "i2c":
-		return t.I2C.Enabled
 	case "install_skill":
 		return t.InstallSkill.Enabled
 	case "list_dir":
@@ -1721,14 +1716,10 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.Message.Enabled
 	case "read_file":
 		return t.ReadFile.Enabled
-	case "serial":
-		return t.Serial.Enabled
 	case "spawn":
 		return t.Spawn.Enabled
 	case "spawn_status":
 		return t.SpawnStatus.Enabled
-	case "spi":
-		return t.SPI.Enabled
 	case "subagent":
 		return t.Subagent.Enabled
 	case "web_fetch":

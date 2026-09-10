@@ -149,17 +149,6 @@ func registerSharedTools(
 			}
 		}
 
-		// Hardware tools (I2C, SPI) - Linux only, returns error on other platforms
-		if cfg.Tools.IsToolEnabled("i2c") {
-			agent.Tools.Register(tools.NewI2CTool())
-		}
-		if cfg.Tools.IsToolEnabled("spi") {
-			agent.Tools.Register(tools.NewSPITool())
-		}
-		if cfg.Tools.IsToolEnabled("serial") {
-			agent.Tools.Register(tools.NewSerialTool())
-		}
-
 		// Message tool
 		if cfg.Tools.IsToolEnabled("message") {
 			messageTool := tools.NewMessageTool()

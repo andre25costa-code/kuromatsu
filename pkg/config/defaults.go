@@ -459,9 +459,6 @@ func DefaultConfig() *Config {
 			FindSkills: ToolConfig{
 				Enabled: true,
 			},
-			I2C: ToolConfig{
-				Enabled: false, // Hardware tool - Linux only
-			},
 			InstallSkill: ToolConfig{
 				Enabled: true,
 			},
@@ -482,17 +479,11 @@ func DefaultConfig() *Config {
 				Mode:            ReadFileModeBytes,
 				MaxReadFileSize: 64 * 1024, // 64KB
 			},
-			Serial: ToolConfig{
-				Enabled: false, // Hardware tool - requires host serial ports
-			},
 			Spawn: ToolConfig{
 				Enabled: true,
 			},
 			SpawnStatus: ToolConfig{
 				Enabled: false,
-			},
-			SPI: ToolConfig{
-				Enabled: false, // Hardware tool - Linux only
 			},
 			Subagent: ToolConfig{
 				Enabled: true,
