@@ -3,12 +3,12 @@ package agent
 import (
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/routing"
+	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
 // AgentRegistry manages multiple agent instances and routes messages to them.

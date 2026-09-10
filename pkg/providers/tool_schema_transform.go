@@ -3,7 +3,7 @@ package providers
 import (
 	"context"
 
-	"github.com/sipeed/picoclaw/pkg/providers/common"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/common"
 )
 
 type toolSchemaTransformProvider struct {

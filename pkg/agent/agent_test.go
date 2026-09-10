@@ -18,16 +18,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/media"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/tools"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/channels"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/media"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/routing"
+	"github.com/andre25costa-code/kuromatsu/pkg/session"
+	"github.com/andre25costa-code/kuromatsu/pkg/tools"
+	"github.com/andre25costa-code/kuromatsu/pkg/utils"
 )
 
 type fakeChannel struct{ id string }

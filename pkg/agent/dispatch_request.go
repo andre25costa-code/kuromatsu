@@ -3,9 +3,9 @@ package agent
 import (
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/session"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/routing"
+	"github.com/andre25costa-code/kuromatsu/pkg/session"
 )
 
 // DispatchRequest is the normalized runtime input passed into the agent loop

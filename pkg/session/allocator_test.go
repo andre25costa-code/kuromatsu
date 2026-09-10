@@ -3,8 +3,8 @@ package session
 import (
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/routing"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/routing"
 )
 
 func TestAllocateRouteSession_PerPeerDM(t *testing.T) {

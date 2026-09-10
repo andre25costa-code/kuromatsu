@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/constants"
-	"github.com/sipeed/picoclaw/pkg/devices/events"
-	"github.com/sipeed/picoclaw/pkg/devices/sources"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/state"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/constants"
+	"github.com/andre25costa-code/kuromatsu/pkg/devices/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/devices/sources"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/state"
 )
 
 type Service struct {

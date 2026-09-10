@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	"github.com/sipeed/picoclaw/pkg/auth"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal"
+	"github.com/andre25costa-code/kuromatsu/pkg/auth"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 )
 
 const (

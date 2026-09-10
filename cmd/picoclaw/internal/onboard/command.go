@@ -3,10 +3,10 @@ package onboard
 import (
 	"github.com/spf13/cobra"
 
-	picoclaw "github.com/sipeed/picoclaw"
+	"github.com/andre25costa-code/kuromatsu"
 )
 
-var embeddedFiles = picoclaw.OnboardWorkspace
+var embeddedFiles = kuromatsu.OnboardWorkspace
 
 func NewOnboardCommand() *cobra.Command {
 	var encrypt bool

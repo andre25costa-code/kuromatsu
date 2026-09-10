@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
 // ExpandTool recovers full message content by ID.

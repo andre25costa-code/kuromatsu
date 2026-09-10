@@ -3,8 +3,8 @@ package gateway
 import (
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/agent"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/agent"
+	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 )
 
 type gatewayEventPayload struct {

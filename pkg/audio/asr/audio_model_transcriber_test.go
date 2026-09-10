@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 )
 
 var _ Transcriber = (*AudioModelTranscriber)(nil)

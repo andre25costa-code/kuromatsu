@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/netbind"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/netbind"
 )
 
 const DefaultGatewayLogLevel = "warn"

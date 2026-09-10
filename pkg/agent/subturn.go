@@ -8,11 +8,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/providers/messageutil"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/messageutil"
+	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
 // ====================== Config & Constants ======================

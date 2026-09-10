@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
 // ErrBusClosed is returned when publishing to a closed MessageBus.

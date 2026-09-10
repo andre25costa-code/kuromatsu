@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/migrate/internal"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/migrate/internal"
 )
 
 // OpenclawHomeEnvVar is the environment variable that overrides the source

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	agenttools "github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	agenttools "github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
 type allowlistTestTool struct {

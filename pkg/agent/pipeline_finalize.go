@@ -5,9 +5,9 @@ package agent
 import (
 	"context"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 )
 
 // Finalize handles turn finalization, either:

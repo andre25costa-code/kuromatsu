@@ -1,7 +1,7 @@
 package providers
 
 import (
-	oauthprovider "github.com/sipeed/picoclaw/pkg/providers/oauth"
+	oauthprovider "github.com/andre25costa-code/kuromatsu/pkg/providers/oauth"
 )
 
 type (

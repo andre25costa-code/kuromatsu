@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/constants"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/constants"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/routing"
+	"github.com/andre25costa-code/kuromatsu/pkg/session"
+	"github.com/andre25costa-code/kuromatsu/pkg/utils"
 )
 
 func (al *AgentLoop) buildContinuationTarget(msg bus.InboundMessage) (*continuationTarget, error) {

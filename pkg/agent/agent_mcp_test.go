@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/mcp"
-	agenttools "github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/mcp"
+	agenttools "github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
 func boolPtr(b bool) *bool { return &b }

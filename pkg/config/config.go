@@ -15,10 +15,10 @@ import (
 
 	"github.com/caarlos0/env/v11"
 
-	"github.com/sipeed/picoclaw/pkg"
-	"github.com/sipeed/picoclaw/pkg/fileutil"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	providercommon "github.com/sipeed/picoclaw/pkg/providers/common"
+	"github.com/andre25costa-code/kuromatsu/pkg"
+	"github.com/andre25costa-code/kuromatsu/pkg/fileutil"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	providercommon "github.com/andre25costa-code/kuromatsu/pkg/providers/common"
 )
 
 // rrCounter is a global counter for round-robin load balancing across models.

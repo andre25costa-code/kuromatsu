@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/evolution"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/skills"
+	"github.com/andre25costa-code/kuromatsu/pkg/evolution"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/skills"
 )
 
 func TestDefaultDraftGenerator_PrefersLateAddedSkillAsTargetWhenNoMatches(t *testing.T) {

@@ -3,7 +3,7 @@ package agent
 import (
 	"time"
 
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
+	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 )
 
 // HookMeta contains correlation fields shared by agent hook requests and

@@ -17,8 +17,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 )
 
 func TestLoadEnvFile(t *testing.T) {

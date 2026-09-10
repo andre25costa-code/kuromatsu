@@ -9,15 +9,15 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/isolation"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/media"
-	"github.com/sipeed/picoclaw/pkg/memory"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/routing"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/isolation"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/media"
+	"github.com/andre25costa-code/kuromatsu/pkg/memory"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/routing"
+	"github.com/andre25costa-code/kuromatsu/pkg/session"
+	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
 // AgentInstance represents a fully configured agent with its own workspace,

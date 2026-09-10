@@ -3,11 +3,11 @@
 package agent
 
 import (
-	"github.com/sipeed/picoclaw/pkg/audio/asr"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/media"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/andre25costa-code/kuromatsu/pkg/audio/asr"
+	"github.com/andre25costa-code/kuromatsu/pkg/channels"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/media"
+	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
 func (al *AgentLoop) RegisterTool(tool tools.Tool) {

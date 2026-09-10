@@ -14,11 +14,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/skills"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/skills"
+	"github.com/andre25costa-code/kuromatsu/pkg/utils"
 )
 
 type ContextBuilder struct {

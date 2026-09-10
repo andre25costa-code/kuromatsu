@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal"
 )
 
 func NewCronCommand() *cobra.Command {

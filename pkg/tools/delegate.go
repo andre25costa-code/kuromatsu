@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/routing"
+	"github.com/andre25costa-code/kuromatsu/pkg/routing"
 )
 
 // DelegateTool delegates a task to a specific named agent and waits for

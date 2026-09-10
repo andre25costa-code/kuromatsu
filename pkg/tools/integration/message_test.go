@@ -8,9 +8,9 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/media"
-	"github.com/sipeed/picoclaw/pkg/session"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/media"
+	"github.com/andre25costa-code/kuromatsu/pkg/session"
 )
 
 func TestMessageTool_Execute_Success(t *testing.T) {

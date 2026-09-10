@@ -1,4 +1,4 @@
-package picoclaw
+package kuromatsu
 
 import "embed"
 

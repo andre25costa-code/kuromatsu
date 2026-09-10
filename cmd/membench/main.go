@@ -12,7 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
 var (

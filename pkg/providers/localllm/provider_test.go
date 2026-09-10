@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/protocoltypes"
 )
 
 // fakeEngine lets provider_test.go exercise Provider.Chat without a real

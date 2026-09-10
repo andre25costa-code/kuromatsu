@@ -5,9 +5,9 @@ package whatsapp
 import (
 	"fmt"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/channels"
-	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/channels"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
 )
 
 // NewWhatsAppNativeChannel returns an error when the binary was not built with -tags whatsapp_native.

@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/cliui"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/cliui"
 )
 
 func newListCommand() *cobra.Command {

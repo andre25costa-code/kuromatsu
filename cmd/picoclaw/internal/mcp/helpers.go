@@ -17,9 +17,9 @@ import (
 
 	"github.com/google/jsonschema-go/jsonschema"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	"github.com/sipeed/picoclaw/pkg/config"
-	picomcp "github.com/sipeed/picoclaw/pkg/mcp"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	picomcp "github.com/andre25costa-code/kuromatsu/pkg/mcp"
 )
 
 type probeResult struct {

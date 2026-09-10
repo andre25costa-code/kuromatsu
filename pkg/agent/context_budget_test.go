@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 )
 
 // msgUser creates a user message.

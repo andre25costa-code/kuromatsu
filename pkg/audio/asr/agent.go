@@ -12,8 +12,8 @@ import (
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
 type speechAccumulator struct {

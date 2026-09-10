@@ -10,8 +10,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/sipeed/picoclaw/pkg/fileutil"
-	"github.com/sipeed/picoclaw/pkg/skills"
+	"github.com/andre25costa-code/kuromatsu/pkg/fileutil"
+	"github.com/andre25costa-code/kuromatsu/pkg/skills"
 )
 
 type Applier struct {

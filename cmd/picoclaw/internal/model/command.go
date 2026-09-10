@@ -5,9 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers/localllm"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/localllm"
 )
 
 // LocalModel is a special model name that indicates that the model is local and with or without api_key.

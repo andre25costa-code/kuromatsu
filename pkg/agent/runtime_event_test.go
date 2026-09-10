@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
+	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 )
 
 func subscribeRuntimeEventsForTest(

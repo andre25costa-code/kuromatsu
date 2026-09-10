@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/providers/common"
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/common"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/protocoltypes"
 )
 
 // registry guarantees a single Provider (and therefore a single underlying

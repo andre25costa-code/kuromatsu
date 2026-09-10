@@ -15,12 +15,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/constants"
-	"github.com/sipeed/picoclaw/pkg/fileutil"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/state"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/constants"
+	"github.com/andre25costa-code/kuromatsu/pkg/fileutil"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/state"
+	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
 const (

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/routing"
+	"github.com/andre25costa-code/kuromatsu/pkg/routing"
 )
 
 // AgentDescriptor is the structured discovery payload injected into each

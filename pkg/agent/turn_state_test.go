@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 )
 
 func TestMatchingTurnMessageTail_IgnoresInternalRuntimeFields(t *testing.T) {

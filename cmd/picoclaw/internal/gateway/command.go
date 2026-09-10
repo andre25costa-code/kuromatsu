@@ -6,12 +6,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/gateway"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/netbind"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/gateway"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/netbind"
+	"github.com/andre25costa-code/kuromatsu/pkg/utils"
 )
 
 func resolveGatewayHostOverride(explicit bool, host string) (string, error) {

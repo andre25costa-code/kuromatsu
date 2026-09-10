@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/utils"
 )
 
 const (

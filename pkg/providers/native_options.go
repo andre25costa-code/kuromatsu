@@ -3,9 +3,9 @@ package providers
 import (
 	"fmt"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/providers/common"
-	"github.com/sipeed/picoclaw/pkg/providers/localllm"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/common"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/localllm"
 )
 
 // nativeOptionsFromModelConfig resolves localllm.Options for the "native"

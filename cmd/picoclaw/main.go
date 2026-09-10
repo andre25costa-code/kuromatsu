@@ -15,29 +15,29 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/agent"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/auth"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/cliui"
-	configcmd "github.com/sipeed/picoclaw/cmd/picoclaw/internal/config"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/cron"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/gateway"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/mcp"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/migrate"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/model"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/onboard"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/skills"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/status"
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal/version"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/updater"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/agent"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/auth"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/cliui"
+	configcmd "github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/config"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/cron"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/gateway"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/mcp"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/migrate"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/model"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/onboard"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/skills"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/status"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal/version"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/updater"
 )
 
 var rootNoColor bool
 
 // initTermuxSSL detects Termux environment and sets SSL_CERT_FILE if not already set.
 // This fixes X509 certificate errors when running PicoClaw inside Termux or termux-chroot.
-// See: https://github.com/sipeed/picoclaw/issues/2944
+// See: https://github.com/andre25costa-code/kuromatsu/issues/2944
 func initTermuxSSL() {
 	// Only applicable on Linux/Android
 	if runtime.GOOS != "linux" && runtime.GOOS != "android" {

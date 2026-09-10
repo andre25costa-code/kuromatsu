@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
 func applyPlatformIsolation(cmd *exec.Cmd, isolation config.IsolationConfig, root string) error {

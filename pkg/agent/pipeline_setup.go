@@ -6,8 +6,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 )
 
 // SetupTurn extracts the one-time initialization phase, returning a

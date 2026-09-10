@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/fileutil"
-	"github.com/sipeed/picoclaw/pkg/skills"
-	"github.com/sipeed/picoclaw/pkg/utils"
+	"github.com/andre25costa-code/kuromatsu/cmd/picoclaw/internal"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/fileutil"
+	"github.com/andre25costa-code/kuromatsu/pkg/skills"
+	"github.com/andre25costa-code/kuromatsu/pkg/utils"
 )
 
 const skillsSearchMaxResults = 20

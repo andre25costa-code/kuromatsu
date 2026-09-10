@@ -1,8 +1,8 @@
 package channels
 
 import (
-	"github.com/sipeed/picoclaw/pkg/bus"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 )
 
 func channelTypeForEvent(m *Manager, channelName string) string {

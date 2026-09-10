@@ -3,7 +3,7 @@ package localllm
 import (
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/protocoltypes"
 )
 
 func TestRenderPrompt_SystemAndUser_NoTools_ThinkingDisabled(t *testing.T) {

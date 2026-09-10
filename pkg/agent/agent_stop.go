@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/commands"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/commands"
 )
 
 func (al *AgentLoop) tryHandleStopCommand(

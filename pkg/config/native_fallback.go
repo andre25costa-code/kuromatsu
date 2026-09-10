@@ -3,7 +3,7 @@ package config
 import (
 	"slices"
 
-	"github.com/sipeed/picoclaw/pkg/providers/localllm"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/localllm"
 )
 
 // nativeModelName is the model_name of the seeded "native" model_list entry

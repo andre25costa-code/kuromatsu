@@ -11,12 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	anthropicmessages "github.com/sipeed/picoclaw/pkg/providers/anthropic_messages"
-	"github.com/sipeed/picoclaw/pkg/providers/azure"
-	"github.com/sipeed/picoclaw/pkg/providers/bedrock"
-	"github.com/sipeed/picoclaw/pkg/providers/common"
-	"github.com/sipeed/picoclaw/pkg/providers/localllm"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	anthropicmessages "github.com/andre25costa-code/kuromatsu/pkg/providers/anthropic_messages"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/azure"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/bedrock"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/common"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/localllm"
 )
 
 // createClaudeAuthProvider creates a Claude provider using OAuth credentials from auth store.

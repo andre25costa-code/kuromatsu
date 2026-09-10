@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/constants"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/constants"
+	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 )
 
 // CallLLM performs an LLM call with fallback support, hook invocation, and retry logic.

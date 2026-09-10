@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/evolution"
+	"github.com/andre25costa-code/kuromatsu/pkg/evolution"
 )
 
 func TestStore_AppendLearningRecordsPersistsCaseAndRule(t *testing.T) {

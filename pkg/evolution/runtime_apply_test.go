@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/evolution"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/evolution"
 )
 
 func TestRuntime_RunColdPathOnce_ApplyModeWritesSkillAndProfile(t *testing.T) {

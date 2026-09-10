@@ -3,7 +3,7 @@ package utils
 import (
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 )
 
 func normalizeToolFeedbackComparisonText(text string) string {

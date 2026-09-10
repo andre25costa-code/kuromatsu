@@ -1,4 +1,4 @@
-module github.com/sipeed/picoclaw
+module github.com/andre25costa-code/kuromatsu
 
 go 1.25.13
 

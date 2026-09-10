@@ -7,12 +7,12 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/tools"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/session"
+	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
 // SteeringMode controls how queued steering messages are dequeued.

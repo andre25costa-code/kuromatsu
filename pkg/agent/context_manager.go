@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 )
 
 // ContextManager manages conversation context via a pluggable strategy.

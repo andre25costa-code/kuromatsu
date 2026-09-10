@@ -12,10 +12,10 @@ import (
 
 	"github.com/h2non/filetype"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/config"
-	"github.com/sipeed/picoclaw/pkg/media"
-	fstools "github.com/sipeed/picoclaw/pkg/tools/fs"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/media"
+	fstools "github.com/andre25costa-code/kuromatsu/pkg/tools/fs"
 )
 
 type SendCallbackWithContext func(

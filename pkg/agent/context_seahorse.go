@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
-	"github.com/sipeed/picoclaw/pkg/seahorse"
-	"github.com/sipeed/picoclaw/pkg/session"
-	"github.com/sipeed/picoclaw/pkg/tokenizer"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/protocoltypes"
+	"github.com/andre25costa-code/kuromatsu/pkg/seahorse"
+	"github.com/andre25costa-code/kuromatsu/pkg/session"
+	"github.com/andre25costa-code/kuromatsu/pkg/tokenizer"
 )
 
 // seahorseContextManager adapts seahorse.Engine to agent.ContextManager.

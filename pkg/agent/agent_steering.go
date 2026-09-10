@@ -5,8 +5,8 @@ package agent
 import (
 	"context"
 
-	"github.com/sipeed/picoclaw/pkg/bus"
-	"github.com/sipeed/picoclaw/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
 func (al *AgentLoop) processMessageSync(ctx context.Context, msg bus.InboundMessage) {

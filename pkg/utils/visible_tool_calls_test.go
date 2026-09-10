@@ -3,7 +3,7 @@ package utils
 import (
 	"testing"
 
-	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 )
 
 func TestBuildVisibleToolCalls_DoesNotTruncateExplanation(t *testing.T) {

@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
-	"github.com/sipeed/picoclaw/pkg/providers/common"
-	"github.com/sipeed/picoclaw/pkg/providers/messageutil"
-	"github.com/sipeed/picoclaw/pkg/providers/protocoltypes"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/common"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/messageutil"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/protocoltypes"
 )
 
 type (

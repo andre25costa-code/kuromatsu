@@ -3,7 +3,7 @@ package gateway
 import (
 	"strconv"
 
-	"github.com/sipeed/picoclaw/pkg/netbind"
+	"github.com/andre25costa-code/kuromatsu/pkg/netbind"
 )
 
 func openGatewayListeners(host string, port int) (netbind.Plan, netbind.OpenResult, error) {

@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sipeed/picoclaw/pkg/fileutil"
-	"github.com/sipeed/picoclaw/pkg/providers"
-	"github.com/sipeed/picoclaw/pkg/providers/messageutil"
+	"github.com/andre25costa-code/kuromatsu/pkg/fileutil"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/messageutil"
 )
 
 const (
