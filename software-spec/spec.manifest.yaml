@@ -1,0 +1,77 @@
+project: kuromatsu
+version: 0.1.0
+items:
+  - id: S01
+    title: Contexto do projeto
+    file: 01-business/01-background.md
+    tags: [business, vision]
+    roles: [dev]
+  - id: S02
+    title: Glossário
+    file: 01-business/02-glossary.md
+    tags: [glossary]
+    roles: [dev]
+  - id: S04
+    title: Objetivos do projeto
+    file: 01-business/04-goals.md
+    tags: [goals]
+    roles: [dev]
+  - id: S06
+    title: Premissas, restrições e riscos
+    file: 01-business/06-assumptions.md
+    tags: [constraints, risks, open-questions]
+    roles: [dev]
+  - id: S08
+    title: Regras de negócio
+    file: 02-business-design/08-business-rules.md
+    id_prefix: BR
+    tags: [rules, invariants]
+    roles: [dev]
+  - id: S10
+    title: Escopo (in/out)
+    file: 02-business-design/10-scope.md
+    tags: [scope, trim]
+    roles: [dev]
+  - id: S11
+    title: Requisitos funcionais e critérios de aceite
+    file: 02-business-design/11-requirements.md
+    id_prefix: [FR, AC]
+    tags: [requirements, acceptance, deliverables]
+    roles: [dev]
+  - id: S13
+    title: Arquitetura geral
+    file: 03-system-design/13-architecture.md
+    tags: [architecture]
+    roles: [dev]
+  - id: S14
+    title: Módulos do sistema
+    file: 03-system-design/14-modules.md
+    tags: [modules]
+    roles: [dev]
+  - id: S18
+    title: Componente de IA (Bonsai-1.7B-Q1_0)
+    file: 03-system-design/18-ai-component.md
+    tags: [ai, llm, inference, chatml]
+    roles: [dev]
+  - id: S29
+    title: Requisitos não funcionais
+    file: 06-infrastructure/29-nfr.md
+    id_prefix: NFR
+    tags: [nfr, ram, performance]
+    roles: [dev]
+  - id: S32
+    title: Arquitetura de deploy
+    file: 06-infrastructure/32-deployment.md
+    tags: [deploy, docker, oracle, arm64]
+    roles: [dev]
+  - id: S35
+    title: Registros de decisão de arquitetura
+    file: 07-engineering/adr/
+    id_prefix: ADR
+    tags: [adr, decisions]
+    roles: [dev]
+  - id: S40
+    title: Referências
+    file: 09-appendix/40-references.md
+    tags: [references]
+    roles: [dev]

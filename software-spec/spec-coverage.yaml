@@ -1,0 +1,118 @@
+# spec-coverage.yaml — estado dos 40 itens de consideração (skill software-spec-writing)
+# status: confirmed | draft | tbd | n/a | missing
+# Regras: itens mudam de estado, nunca são removidos; atualização incremental.
+
+project: kuromatsu
+updated: 2026-09-10
+spec_version: 0.1.0
+
+items:
+  # ── 1ª parte: Business ────────────────────────────────
+  S01: { status: confirmed, file: 01-business/01-background.md }
+  S02: { status: confirmed, file: 01-business/02-glossary.md }
+  S03:
+    status: n/a
+    note: Projeto pessoal de usuário único; não há personas a mapear. As dores que motivam o projeto estão em S01.
+  S04: { status: confirmed, file: 01-business/04-goals.md }
+  S05:
+    status: n/a
+    note: Sem modelo de negócio — fork pessoal open-source, sem monetização.
+  S06: { status: confirmed, file: 01-business/06-assumptions.md }
+
+  # ── 2ª parte: Business Design ─────────────────────────
+  S07:
+    status: n/a
+    note: Os fluxos "de negócio" são as rotinas pessoais de estudo do usuário, que vivem no workspace privado (docker/data/, fora do repo público). O repo entrega a plataforma, não os fluxos.
+  S08: { status: confirmed, file: 02-business-design/08-business-rules.md }
+  S09:
+    status: n/a
+    note: Nenhuma entidade nova com máquina de estados; as máquinas existentes do PicoClaw (sessões, cron jobs) não são alteradas por este trabalho.
+  S10: { status: confirmed, file: 02-business-design/10-scope.md }
+  S11: { status: confirmed, file: 02-business-design/11-requirements.md }
+  S12:
+    status: n/a
+    note: Usuário único (André); sem papéis de negócio distintos.
+
+  # ── 3ª parte: System Design ───────────────────────────
+  S13: { status: confirmed, file: 03-system-design/13-architecture.md }
+  S14: { status: confirmed, file: 03-system-design/14-modules.md }
+  S15:
+    status: n/a
+    note: Usuário único; o controle de acesso existente do PicoClaw (allowlists de tools, allow_read/write_paths) permanece inalterado.
+  S16:
+    status: missing
+    note: O fluxo interno (mensagem → pipeline → tools → resposta) é herdado do PicoClaw e derivável do código; documentar aqui só se o pipeline for alterado além do provider.
+  S17:
+    status: missing
+    note: Semântica de falha do provider nativo (overflow, single-flight, keep-alive) registrada em ADR-003 e S18; consolidar aqui caso surjam mais estratégias de consistência.
+  S18: { status: confirmed, file: 03-system-design/18-ai-component.md }
+
+  # ── 4ª parte: Data Design ─────────────────────────────
+  S19:
+    status: n/a
+    note: Sem entidades de dados novas; ADR-008 fixa reuso de seahorse (SQLite FTS5) e sessões JSONL existentes.
+  S20:
+    status: n/a
+    note: Sem schema novo de banco (ver ADR-008). O relatório do modo dormir é arquivo Markdown simples.
+  S21:
+    status: n/a
+    note: Sem camada de cache adicional; o KV cache é interno ao runtime de inferência e está documentado em S18/ADR-003.
+  S22: { status: confirmed, file: 07-engineering/adr/ADR-005-rebrand-compat.md, note: A única migração de dados é o home dir ~/.picoclaw → ~/.kuromatsu, coberta pela ADR-005 (leitura in-place + comando de migração explícito futuro). }
+  # ── 5ª parte: Interface Design ────────────────────────
+  S23:
+    status: n/a
+    note: Sem API pública nova; interfaces são os canais de chat (telegram/whatsapp/pico) e a CLI herdados.
+  S24:
+    status: n/a
+    note: Sem event bus novo; o protocolo do canal pico permanece como está.
+  S25:
+    status: tbd
+    note: Falta definir a fonte oficial de download do GGUF (coleção HF prism-ml/bonsai? release do Bonsai-demo?) para o script do E1 — decisão do André. Demais integrações (Telegram/WhatsApp/provedores LLM) são herdadas sem mudança.
+    owner: André
+    blocks: [S11]
+  S26:
+    status: n/a
+    note: Sem UI — o web launcher será removido por decisão do usuário (ADR-007); interação por chat e CLI.
+
+  # ── 6ª parte: Infrastructure ──────────────────────────
+  S27:
+    status: missing
+    note: Segurança herdada do PicoClaw (.security.yml, redaction, tool gating). Nova superfície a documentar depois - ações destrutivas do sysmon (kill/renice) gated por config.
+  S28:
+    status: n/a
+    note: Uso pessoal, dados próprios; a fronteira de privacidade relevante (dados pessoais fora do repo/binário; envio a LLM externo só se configurado) está em BR-003 e S18.
+  S29: { status: confirmed, file: 06-infrastructure/29-nfr.md }
+  S30:
+    status: missing
+    note: Cron/heartbeat herdados sem mudança; o modo dormir está especificado em FR-010 + ADR-006. Consolidar aqui se os agendadores forem alterados.
+  S31:
+    status: n/a
+    note: Sem gestão própria de arquivos/mídia; PDFs e afins são tratados pelo hub pessoal privado, fora do escopo do repo.
+  S32: { status: confirmed, file: 06-infrastructure/32-deployment.md }
+  S33:
+    status: missing
+    note: Backup ainda não discutido - docker/data/ serve de backup do hub, mas não há política de backup da VM Oracle (snapshots? rsync?). Recomendado decidir antes do go-live (E7).
+  S34:
+    status: missing
+    note: Observabilidade = logs existentes + sysmon (FR-011) + nativebench. Sem métricas/alertas estruturados; avaliar após E7.
+
+  # ── 7ª parte: Engineering ─────────────────────────────
+  S35: { status: confirmed, file: 07-engineering/adr/ }
+  S36:
+    status: missing
+    note: Convenções herdadas (golangci, make check, Conventional Commits do upstream). Documentar apenas se divergirmos.
+  S37:
+    status: missing
+    note: Tabela de config/env (KUROMATSU_*) deve ser gerada após o E3 (rename) e mantida na skill kuromatsu-docs (E8), não aqui — evitar dupla fonte.
+  # ── 8ª parte: Quality Assurance ───────────────────────
+  S38:
+    status: missing
+    note: Estratégia de teste está distribuída nos gates de cada entregável (S11): make vet+test por commit, golden tests do ChatML, teste de fallback. Consolidar se crescer.
+  S39:
+    status: tbd
+    note: Baseline de avaliação (tok/s, RAM, qualidade de tool-call) depende de medição real na Oracle com nativebench no E7 — não inventar números antes.
+    owner: André
+    blocks: []
+
+  # ── 9ª parte: Appendix ────────────────────────────────
+  S40: { status: confirmed, file: 09-appendix/40-references.md }
