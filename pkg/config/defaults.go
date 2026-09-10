@@ -406,6 +406,12 @@ func DefaultConfig() *Config {
 				AllowRemote:        true,
 				TimeoutSeconds:     60,
 			},
+			Sysmon: SysmonToolConfig{
+				ToolConfig: ToolConfig{
+					Enabled: true,
+				},
+				AllowDestructive: false, // BR-007: kill/renice denied by default
+			},
 			Skills: SkillsToolsConfig{
 				ToolConfig: ToolConfig{
 					Enabled: true,

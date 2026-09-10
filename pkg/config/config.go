@@ -962,6 +962,16 @@ type ToolsConfig struct {
 	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SUBAGENT_"`
 	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_WEB_FETCH_"`
 	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_WRITE_FILE_"`
+	Sysmon          SysmonToolConfig   `json:"sysmon"            yaml:"-"                                                       envPrefix:"PICOCLAW_TOOLS_SYSMON_"`
+}
+
+// SysmonToolConfig configures the sysmon tool (FR-011): read-only system
+// observability (mem/top/load/disk) plus optional process control.
+// AllowDestructive gates "proc kill"/"proc renice" and defaults to false
+// (BR-007) -- read-only actions are unaffected by it.
+type SysmonToolConfig struct {
+	ToolConfig       `yaml:"-" envPrefix:"PICOCLAW_TOOLS_SYSMON_"`
+	AllowDestructive bool `json:"allow_destructive" yaml:"-" env:"ALLOW_DESTRUCTIVE"`
 }
 
 // IsFilterSensitiveDataEnabled returns true if sensitive data filtering is enabled
@@ -1732,6 +1742,8 @@ func (t *ToolsConfig) IsToolEnabled(name string) bool {
 		return t.WriteFile.Enabled
 	case "mcp":
 		return t.MCP.Enabled
+	case "sysmon":
+		return t.Sysmon.Enabled
 	default:
 		return true
 	}

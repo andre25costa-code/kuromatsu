@@ -161,6 +161,9 @@ func NewAgentInstance(
 			toolsRegistry.Register(execTool)
 		}
 	}
+	if cfg.Tools.IsToolEnabled("sysmon") {
+		toolsRegistry.Register(tools.NewSysmonTool(cfg.Tools.Sysmon.AllowDestructive))
+	}
 
 	sessionsDir := filepath.Join(workspace, "sessions")
 	sessions := initSessionStore(sessionsDir)
