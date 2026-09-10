@@ -9,6 +9,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/auth"
 	"github.com/sipeed/picoclaw/pkg/config"
 	"github.com/sipeed/picoclaw/pkg/providers"
+	"github.com/sipeed/picoclaw/pkg/providers/localllm"
 )
 
 func statusCmd() {
@@ -124,6 +125,7 @@ func statusCmd() {
 			{Name: "Nvidia API", Val: val(hasNvidia)},
 			{Name: "vLLM / local", Val: val(hasVLLM, vllmBase)},
 			{Name: "Ollama", Val: val(hasOllama, ollamaBase)},
+			{Name: "Native (Bonsai)", Val: nativeStatusVal()},
 		}
 
 		store, _ := auth.LoadStore()
@@ -142,4 +144,18 @@ func statusCmd() {
 	}
 
 	cliui.PrintStatus(report)
+}
+
+// nativeStatusVal reports the state of the in-process native provider
+// (FR-004): whether the binary was compiled with the nativellm cgo engine,
+// and whether the Bonsai GGUF is present on disk.
+func nativeStatusVal() string {
+	if !localllm.Built() {
+		return "not built (make build-native)"
+	}
+	path, err := localllm.ResolveModelPath("Bonsai-1.7B-Q1_0", config.GetHome())
+	if err != nil {
+		return "built, model missing (make model-download)"
+	}
+	return "✓ " + path
 }

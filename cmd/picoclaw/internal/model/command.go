@@ -7,10 +7,16 @@ import (
 
 	"github.com/sipeed/picoclaw/cmd/picoclaw/internal"
 	"github.com/sipeed/picoclaw/pkg/config"
+	"github.com/sipeed/picoclaw/pkg/providers/localllm"
 )
 
 // LocalModel is a special model name that indicates that the model is local and with or without api_key.
 const LocalModel = "local-model"
+
+// NativeModel is the reserved model_name for the in-process Bonsai provider
+// (ADR-002). Unlike LocalModel it requires a specific build tag, so
+// selecting it gets its own guard in setDefaultModel (FR-004/AC-004-2).
+const NativeModel = "bonsai-local"
 
 func NewModelCommand() *cobra.Command {
 	cmd := &cobra.Command{
@@ -100,6 +106,12 @@ func listAvailableModels(cfg *config.Config) {
 }
 
 func setDefaultModel(configPath string, cfg *config.Config, modelName string) error {
+	if modelName == NativeModel && !localllm.Built() {
+		return fmt.Errorf(
+			"'%s' requires a binary built with the native inference engine; rebuild with `make build-native` (see `picoclaw status`)",
+			NativeModel)
+	}
+
 	// Validate that the model exists in model_list
 	modelFound := false
 	for _, model := range cfg.ModelList {

@@ -321,6 +321,16 @@ var modelProviderOptionsByName = map[string]ModelProviderOption{
 		Priority:            52,
 		Aliases:             []string{"codexcli"},
 	},
+	"native": {
+		ID:                  "native",
+		DisplayName:         "Native (in-process)",
+		EmptyAPIKeyAllowed:  true,
+		CreateAllowed:       true,
+		DefaultModelAllowed: true,
+		Local:               true,
+		Priority:            51,
+		Aliases:             []string{"bonsai", "kuro"},
+	},
 	"ollama": {
 		ID:                  "ollama",
 		DisplayName:         "Ollama",

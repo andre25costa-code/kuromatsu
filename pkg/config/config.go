@@ -1300,7 +1300,9 @@ func LoadConfig(path string) (*Config, error) {
 				"config file not found, using default config",
 				map[string]any{"path": path},
 			)
-			return DefaultConfig(), nil
+			defaultCfg := DefaultConfig()
+			ApplyNativeFallback(defaultCfg)
+			return defaultCfg, nil
 		}
 		return nil, err
 	}
@@ -1316,7 +1318,9 @@ func LoadConfig(path string) (*Config, error) {
 	}
 	if len(data) <= 10 {
 		logger.Warn(fmt.Sprintf("content is [%s]", string(data)))
-		return DefaultConfig(), nil
+		defaultCfg := DefaultConfig()
+		ApplyNativeFallback(defaultCfg)
+		return defaultCfg, nil
 	}
 
 	// Load config based on detected version
@@ -1538,6 +1542,10 @@ func LoadConfig(path string) (*Config, error) {
 	if err = cfg.ValidateModelList(); err != nil {
 		return nil, err
 	}
+
+	// Wire the native in-process model as default/fallback when no API key
+	// is configured and the GGUF is present (FR-003).
+	ApplyNativeFallback(cfg)
 
 	// Ensure Workspace has a default if not set
 	if cfg.Agents.Defaults.Workspace == "" {

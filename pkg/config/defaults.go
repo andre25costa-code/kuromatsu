@@ -68,6 +68,17 @@ func DefaultConfig() *Config {
 			// Add your API key to the model you want to use
 			// ============================================
 
+			// Native (in-process, no API key) - runs Bonsai-1.7B-Q1_0.gguf
+			// directly inside the binary via cgo. Requires a build with the
+			// nativellm tag (`make build-native`) and the GGUF on disk; a
+			// no-op otherwise (ApplyNativeFallback, FR-003/BR-002).
+			{
+				ModelName: "bonsai-local",
+				Provider:  "native",
+				Model:     "Bonsai-1.7B-Q1_0",
+				ExtraBody: map[string]any{"n_ctx": 2048, "kv_cache_type": "q8_0"},
+			},
+
 			// Zhipu AI (智谱) - https://open.bigmodel.cn/usercenter/apikeys
 			{
 				ModelName: "glm-4.7",

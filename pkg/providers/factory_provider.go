@@ -16,6 +16,7 @@ import (
 	"github.com/sipeed/picoclaw/pkg/providers/azure"
 	"github.com/sipeed/picoclaw/pkg/providers/bedrock"
 	"github.com/sipeed/picoclaw/pkg/providers/common"
+	"github.com/sipeed/picoclaw/pkg/providers/localllm"
 )
 
 // createClaudeAuthProvider creates a Claude provider using OAuth credentials from auth store.
@@ -333,6 +334,20 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 
 	case "antigravity":
 		return finalizeProviderFromConfig(NewAntigravityProvider(), modelID, cfg)
+
+	case "native":
+		// In-process inference (ADR-001/002): no HTTP, no API key. Returns
+		// localllm.ErrNotBuilt on a pure-Go build (no nativellm cgo engine)
+		// or localllm.ErrModelNotFound when the GGUF is missing.
+		opts, err := nativeOptionsFromModelConfig(cfg, modelID)
+		if err != nil {
+			return nil, "", err
+		}
+		provider, err := localllm.NewProvider(opts)
+		if err != nil {
+			return nil, "", err
+		}
+		return finalizeProviderFromConfig(provider, modelID, cfg)
 
 	case "claude-cli":
 		workspace := cfg.Workspace
