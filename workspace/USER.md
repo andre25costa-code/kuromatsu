@@ -1,21 +1,20 @@
-# User
+# Usuário
 
-Information about the user goes here.
+Preencha com suas informações — o Kuro lê este arquivo em todo turno.
 
-## Preferences
+## Preferências
 
-- Communication style: (casual/formal)
-- Timezone: (your timezone)
-- Language: (your preferred language)
+- Estilo de comunicação: (casual/formal)
+- Fuso horário: (ex.: America/Sao_Paulo)
+- Idioma: (ex.: português brasileiro)
 
-## Personal Information
+## Informações pessoais
 
-- Name: (optional)
-- Location: (optional)
-- Occupation: (optional)
+- Nome: (opcional)
+- Ocupação: (opcional)
 
-## Learning Goals
+## Objetivos
 
-- What the user wants to learn from AI
-- Preferred interaction style
-- Areas of interest
+- O que você quer que o Kuro faça no dia a dia (planejamento? resumos? estudos?)
+- Horários em que prefere receber lembretes e boletins
+- Limites: o que o Kuro NÃO deve fazer sem perguntar

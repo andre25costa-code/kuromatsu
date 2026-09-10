@@ -8,5 +8,8 @@ import "embed"
 // tracked `workspace/` tree, instead of relying on a generated copy inside
 // `cmd/...` that may be absent in clean checkouts and CI lint runs.
 //
-//go:embed workspace
+// The patterns are explicit (not the bare directory) so that untracked or
+// personal files placed under workspace/ can never leak into the binary.
+//
+//go:embed workspace/AGENT.md workspace/SOUL.md workspace/USER.md workspace/HEARTBEAT.md workspace/memory workspace/skills
 var OnboardWorkspace embed.FS

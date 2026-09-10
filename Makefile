@@ -405,6 +405,11 @@ deps:
 	@$(GO) mod download
 	@$(GO) mod verify
 
+## model-download: Download the Bonsai GGUF into ./models with SHA256 verification
+.PHONY: model-download
+model-download:
+	@bash ./scripts/download-model.sh models/Bonsai-1.7B-Q1_0.gguf
+
 ## update-deps: Update dependencies
 update-deps:
 	@$(GO) get -u ./...

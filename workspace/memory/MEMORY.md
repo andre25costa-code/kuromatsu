@@ -1,21 +1,22 @@
-# Long-term Memory
+# Memória de longo prazo
 
-This file stores important information that should persist across sessions.
+Este arquivo guarda informações importantes que devem persistir entre sessões.
+O modo dormir (quando ativado) revisa e poda este arquivo periodicamente.
 
-## User Information
+## Sobre o usuário
 
-(Important facts about user)
+(fatos importantes aprendidos sobre o usuário)
 
-## Preferences
+## Preferências
 
-(User preferences learned over time)
+(preferências aprendidas ao longo do tempo)
 
-## Important Notes
+## Notas importantes
 
-(Things to remember)
+(coisas a lembrar)
 
-## Configuration
+## Configuração
 
-- Model preferences
-- Channel settings
-- Skills enabled
+- Preferências de modelo
+- Configuração de canais
+- Skills habilitadas

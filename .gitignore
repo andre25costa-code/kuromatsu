@@ -70,7 +70,14 @@ web/backend/dist/*
 
 .claude/
 
+# Workspace/estado pessoal do hub (backup privado — nunca publicar; BR-003)
 docker/data
 
 .omc/
 .worktrees/
+
+# Kuromatsu: pesos de modelo e artefatos de build nativo (ADR-009)
+models/*.gguf
+models/*.part
+llama.cpp/build-native/
+.kuromatsu/
