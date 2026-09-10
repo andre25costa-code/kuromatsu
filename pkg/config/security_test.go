@@ -112,23 +112,14 @@ func TestSaveAndLoadSecurityConfig(t *testing.T) {
 			}
 			for _, d := range []def{
 				{"telegram", `{"enabled":true,"settings":{"token":"telegram_token"}}`},
-				{"feishu", `{"enabled":true,"settings":{"app_id":"feishu_app_id","app_secret":"feishu_app_secret"}}`},
-				{"discord", `{"enabled":true,"settings":{"token":"discord_token"}}`},
-				{"qq", `{"enabled":true,"settings":{"app_secret":"qq_app_secret"}}`},
 				{"pico_client", `{"enabled":true,"settings":{"token":"pico_client_token"}}`},
 			} {
 				bc := &Channel{}
 				json.Unmarshal([]byte(d.raw), bc)
 				bc.Type = d.name
 				switch bc.Type {
-				case "qq":
-					bc.Decode(&QQSettings{})
 				case "telegram":
 					bc.Decode(&TelegramSettings{})
-				case "discord":
-					bc.Decode(&DiscordSettings{})
-				case "feishu":
-					bc.Decode(&FeishuSettings{})
 				case "pico_client":
 					bc.Decode(&PicoClientSettings{})
 				}
@@ -182,21 +173,12 @@ func TestSaveAndLoadSecurityConfig(t *testing.T) {
 			return channels[name]["settings"].(map[string]any)
 		}
 		assert.Contains(t, getSetting("telegram")["token"], "telegram_token")
-		assert.Contains(t, getSetting("feishu")["app_secret"], "feishu_app_secret")
-		assert.Contains(t, getSetting("discord")["token"], "discord_token")
-		assert.Contains(t, getSetting("qq")["app_secret"], "qq_app_secret")
 		assert.Contains(t, getSetting("pico_client")["token"], "pico_client_token")
 
 		// Rewrite file with deterministic content for load test (use channel_list)
 		yamlOutput := `channel_list:
   telegram:
     token: telegram_token
-  feishu:
-    app_secret: feishu_app_secret
-  discord:
-    token: discord_token
-  qq:
-    app_secret: qq_app_secret
   pico_client:
     token: pico_client_token
 model_list:
@@ -242,30 +224,30 @@ skills:
 		// If you are using Value types in your config, also check:
 		var _ yaml.Marshaler = SecureString{}
 
-		// Set up a fresh config with a qq channel
+		// Set up a fresh config with a telegram channel
 		envCfg := &Config{
 			Channels: ChannelsConfig{
-				"qq": {
+				"telegram": {
 					Enabled:  true,
-					Type:     "qq",
-					Settings: RawNode(`{"enabled":true,"app_secret":"qq_app_secret"}`),
+					Type:     "telegram",
+					Settings: RawNode(`{"enabled":true,"token":"telegram_token"}`),
 				},
 			},
 			Tools: original.Tools,
 		}
 
-		t.Setenv("PICOCLAW_CHANNELS_QQ_APP_SECRET", "qq_app_secret_env")
+		t.Setenv("PICOCLAW_CHANNELS_TELEGRAM_TOKEN", "telegram_token_env")
 		t.Setenv("PICOCLAW_TOOLS_WEB_BRAVE_API_KEYS", "brave_key_env,abc")
 
 		require.NoError(t, env.Parse(envCfg))
 		// Channel env overrides need explicit handling since ChannelsConfig is map-based
 		require.NoError(t, InitChannelList(envCfg.Channels))
 
-		bc := envCfg.Channels.Get("qq")
+		bc := envCfg.Channels.Get("telegram")
 		decoded, err := bc.GetDecoded()
 		require.NoError(t, err)
-		qqCfg := decoded.(*QQSettings)
-		assert.Equal(t, "qq_app_secret_env", qqCfg.AppSecret.raw)
+		telegramCfg := decoded.(*TelegramSettings)
+		assert.Equal(t, "telegram_token_env", telegramCfg.Token.raw)
 		assert.Equal(t, "brave_key_env", envCfg.Tools.Web.Brave.APIKeys[0].raw)
 		assert.Equal(t, "abc", envCfg.Tools.Web.Brave.APIKeys[1].raw)
 	})

@@ -326,14 +326,13 @@ func TestMigration_Integration_ChannelsConfigMigrated(t *testing.T) {
 			"defaults": {}
 		},
 		"channels": {
-			"discord": {
+			"telegram": {
 				"enabled": true,
-				"token": "discord-token",
+				"token": "telegram-token",
 				"mention_only": true
 			},
-			"onebot": {
+			"pico": {
 				"enabled": true,
-				"ws_url": "ws://127.0.0.1:3001",
 				"group_trigger_prefix": ["/", "!"]
 			}
 		},
@@ -362,22 +361,22 @@ func TestMigration_Integration_ChannelsConfigMigrated(t *testing.T) {
 		t.Fatalf("LoadConfig failed: %v", err)
 	}
 
-	// Discord: mention_only should be migrated to group_trigger.mention_only
-	discordBC := cfg.Channels.Get("discord")
-	if !discordBC.GroupTrigger.MentionOnly {
-		t.Error("Discord.GroupTrigger.MentionOnly should be true after migration")
+	// Telegram: mention_only should be migrated to group_trigger.mention_only
+	telegramBC := cfg.Channels.Get("telegram")
+	if !telegramBC.GroupTrigger.MentionOnly {
+		t.Error("Telegram.GroupTrigger.MentionOnly should be true after migration")
 	}
 
-	// OneBot: group_trigger_prefix should be migrated to group_trigger.prefixes
-	oneBotBC := cfg.Channels.Get("onebot")
-	if len(oneBotBC.GroupTrigger.Prefixes) != 2 {
-		t.Errorf("len(OneBot.GroupTrigger.Prefixes) = %d, want 2", len(oneBotBC.GroupTrigger.Prefixes))
+	// Pico: group_trigger_prefix should be migrated to group_trigger.prefixes
+	picoBC := cfg.Channels.Get("pico")
+	if len(picoBC.GroupTrigger.Prefixes) != 2 {
+		t.Errorf("len(Pico.GroupTrigger.Prefixes) = %d, want 2", len(picoBC.GroupTrigger.Prefixes))
 	} else {
-		if oneBotBC.GroupTrigger.Prefixes[0] != "/" {
-			t.Errorf("Prefixes[0] = %q, want %q", oneBotBC.GroupTrigger.Prefixes[0], "/")
+		if picoBC.GroupTrigger.Prefixes[0] != "/" {
+			t.Errorf("Prefixes[0] = %q, want %q", picoBC.GroupTrigger.Prefixes[0], "/")
 		}
-		if oneBotBC.GroupTrigger.Prefixes[1] != "!" {
-			t.Errorf("Prefixes[1] = %q, want %q", oneBotBC.GroupTrigger.Prefixes[1], "!")
+		if picoBC.GroupTrigger.Prefixes[1] != "!" {
+			t.Errorf("Prefixes[1] = %q, want %q", picoBC.GroupTrigger.Prefixes[1], "!")
 		}
 	}
 }
@@ -629,8 +628,8 @@ func TestMigration_PreservesExistingSecurityConfig(t *testing.T) {
 channels:
   telegram:
     token: existing-telegram-token-from-env
-  discord:
-    token: existing-discord-token-from-env
+  pico:
+    token: existing-pico-token-from-env
 web:
   brave:
     api_keys:
@@ -669,16 +668,16 @@ web:
 			tgCfg1.Token.String(), "existing-telegram-token-from-env")
 	}
 
-	// Discord token should be preserved (even though legacy config didn't have it)
-	var dcCfg1 *DiscordSettings
-	if bc := cfg.Channels.Get("discord"); bc != nil {
+	// Pico token should be preserved (even though legacy config didn't have it)
+	var picoCfg1 *PicoSettings
+	if bc := cfg.Channels.Get("pico"); bc != nil {
 		if decoded, e := bc.GetDecoded(); e == nil && decoded != nil {
-			dcCfg1 = decoded.(*DiscordSettings)
+			picoCfg1 = decoded.(*PicoSettings)
 		}
 	}
-	if dcCfg1.Token.String() != "existing-discord-token-from-env" {
-		t.Errorf("Discord token was overwritten: got %q, want %q",
-			dcCfg1.Token.String(), "existing-discord-token-from-env")
+	if picoCfg1.Token.String() != "existing-pico-token-from-env" {
+		t.Errorf("Pico token was overwritten: got %q, want %q",
+			picoCfg1.Token.String(), "existing-pico-token-from-env")
 	}
 
 	// Model API key should be preserved
@@ -713,14 +712,14 @@ web:
 		t.Error("Telegram token not preserved in .security.yml file")
 	}
 
-	var dcCfgSec *DiscordSettings
-	if bc := reloadedSec.Channels.Get("discord"); bc != nil {
+	var picoCfgSec *PicoSettings
+	if bc := reloadedSec.Channels.Get("pico"); bc != nil {
 		if decoded, err := bc.GetDecoded(); err == nil && decoded != nil {
-			dcCfgSec = decoded.(*DiscordSettings)
+			picoCfgSec = decoded.(*PicoSettings)
 		}
 	}
-	if dcCfgSec.Token.String() != "existing-discord-token-from-env" {
-		t.Error("Discord token not preserved in .security.yml file")
+	if picoCfgSec.Token.String() != "existing-pico-token-from-env" {
+		t.Error("Pico token not preserved in .security.yml file")
 	}
 }
 
@@ -918,7 +917,7 @@ func TestLoadConfig_V1ToV2Migration(t *testing.T) {
 			}
 		],
 		"channels": {
-			"discord": {
+			"telegram": {
 				"mention_only": true
 			}
 		},
@@ -957,10 +956,10 @@ func TestLoadConfig_V1ToV2Migration(t *testing.T) {
 		t.Error("local-model should be enabled after migration")
 	}
 
-	// Discord channel config should be migrated
-	dcMigBC := cfg.Channels.Get("discord")
-	if !dcMigBC.GroupTrigger.MentionOnly {
-		t.Error("Discord mention_only should be migrated to group_trigger.mention_only")
+	// Telegram channel config should be migrated
+	tgMigBC := cfg.Channels.Get("telegram")
+	if !tgMigBC.GroupTrigger.MentionOnly {
+		t.Error("Telegram mention_only should be migrated to group_trigger.mention_only")
 	}
 
 	// Verify backup was created with date suffix

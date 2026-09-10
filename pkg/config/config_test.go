@@ -1019,38 +1019,6 @@ func TestDefaultConfig_ChannelStreamingDisabled(t *testing.T) {
 	}
 }
 
-func TestDefaultConfig_DeltaChatExample(t *testing.T) {
-	cfg := DefaultConfig()
-
-	deltachat := cfg.Channels.Get(ChannelDeltaChat)
-	if deltachat == nil {
-		t.Fatal("DefaultConfig() missing deltachat channel")
-	}
-	if deltachat.Enabled {
-		t.Fatal("DefaultConfig().deltachat should be disabled")
-	}
-	if !deltachat.GroupTrigger.MentionOnly {
-		t.Fatal("DefaultConfig().deltachat should use mention-only group trigger")
-	}
-	decoded, err := deltachat.GetDecoded()
-	if err != nil {
-		t.Fatalf("deltachat GetDecoded() error = %v", err)
-	}
-	settings, ok := decoded.(*DeltaChatSettings)
-	if !ok {
-		t.Fatalf("deltachat settings type = %T, want *DeltaChatSettings", decoded)
-	}
-	if settings.Email != "@nine.testrun.org" {
-		t.Fatalf("DefaultConfig().deltachat.settings.email = %q, want @nine.testrun.org", settings.Email)
-	}
-	if settings.Password.String() != "" {
-		t.Fatal("DefaultConfig().deltachat.settings.password should be empty")
-	}
-	if settings.DisplayName == "" {
-		t.Fatal("DefaultConfig().deltachat.settings.display_name should be populated")
-	}
-}
-
 func TestValidateSingletonChannels_RejectsMultipleInstances(t *testing.T) {
 	channels := ChannelsConfig{
 		"pico1": &Channel{Enabled: true, Type: ChannelPico},
@@ -3010,21 +2978,6 @@ func TestFilterSensitiveData_AllTokenTypes(t *testing.T) {
 			want:    "Telegram token: [FILTERED]",
 		},
 		{
-			name:    "discord_token",
-			content: "Discord token: discord-bot-token-xyz789",
-			want:    "Discord token: [FILTERED]",
-		},
-		{
-			name:    "slack_tokens",
-			content: "Slack bot: xoxb-slack-bot-token, app: xapp-slack-app-token",
-			want:    "Slack bot: [FILTERED], app: [FILTERED]",
-		},
-		{
-			name:    "matrix_token",
-			content: "Matrix access token: matrix-access-token-abc",
-			want:    "Matrix access token: [FILTERED]",
-		},
-		{
 			name:    "brave_api_key",
 			content: "Brave key: brave-api-key",
 			want:    "Brave key: [FILTERED]",
@@ -3038,11 +2991,6 @@ func TestFilterSensitiveData_AllTokenTypes(t *testing.T) {
 			name:    "github_token",
 			content: "GitHub token: github-token-xyz",
 			want:    "GitHub token: [FILTERED]",
-		},
-		{
-			name:    "irc_passwords",
-			content: "IRC password: irc-password, nickserv: nickserv-pass",
-			want:    "IRC password: [FILTERED], nickserv: [FILTERED]",
 		},
 		{
 			name:    "mixed_content",
@@ -3233,34 +3181,7 @@ func testChannelsConfigWithTokens() ChannelsConfig {
 	}
 	defs := []chDef{
 		{"telegram", TelegramSettings{Token: *NewSecureString("telegram-bot-token-abcdef")}},
-		{"discord", DiscordSettings{Token: *NewSecureString("discord-bot-token-xyz789")}},
-		{
-			"slack",
-			SlackSettings{
-				BotToken: *NewSecureString("xoxb-slack-bot-token"),
-				AppToken: *NewSecureString("xapp-slack-app-token"),
-			},
-		},
-		{"matrix", MatrixSettings{AccessToken: *NewSecureString("matrix-access-token-abc")}},
-		{
-			"feishu",
-			FeishuSettings{
-				AppSecret:  *NewSecureString("feishu-app-secret-123"),
-				EncryptKey: *NewSecureString("feishu-encrypt-key"),
-			},
-		},
-		{"dingtalk", DingTalkSettings{ClientSecret: *NewSecureString("dingtalk-client-secret")}},
-		{"onebot", OneBotSettings{AccessToken: *NewSecureString("onebot-access-token")}},
-		{"wecom", WeComSettings{Secret: *NewSecureString("wecom-secret")}},
 		{"pico", PicoSettings{Token: *NewSecureString("pico-token-abc123")}},
-		{
-			"irc",
-			IRCSettings{
-				Password:         *NewSecureString("irc-password"),
-				NickServPassword: *NewSecureString("nickserv-pass"),
-				SASLPassword:     *NewSecureString("sasl-pass"),
-			},
-		},
 	}
 	for _, def := range defs {
 		// Create Channel directly with settings to preserve SecureString values

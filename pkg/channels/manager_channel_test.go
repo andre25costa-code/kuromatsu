@@ -17,18 +17,18 @@ func TestToChannelHashes(t *testing.T) {
 	assert.Equal(t, 0, len(results))
 	logger.Debugf("results: %v", results)
 
-	// Add dingtalk channel via map
+	// Add whatsapp channel via map
 	cfg2 := config.DefaultConfig()
-	cfg2.Channels["dingtalk"] = &config.Channel{
+	cfg2.Channels["whatsapp"] = &config.Channel{
 		Enabled:  true,
-		Type:     config.ChannelDingTalk,
+		Type:     config.ChannelWhatsApp,
 		Settings: config.RawNode(`{"enabled":true}`),
 	}
 	results2 := toChannelHashes(cfg2)
 	assert.Equal(t, 1, len(results2))
 	logger.Debugf("results2: %v", results2)
 	added, removed := compareChannels(results, results2)
-	assert.EqualValues(t, []string{"dingtalk"}, added)
+	assert.EqualValues(t, []string{"whatsapp"}, added)
 	assert.EqualValues(t, []string(nil), removed)
 
 	// Add telegram channel
@@ -42,7 +42,7 @@ func TestToChannelHashes(t *testing.T) {
 	assert.Equal(t, 1, len(results3))
 	logger.Debugf("results3: %v", results3)
 	added, removed = compareChannels(results2, results3)
-	assert.EqualValues(t, []string{"dingtalk"}, removed)
+	assert.EqualValues(t, []string{"whatsapp"}, removed)
 	assert.EqualValues(t, []string{"telegram"}, added)
 
 	// Modify telegram channel — hash should change
@@ -68,7 +68,7 @@ func TestToChannelHashes(t *testing.T) {
 	assert.Equal(t, "114314", tc.Token.String())
 	assert.Equal(t, true, bc.Enabled)
 
-	// toChannelConfig with dingtalk (no telegram)
+	// toChannelConfig with whatsapp (no telegram)
 	cc, err = toChannelConfig(cfg2, added)
 	assert.NoError(t, err)
 	bc = cc.Get("telegram")
@@ -179,29 +179,4 @@ func TestToChannelHashes_EnabledNotBool(t *testing.T) {
 	})
 	h := toChannelHashes(cfg)
 	assert.Equal(t, 0, len(h), "string enabled not treated as true")
-}
-
-func TestToChannelHashes_TeamsWebhookWithWebhooks(t *testing.T) {
-	cfg := config.DefaultConfig()
-	// teams_webhook with configured webhooks — this is the real-world
-	// scenario where the map type from JSON unmarshal (map[string]any)
-	// would cause a panic on the old unchecked vv.(map[string]string)
-	settings, _ := json.Marshal(map[string]any{
-		"enabled": true,
-		"webhooks": map[string]any{
-			"hook1": "https://example.com/webhook",
-		},
-	})
-	cfg.Channels["teams_webhook"] = &config.Channel{
-		Enabled:  true,
-		Type:     config.ChannelTeamsWebHook,
-		Settings: config.RawNode(settings),
-	}
-
-	assert.NotPanics(t, func() {
-		_ = toChannelHashes(cfg)
-	})
-	h := toChannelHashes(cfg)
-	assert.Equal(t, 1, len(h))
-	assert.Contains(t, h, "teams_webhook")
 }

@@ -296,8 +296,8 @@ func TestConfiguredStreamingEligibilityGates(t *testing.T) {
 			wantStreamCalls:   1,
 		},
 		{
-			name:              "wecom channel and model enabled streams",
-			channel:           "wecom",
+			name:              "telegram channel and model enabled streams",
+			channel:           "telegram",
 			channelStreaming:  true,
 			modelStreaming:    true,
 			streamingProvider: true,
@@ -1075,8 +1075,8 @@ func newConfiguredStreamingTestConfig(
 			},
 		},
 		Channels: config.ChannelsConfig{
-			"pico":  newConfiguredStreamingPicoChannel(t, channelStreaming),
-			"wecom": newConfiguredStreamingWeComChannel(t, channelStreaming),
+			"pico":     newConfiguredStreamingPicoChannel(t, channelStreaming),
+			"telegram": newConfiguredStreamingTelegramChannel(t, channelStreaming),
 		},
 		ModelList: []*config.ModelConfig{{
 			ModelName: "test-model",
@@ -1099,10 +1099,10 @@ func newConfiguredStreamingTestConfig(
 	return cfg
 }
 
-func newConfiguredStreamingWeComChannel(t *testing.T, enabled bool) *config.Channel {
+func newConfiguredStreamingTelegramChannel(t *testing.T, enabled bool) *config.Channel {
 	t.Helper()
-	settings := config.WeComSettings{
-		BotID: "bot-1",
+	settings := config.TelegramSettings{
+		Token: *config.NewSecureString("test-token"),
 		Streaming: config.StreamingConfig{
 			Enabled:         enabled,
 			ThrottleSeconds: 1,
@@ -1114,7 +1114,7 @@ func newConfiguredStreamingWeComChannel(t *testing.T, enabled bool) *config.Chan
 		t.Fatalf("Marshal settings error = %v", err)
 	}
 	return &config.Channel{
-		Type:     config.ChannelWeCom,
+		Type:     config.ChannelTelegram,
 		Enabled:  true,
 		Settings: config.RawNode(raw),
 	}
