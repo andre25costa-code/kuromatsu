@@ -25,7 +25,14 @@ depends_on: []
 
 | Métrica | Antes | Depois | Registrado em |
 |---|---|---|---|
-| Tamanho do binário (linux/arm64, padrão) | — | — | E2 (aceite AC-007-2) |
-| Pacotes Go no módulo | — | — | E2 |
+| Tamanho do binário (linux/arm64, padrão) | 50 034 076 bytes (≈ 47,7 MiB) — commit `d17b2150` | 38 999 406 bytes (≈ 37,2 MiB) — commit `cb895bec` | E2 (aceite AC-007-2) |
+| Pacotes Go no módulo | 110 (`go list ./...`) — commit `d17b2150` | 86 (`go list ./...`) — commit `cb895bec` | E2 |
 | tok/s geração na Oracle | — | — | E7 → S39 |
 | RSS pico / idle na Oracle | — | — | E7 → S39 |
+
+Ambas as medições foram feitas com `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags goolm,stdjson`,
+em git worktrees isolados presos a cada commit (evitando contaminação por trabalho em paralelo
+não commitado no branch principal). "Antes" = `d17b2150` (fim do E1, ainda com `web/`, os 22 canais e
+`pkg/tools/hardware`). "Depois" = `cb895bec` (fim do E2, após os 4 commits de poda: remoção do
+launcher web, dos 17 canais não usados, dos tools de hardware, e de `docs/`/`examples/`). Redução de
+≈ 22% no tamanho do binário e 24 pacotes (≈ 22%) a menos no módulo.
