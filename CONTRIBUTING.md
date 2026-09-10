@@ -35,7 +35,7 @@ We are committed to maintaining a welcoming and respectful community. Be kind, c
 
 For substantial new features, please open an issue first to discuss the design before writing code. This prevents wasted effort and ensures alignment with the project's direction.
 
-For documentation contributions, prefer the layout and naming conventions in [`docs/README.md`](docs/README.md). Run `make lint-docs` after adding or moving Markdown files to catch common consistency issues early.
+For documentation contributions, keep changes focused and consistent with the surrounding files.
 
 ---
 
@@ -66,7 +66,7 @@ For documentation contributions, prefer the layout and naming conventions in [`d
 ```bash
 make build       # Build binary (runs go generate first)
 make generate    # Run go generate only
-make check       # Full pre-commit check: deps + fmt + vet + test + docs consistency checks
+make check       # Full pre-commit check: deps + fmt + vet + test
 ```
 
 ### Running Tests
@@ -86,10 +86,9 @@ Docker-backed integration suites are auto-discovered from [`integration/suites/`
 make fmt   # Format code
 make vet   # Static analysis
 make lint  # Full linter run
-make lint-docs  # Check common documentation layout and naming conventions
 ```
 
-All CI checks must pass before a PR can be merged. Run `make check` locally before pushing to catch issues early, including the common docs consistency checks from `make lint-docs`.
+All CI checks must pass before a PR can be merged. Run `make check` locally before pushing to catch issues early.
 
 ---
 

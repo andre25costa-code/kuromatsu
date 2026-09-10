@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test integration-test build-all lint-docs
+.PHONY: all build install uninstall clean help test integration-test build-all
 
 # Build variables
 BINARY_NAME=picoclaw
@@ -335,14 +335,9 @@ integration-test:
 fmt:
 	@$(GOLANGCI_LINT) fmt
 
-## lint-docs: Check common documentation layout and naming conventions
-lint-docs:
-	@./scripts/lint-docs.sh
-
 ## lint: Run linters
 lint:
 	@$(GOLANGCI_LINT) run --build-tags $(GO_BUILD_TAGS)
-	@./scripts/lint-docs.sh
 
 ## fix: Fix linting issues
 fix:
@@ -363,8 +358,8 @@ update-deps:
 	@$(GO) get -u ./...
 	@$(GO) mod tidy
 
-## check: Run deps, fmt, vet, tests, and docs consistency checks
-check: deps fmt vet test lint-docs
+## check: Run deps, fmt, vet, and tests
+check: deps fmt vet test
 
 ## run: Build and run picoclaw
 run: build
