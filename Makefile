@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test integration-test build-all llama-lib llama-lib-arm64 llama-lib-x86-64 build-native build-native-arm64 build-native-x86-64 run-native bench-native docker-build-native docker-save-native
+.PHONY: all build install uninstall clean help test integration-test build-all llama-lib llama-lib-arm64 llama-lib-x86-64 build-native build-native-arm64 build-native-x86-64 nativebench-x86-64 run-native bench-native docker-build-native docker-save-native
 
 # Build variables
 BINARY_NAME=kuromatsu
@@ -356,6 +356,16 @@ build-native: generate llama-lib
 build-native-x86-64: generate llama-lib-x86-64
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
 		-o $(BUILD_DIR)/$(BINARY_NAME)-native-linux-amd64 ./$(CMD_DIR)
+
+## nativebench-x86-64: Build the tok/s + RSS benchmark binary (cmd/nativebench)
+## against whichever pinned libs are already at llama.cpp/build-native/lib --
+## deliberately does NOT depend on llama-lib-x86-64 so it doesn't reconfigure
+## the C++ build a second time when run right after build-native-x86-64 in
+## the same Dockerfile stage. No model download, no execution -- just the
+## binary, shipped in the image so S39 can be (re)measured on the real box.
+nativebench-x86-64: generate
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
+		-o $(BUILD_DIR)/nativebench-linux-amd64 ./cmd/nativebench
 
 ## build-native-arm64: SECONDARY/future target, see llama-lib-arm64 above.
 ## True cross-compile of the full binary for linux/arm64, running natively on
