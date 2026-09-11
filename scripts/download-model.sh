@@ -7,9 +7,9 @@ set -euo pipefail
 DEST="${1:-models/Bonsai-1.7B-Q1_0.gguf}"
 SHA256_EXPECTED="3d7c6c90dd98717a203adb22d5eacd2581850e40aa5327e144b97766cae5f7e3"
 
-# TBD (spec S25): confirmar a fonte oficial de download do GGUF
-# (coleção HF prism-ml/bonsai ou release do Bonsai-demo).
-BONSAI_MODEL_URL="${BONSAI_MODEL_URL:-https://huggingface.co/prism-ml/Bonsai-1.7B/resolve/main/Bonsai-1.7B-Q1_0.gguf}"
+# Fonte oficial confirmada (S25): coleção HF prism-ml/Bonsai-1.7B-gguf.
+# X-Linked-ETag do HEAD bate exatamente com SHA256_EXPECTED acima.
+BONSAI_MODEL_URL="${BONSAI_MODEL_URL:-https://huggingface.co/prism-ml/Bonsai-1.7B-gguf/resolve/main/Bonsai-1.7B-Q1_0.gguf}"
 
 checksum() { sha256sum "$1" | awk '{print $1}'; }
 

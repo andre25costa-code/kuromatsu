@@ -66,10 +66,8 @@ items:
     status: n/a
     note: Sem event bus novo; o protocolo do canal pico permanece como está.
   S25:
-    status: tbd
-    note: Falta definir a fonte oficial de download do GGUF (coleção HF prism-ml/bonsai? release do Bonsai-demo?) para o script do E1 — decisão do André. Demais integrações (Telegram/WhatsApp/provedores LLM) são herdadas sem mudança.
-    owner: André
-    blocks: [S11]
+    status: confirmed
+    note: Fonte oficial confirmada pelo André -- huggingface.co/prism-ml/Bonsai-1.7B-gguf. Verificado via HEAD (X-Linked-Size/X-Linked-ETag batem com SHA256_EXPECTED já registrado em scripts/download-model.sh) sem precisar rebaixar os 237MB. Demais integrações (Telegram/WhatsApp/provedores LLM) são herdadas sem mudança.
   S26:
     status: n/a
     note: Sem UI — o web launcher será removido por decisão do usuário (ADR-007); interação por chat e CLI.
