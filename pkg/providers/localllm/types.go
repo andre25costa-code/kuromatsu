@@ -13,8 +13,13 @@ type Options struct {
 	// ModelPath is the resolved absolute path to the GGUF file.
 	ModelPath string
 
-	NCtx          int
-	NThreads      int
+	NCtx     int
+	NThreads int
+	// NBatch is the physical compute chunk size (llama.cpp's n_ubatch,
+	// which bounds the compute-buffer memory reservation -- see S18/S29).
+	// The engine always tells llama.cpp to accept a full n_ctx worth of
+	// tokens per logical llama_decode call (n_batch=n_ctx), since prompts
+	// are submitted as a single batch with no manual chunking loop.
 	NBatch        int
 	KVCacheType   string // "q8_0" (default) | "f16"
 	KeepAliveSecs int    // 0 = never unload

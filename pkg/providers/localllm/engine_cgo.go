@@ -18,6 +18,8 @@ import (
 	"sync"
 	"time"
 	"unsafe"
+
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
 // built is true only on a binary compiled with -tags nativellm and
@@ -83,7 +85,19 @@ func (e *cgoEngine) ensureLoaded(opts Options) error {
 
 	cparams := C.llama_context_default_params()
 	cparams.n_ctx = C.uint32_t(opts.NCtx)
-	cparams.n_batch = C.uint32_t(opts.NBatch)
+	// n_batch is the *logical* cap llama_decode enforces per call
+	// (GGML_ASSERT(n_tokens_all <= cparams.n_batch)) -- it must cover the
+	// whole prompt in one shot, since completion() submits it as a single
+	// llama_batch_get_one (no manual chunking loop). Bounding it to NBatch
+	// (256 by default) instead of n_ctx crashed the process with SIGABRT on
+	// any prompt over ~256 tokens -- trivially true once the real agent
+	// system prompt + tool schemas are included, not just bare test
+	// prompts. n_ubatch is the *physical* compute chunk size and is what
+	// actually drives the compute-buffer memory reservation (S18/S29); it
+	// stays at opts.NBatch so this fix does not change the measured RAM
+	// budget, only what llama_decode will accept without asserting.
+	cparams.n_batch = C.uint32_t(opts.NCtx)
+	cparams.n_ubatch = C.uint32_t(opts.NBatch)
 	cparams.n_threads = C.int32_t(opts.NThreads)
 	cparams.n_threads_batch = C.int32_t(opts.NThreads)
 	if opts.KVCacheType == "f16" {
@@ -161,6 +175,11 @@ func (e *cgoEngine) completion(ctx context.Context, prompt string, opts Options)
 
 	nPromptTokens := int(-C.llama_tokenize(e.vocab, cPrompt, promptLen, nil, 0, true, true))
 	if nPromptTokens+contextMargin > opts.NCtx {
+		logger.WarnCF("localllm", "prompt exceeds context window", map[string]any{
+			"prompt_tokens": nPromptTokens,
+			"n_ctx":         opts.NCtx,
+			"margin":        contextMargin,
+		})
 		return CompletionResult{}, ErrContextOverflow
 	}
 
@@ -195,6 +214,11 @@ func (e *cgoEngine) completion(ctx context.Context, prompt string, opts Options)
 
 		nCtxUsed := int(C.llama_memory_seq_pos_max(C.llama_get_memory(e.lctx), 0)) + 1
 		if nCtxUsed+int(batch.n_tokens) > opts.NCtx {
+			logger.WarnCF("localllm", "context window filled mid-generation", map[string]any{
+				"n_ctx_used":           nCtxUsed,
+				"n_ctx":                opts.NCtx,
+				"output_tokens_so_far": outputTokens,
+			})
 			return CompletionResult{}, ErrContextOverflow
 		}
 
