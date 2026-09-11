@@ -8,7 +8,7 @@ import (
 
 // FormatCLIError formats errors with the same boxed sections as help. When ctx
 // is the command that was running when the error occurred, Usage / Flags panels
-// are appended so styling matches picoclaw -h.
+// are appended so styling matches kuromatsu -h.
 func FormatCLIError(msg string, ctx *cobra.Command) string {
 	msg = strings.TrimRight(msg, "\n")
 	if !UseFancyStderr() {
@@ -51,7 +51,7 @@ func FormatCLIError(msg string, ctx *cobra.Command) string {
 				Render("Full command help: "+ctx.CommandPath()+" --help")
 		} else {
 			foot = "\n\n" + mutedStyle().Width(contentW).
-				Render("Tip: picoclaw --help   ·   picoclaw <command> --help")
+				Render("Tip: kuromatsu --help   ·   kuromatsu <command> --help")
 		}
 	}
 

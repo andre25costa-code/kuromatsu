@@ -175,7 +175,7 @@ func (c EvolutionConfig) AutoAppliesDrafts() bool {
 	return c.EffectiveMode() == "apply"
 }
 
-// IsolationConfig controls subprocess isolation for commands started by PicoClaw.
+// IsolationConfig controls subprocess isolation for commands started by Kuromatsu.
 // It is applied by the isolation package rather than by sandboxing the main process.
 type IsolationConfig struct {
 	Enabled     bool         `json:"enabled,omitempty"`

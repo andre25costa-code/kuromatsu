@@ -197,7 +197,7 @@ func TestAgentLoop_MountProcessHook_IsolationSupportsRelativeDirAndCommand(t *te
 	defer cleanup()
 
 	root := t.TempDir()
-	t.Setenv(config.EnvHome, filepath.Join(root, "picoclaw-home"))
+	t.Setenv(config.EnvHome, filepath.Join(root, "kuromatsu-home"))
 	binDir := filepath.Join(root, "bin")
 	hookDir := filepath.Join(root, "hooks")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {

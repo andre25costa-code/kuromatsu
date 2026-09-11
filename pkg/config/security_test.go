@@ -38,8 +38,8 @@ func TestSecurityPath(t *testing.T) {
 	}{
 		{
 			name:      "standard path",
-			configDir: "/home/user/.picoclaw/config.json",
-			want:      "/home/user/.picoclaw/.security.yml",
+			configDir: "/home/user/.kuromatsu/config.json",
+			want:      "/home/user/.kuromatsu/.security.yml",
 		},
 		{
 			name:      "nested path",

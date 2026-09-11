@@ -11,7 +11,7 @@ import (
 
 const Logo = pkg.Logo
 
-// GetPicoclawHome returns the picoclaw home directory.
+// GetPicoclawHome returns the kuromatsu home directory.
 // Priority: $KUROMATSU_HOME > ~/.kuromatsu
 func GetPicoclawHome() string {
 	return config.GetHome()

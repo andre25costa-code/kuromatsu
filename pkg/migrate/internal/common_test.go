@@ -37,12 +37,12 @@ func TestExpandHomeWithTilde(t *testing.T) {
 }
 
 func TestResolveWorkspace(t *testing.T) {
-	result := ResolveWorkspace("/home/user/.picoclaw")
-	assert.Equal(t, "/home/user/.picoclaw/workspace", result)
+	result := ResolveWorkspace("/home/user/.kuromatsu")
+	assert.Equal(t, "/home/user/.kuromatsu/workspace", result)
 }
 
 func TestRelPath(t *testing.T) {
-	result := RelPath("/home/user/.picoclaw/workspace/file.txt", "/home/user/.picoclaw")
+	result := RelPath("/home/user/.kuromatsu/workspace/file.txt", "/home/user/.kuromatsu")
 	assert.Equal(t, "workspace/file.txt", result)
 }
 
@@ -53,14 +53,14 @@ func TestRelPathError(t *testing.T) {
 
 func TestResolveTargetHome(t *testing.T) {
 	// Isolate $HOME: ResolveTargetHome delegates to config.GetHome(), which
-	// reads an existing ~/.picoclaw in place (ADR-005) -- asserting against
+	// reads an existing ~/.kuromatsu in place (ADR-005) -- asserting against
 	// the real, uncontrolled home directory would be flaky depending on
 	// whatever happens to be on the machine running the test.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	os.Unsetenv("KUROMATSU_HOME")
-	os.Unsetenv("PICOCLAW_HOME")
+	os.Unsetenv("KUROMATSU_HOME")
 
 	result, err := ResolveTargetHome("")
 	require.NoError(t, err)

@@ -192,7 +192,7 @@ func sectionPanel(title, body string, width int) string {
 	return borderStyle().Width(width).Render(head + body)
 }
 
-// styleUsageTokens highlights PicoClaw-blue command tokens and red <placeholders>/[groups].
+// styleUsageTokens highlights Kuromatsu-blue command tokens and red <placeholders>/[groups].
 func styleUsageTokens(s string) string {
 	var b strings.Builder
 	for len(s) > 0 {

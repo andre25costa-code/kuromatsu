@@ -27,8 +27,8 @@ func newResetCommand() *cobra.Command {
 		Use:   "reset",
 		Short: "Reset configuration to factory defaults",
 		Args:  cobra.NoArgs,
-		Example: `  picoclaw config reset
-  picoclaw config reset --force`,
+		Example: `  kuromatsu config reset
+  kuromatsu config reset --force`,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if !force {
 				fmt.Print("Reset config to factory defaults? API keys will be preserved. (y/n): ")

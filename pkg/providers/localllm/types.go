@@ -1,5 +1,5 @@
 // Package localllm implements an in-process, cgo-backed LLM provider that
-// runs a local GGUF model (Bonsai-1.7B-Q1_0) directly inside the picoclaw
+// runs a local GGUF model (Bonsai-1.7B-Q1_0) directly inside the kuromatsu
 // binary, without a server or network hop. See software-spec/03-system-design/18-ai-component.md
 // and ADR-001/002/003/004 for the rationale.
 package localllm

@@ -42,13 +42,13 @@ func PrintVersion(logo, versionLine string, build, goVer string) {
 			body.WriteString(lipgloss.JoinHorizontal(lipgloss.Top, r[0], "  ", r[1]))
 			body.WriteString("\n")
 		}
-		header := titleBarStyle().Render(logo+" picoclaw") + "\n\n"
+		header := titleBarStyle().Render(logo+" kuromatsu") + "\n\n"
 		fmt.Println(box.Render(header + body.String()))
 		return
 	}
 
 	var lines []string
-	lines = append(lines, titleBarStyle().Render(logo+" picoclaw"))
+	lines = append(lines, titleBarStyle().Render(logo+" kuromatsu"))
 	lines = append(lines, "")
 	lines = append(lines, kvKeyStyle().Render("Version")+"  "+kvValStyle().Render(versionLine))
 	if build != "" {

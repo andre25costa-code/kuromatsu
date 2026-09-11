@@ -40,7 +40,7 @@ func main() {
 
 	rootCmd := &cobra.Command{
 		Use:   "membench",
-		Short: "Memory benchmark tool for picoclaw",
+		Short: "Memory benchmark tool for kuromatsu",
 	}
 
 	ingestCmd := &cobra.Command{

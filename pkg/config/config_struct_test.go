@@ -120,7 +120,7 @@ func TestLoadSecurityValue(t *testing.T) {
 	assert.Equal(t, "token1", v5.Tools.Pico.Token.raw)
 
 	dir := t.TempDir()
-	sshKeyPath := filepath.Join(dir, "picoclaw_ed25519.key")
+	sshKeyPath := filepath.Join(dir, "kuromatsu_ed25519.key")
 	if err = os.WriteFile(sshKeyPath, []byte("fake-ssh-key-material\n"), 0o600); err != nil {
 		t.Fatalf("setup: %v", err)
 	}

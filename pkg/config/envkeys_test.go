@@ -17,13 +17,13 @@ func TestGetHome_ExplicitEnvVarWins(t *testing.T) {
 
 func TestGetHome_ReadsPicoclawHomeInPlace_WhenKuromatsuHomeMissing(t *testing.T) {
 	os.Unsetenv(EnvHome)
-	os.Unsetenv("PICOCLAW_HOME")
+	os.Unsetenv("KUROMATSU_HOME")
 
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome) // os.UserHomeDir() on Windows
 
-	oldHome := filepath.Join(userHome, ".picoclaw")
+	oldHome := filepath.Join(userHome, ".kuromatsu")
 	if err := os.MkdirAll(oldHome, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -36,14 +36,14 @@ func TestGetHome_ReadsPicoclawHomeInPlace_WhenKuromatsuHomeMissing(t *testing.T)
 
 func TestGetHome_PrefersKuromatsuHome_WhenBothDirsExist(t *testing.T) {
 	os.Unsetenv(EnvHome)
-	os.Unsetenv("PICOCLAW_HOME")
+	os.Unsetenv("KUROMATSU_HOME")
 
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)
 	t.Setenv("USERPROFILE", userHome)
 
 	newHome := filepath.Join(userHome, ".kuromatsu")
-	oldHome := filepath.Join(userHome, ".picoclaw")
+	oldHome := filepath.Join(userHome, ".kuromatsu")
 	if err := os.MkdirAll(newHome, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestGetHome_PrefersKuromatsuHome_WhenBothDirsExist(t *testing.T) {
 
 func TestGetHome_DefaultsToKuromatsuHome_WhenNeitherDirExists(t *testing.T) {
 	os.Unsetenv(EnvHome)
-	os.Unsetenv("PICOCLAW_HOME")
+	os.Unsetenv("KUROMATSU_HOME")
 
 	userHome := t.TempDir()
 	t.Setenv("HOME", userHome)

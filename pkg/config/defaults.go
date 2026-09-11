@@ -12,7 +12,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg"
 )
 
-// DefaultConfig returns the default configuration for PicoClaw.
+// DefaultConfig returns the default configuration for Kuromatsu.
 func DefaultConfig() *Config {
 	workspacePath := filepath.Join(GetHome(), pkg.WorkspaceName)
 

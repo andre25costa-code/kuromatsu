@@ -11,7 +11,7 @@ import (
 )
 
 // OpenclawHomeEnvVar is the environment variable that overrides the source
-// openclaw home directory when migrating from openclaw to picoclaw.
+// openclaw home directory when migrating from openclaw to kuromatsu.
 // Default: ~/.openclaw
 const OpenclawHomeEnvVar = "OPENCLAW_HOME"
 
@@ -96,7 +96,7 @@ func (o *OpenclawHandler) ExecuteConfigMigration(srcConfigPath, dstConfigPath st
 		return err
 	}
 
-	picoCfg, warnings, err := openclawCfg.ConvertToPicoClaw(o.opts.SourceHome)
+	picoCfg, warnings, err := openclawCfg.ConvertToKuromatsu(o.opts.SourceHome)
 	if err != nil {
 		return err
 	}

@@ -131,7 +131,7 @@ func kvValStyle() lipgloss.Style {
 	return lipgloss.NewStyle()
 }
 
-// helpIntroStyle is the top tagline (PicoClaw blue, matches ASCII banner left side).
+// helpIntroStyle is the top tagline.
 func helpIntroStyle() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(accentBlue).Bold(true)
 }

@@ -87,7 +87,7 @@ Note: Sensitive fields are omitted because they're loaded from .security.yml
 	  "version": 1,
 	  "agents": {
 	    "defaults": {
-	      "workspace": "~/picoclaw-workspace",
+	      "workspace": "~/kuromatsu-workspace",
 	      "model_name": "gpt-5.4"
 	    }
 	  },
@@ -155,7 +155,7 @@ chmod 600 ~/.kuromatsu/.security.yml
 ## 5. Verify it works
 
 ```bash
-picoclaw --version
+kuromatsu --version
 ```
 
 # Supported Fields in .security.yml
@@ -361,7 +361,7 @@ chmod 600 ~/.kuromatsu/.security.yml
 
 ## Step 6: Test
 ```bash
-picoclaw --version
+kuromatsu --version
 ```
 
 If everything works, you can delete the backup:

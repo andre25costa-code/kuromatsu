@@ -36,7 +36,7 @@ import (
 var rootNoColor bool
 
 // initTermuxSSL detects Termux environment and sets SSL_CERT_FILE if not already set.
-// This fixes X509 certificate errors when running PicoClaw inside Termux or termux-chroot.
+// This fixes X509 certificate errors when running Kuromatsu inside Termux or termux-chroot.
 // See: https://github.com/andre25costa-code/kuromatsu/issues/2944
 func initTermuxSSL() {
 	// Only applicable on Linux/Android
@@ -98,18 +98,20 @@ func earlyColorDisabled() bool {
 }
 
 func NewPicoclawCommand() *cobra.Command {
-	short := fmt.Sprintf("%s PicoClaw — personal AI assistant", internal.Logo)
-	long := fmt.Sprintf(`%s PicoClaw is a lightweight personal AI assistant.
+	short := fmt.Sprintf("%s Kuromatsu — personal AI assistant with an embedded native model", internal.Logo)
+	long := fmt.Sprintf(`%s Kuromatsu is a personal AI assistant, forked from PicoClaw, that runs
+Bonsai-1.7B-Q1_0 (1-bit quantized) in-process as a fallback with no API key
+required, and any configured provider as the primary model.
 
 Version: %s`, internal.Logo, config.FormatVersion())
 
 	cmd := &cobra.Command{
-		Use:   "picoclaw",
+		Use:   "kuromatsu",
 		Short: short,
 		Long:  long,
-		Example: `picoclaw version
-picoclaw onboard
-picoclaw --no-color status`,
+		Example: `kuromatsu version
+kuromatsu onboard
+kuromatsu --no-color status`,
 		SilenceErrors: true,
 		// Avoid plain UsageString() on stderr/stdout when a command fails; cliui
 		// renders matching panels on stderr instead.
@@ -146,26 +148,31 @@ picoclaw --no-color status`,
 	return cmd
 }
 
-const (
-	colorBlue = "\033[1;38;2;62;93;185m"
-	colorRed  = "\033[1;38;2;213;70;70m"
-	banner    = "\r\n" +
-		colorBlue + "██████╗ ██╗ ██████╗ ██████╗ " + colorRed + " ██████╗██╗      █████╗ ██╗    ██╗\n" +
-		colorBlue + "██╔══██╗██║██╔════╝██╔═══██╗" + colorRed + "██╔════╝██║     ██╔══██╗██║    ██║\n" +
-		colorBlue + "██████╔╝██║██║     ██║   ██║" + colorRed + "██║     ██║     ███████║██║ █╗ ██║\n" +
-		colorBlue + "██╔═══╝ ██║██║     ██║   ██║" + colorRed + "██║     ██║     ██╔══██║██║███╗██║\n" +
-		colorBlue + "██║     ██║╚██████╗╚██████╔╝" + colorRed + "╚██████╗███████╗██║  ██║╚███╔███╔╝\n" +
-		colorBlue + "╚═╝     ╚═╝ ╚═════╝ ╚═════╝ " + colorRed + " ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝\n " +
-		"\033[0m\r\n"
-	plainBanner = "\r\n" +
-		"██████╗ ██╗ ██████╗ ██████╗  ██████╗██╗      █████╗ ██╗    ██╗\n" +
-		"██╔══██╗██║██╔════╝██╔═══██╗██╔════╝██║     ██╔══██╗██║    ██║\n" +
-		"██████╔╝██║██║     ██║   ██║██║     ██║     ███████║██║ █╗ ██║\n" +
-		"██╔═══╝ ██║██║     ██║   ██║██║     ██║     ██╔══██║██║███╗██║\n" +
-		"██║     ██║╚██████╗╚██████╔╝╚██████╗███████╗██║  ██║╚███╔███╔╝\n" +
-		"╚═╝     ╚═╝ ╚═════╝ ╚═════╝  ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝\n " +
-		"\r\n"
-)
+const colorGreen = "\033[1;38;2;45;106;79m"
+
+// buildBanner draws a bordered title box sized by strings.Repeat rather
+// than a hand-aligned block-letter const, so the border always matches the
+// content width exactly regardless of title length.
+func buildBanner(colored bool) string {
+	const title = "K U R O M A T S U"
+	const padding = 6
+	border := strings.Repeat("─", len(title)+padding*2)
+	content := strings.Repeat(" ", padding) + title + strings.Repeat(" ", padding)
+
+	var b strings.Builder
+	b.WriteString("\r\n")
+	if colored {
+		b.WriteString(colorGreen)
+	}
+	fmt.Fprintf(&b, "  ╭%s╮\n", border)
+	fmt.Fprintf(&b, "  │%s│\n", content)
+	fmt.Fprintf(&b, "  ╰%s╯\n", border)
+	if colored {
+		b.WriteString("\033[0m")
+	}
+	b.WriteString("  🌲 resiliência em condições extremas\r\n\r\n")
+	return b.String()
+}
 
 func main() {
 	// Initialize Termux SSL certificate detection before anything else
@@ -173,11 +180,7 @@ func main() {
 
 	cliui.Init(earlyColorDisabled())
 
-	if earlyColorDisabled() {
-		fmt.Print(plainBanner)
-	} else {
-		fmt.Printf("%s", banner)
-	}
+	fmt.Print(buildBanner(!earlyColorDisabled()))
 
 	tzEnv := os.Getenv("TZ")
 	if tzEnv != "" {

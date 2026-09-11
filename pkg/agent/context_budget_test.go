@@ -437,7 +437,7 @@ func TestEstimateMessageTokens_ToolCallsContribute(t *testing.T) {
 				Name: "web_search",
 				Function: &providers.FunctionCall{
 					Name:      "web_search",
-					Arguments: `{"query":"picoclaw agent framework","max_results":5}`,
+					Arguments: `{"query":"kuromatsu agent framework","max_results":5}`,
 				},
 			},
 		},

@@ -10,7 +10,7 @@ import (
 // the function itself keeps each test's env setup independent.
 
 func TestApplyLegacyEnvCompat_CopiesUnsetVar(t *testing.T) {
-	t.Setenv("PICOCLAW_TEST_ENV_COMPAT_A", "old-value")
+	t.Setenv("KUROMATSU_TEST_ENV_COMPAT_A", "old-value")
 	os.Unsetenv("KUROMATSU_TEST_ENV_COMPAT_A")
 
 	applyLegacyEnvCompat()
@@ -21,7 +21,7 @@ func TestApplyLegacyEnvCompat_CopiesUnsetVar(t *testing.T) {
 }
 
 func TestApplyLegacyEnvCompat_NewNameWins(t *testing.T) {
-	t.Setenv("PICOCLAW_TEST_ENV_COMPAT_B", "old-value")
+	t.Setenv("KUROMATSU_TEST_ENV_COMPAT_B", "old-value")
 	t.Setenv("KUROMATSU_TEST_ENV_COMPAT_B", "new-value")
 
 	applyLegacyEnvCompat()

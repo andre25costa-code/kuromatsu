@@ -55,7 +55,7 @@ func DownloadAndExtractRelease(releaseURL, platform, arch string) (string, error
 
 	// Download asset to temp file. Use the asset URL extension so
 	// extractArchive can detect the archive format (zip/tar.gz/tar).
-	tmpPattern := "picoclaw-release-*"
+	tmpPattern := "kuromatsu-release-*"
 	if u, perr := url.Parse(assetURL); perr == nil {
 		base := filepath.Base(u.Path)
 		lbase := strings.ToLower(base)
@@ -113,7 +113,7 @@ func DownloadAndExtractRelease(releaseURL, platform, arch string) (string, error
 	}
 
 	// Extract
-	destDir, err := os.MkdirTemp("", "picoclaw-extract-*")
+	destDir, err := os.MkdirTemp("", "kuromatsu-extract-*")
 	if err != nil {
 		os.Remove(tmpPath)
 		return "", err

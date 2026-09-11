@@ -162,7 +162,7 @@ func TestGetProviderConfig(t *testing.T) {
 	}
 }
 
-func TestConvertToPicoClaw(t *testing.T) {
+func TestConvertToKuromatsu(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "openclaw.json")
 
@@ -239,7 +239,7 @@ func TestConvertToPicoClaw(t *testing.T) {
 		t.Fatalf("failed to load config: %v", err)
 	}
 
-	picoCfg, warnings, err := cfg.ConvertToPicoClaw("")
+	picoCfg, warnings, err := cfg.ConvertToKuromatsu("")
 	if err != nil {
 		t.Fatalf("failed to convert config: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestConvertToPicoClaw(t *testing.T) {
 }
 
 func TestToStandardConfig_ExecAllowRemoteDefaultsTrue(t *testing.T) {
-	cfg := (&PicoClawConfig{
+	cfg := (&KuromatsuConfig{
 		Tools: ToolsConfig{
 			Exec: ExecConfig{
 				EnableDenyPatterns: true,
@@ -306,7 +306,7 @@ func TestToStandardConfig_ExecAllowRemoteDefaultsTrue(t *testing.T) {
 	}
 }
 
-func TestConvertToPicoClawWithQQAndDingTalk(t *testing.T) {
+func TestConvertToKuromatsuWithQQAndDingTalk(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "openclaw.json")
 
@@ -352,7 +352,7 @@ func TestConvertToPicoClawWithQQAndDingTalk(t *testing.T) {
 		t.Fatalf("failed to load config: %v", err)
 	}
 
-	picoCfg, _, err := cfg.ConvertToPicoClaw("")
+	picoCfg, _, err := cfg.ConvertToKuromatsu("")
 	if err != nil {
 		t.Fatalf("failed to convert config: %v", err)
 	}
@@ -392,7 +392,7 @@ func TestConvertToPicoClawWithQQAndDingTalk(t *testing.T) {
 	}
 }
 
-func TestConvertToPicoClawWithMatrix(t *testing.T) {
+func TestConvertToKuromatsuWithMatrix(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "openclaw.json")
 
@@ -418,7 +418,7 @@ func TestConvertToPicoClawWithMatrix(t *testing.T) {
 		t.Fatalf("failed to load config: %v", err)
 	}
 
-	picoCfg, warnings, err := cfg.ConvertToPicoClaw("")
+	picoCfg, warnings, err := cfg.ConvertToKuromatsu("")
 	if err != nil {
 		t.Fatalf("failed to convert config: %v", err)
 	}
@@ -447,7 +447,7 @@ func TestConvertToPicoClawWithMatrix(t *testing.T) {
 	}
 }
 
-func TestConvertToPicoClawWithMatrixDisabled(t *testing.T) {
+func TestConvertToKuromatsuWithMatrixDisabled(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "openclaw.json")
 
@@ -472,7 +472,7 @@ func TestConvertToPicoClawWithMatrixDisabled(t *testing.T) {
 		t.Fatalf("failed to load config: %v", err)
 	}
 
-	picoCfg, _, err := cfg.ConvertToPicoClaw("")
+	picoCfg, _, err := cfg.ConvertToKuromatsu("")
 	if err != nil {
 		t.Fatalf("failed to convert config: %v", err)
 	}
@@ -636,7 +636,7 @@ func TestLoadOpenClawConfigFromDir(t *testing.T) {
 }
 
 func TestToStandardConfig(t *testing.T) {
-	picoCfg := &PicoClawConfig{
+	picoCfg := &KuromatsuConfig{
 		Agents: AgentsConfig{
 			Defaults: AgentDefaults{
 				Provider:  "anthropic",

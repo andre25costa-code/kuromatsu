@@ -34,7 +34,7 @@ func TestRecallSimilarSkills_ReturnsWorkspaceSkillFirst(t *testing.T) {
 		"---\nname: weather\ndescription: weather lookup\n---\n# Weather\nUse weather queries.\n",
 	)
 	mustWriteSkill(
-		filepath.Join(globalHome, ".picoclaw", "skills"),
+		filepath.Join(globalHome, ".kuromatsu", "skills"),
 		"release",
 		"---\nname: release\ndescription: release flow\n---\n# Release\nRelease build.\n",
 	)

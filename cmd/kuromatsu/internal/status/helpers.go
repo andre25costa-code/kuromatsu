@@ -41,7 +41,7 @@ func statusCmd() {
 	}
 
 	if configOK {
-		// PicoClaw moved to a model-centric configuration (model_list). Status should
+		// Kuromatsu moved to a model-centric configuration (model_list). Status should
 		// not depend on a legacy cfg.Providers field (which may not exist under some
 		// build tags). We infer provider availability from model_list entries.
 		hasProtocolKey := func(protocol string) bool {

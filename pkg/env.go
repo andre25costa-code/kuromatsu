@@ -7,6 +7,6 @@ const (
 	// AppName is the name of the app
 	AppName = "Kuromatsu"
 
-	DefaultPicoClawHome = ".kuromatsu"
+	DefaultKuromatsuHome = ".kuromatsu"
 	WorkspaceName       = "workspace"
 )

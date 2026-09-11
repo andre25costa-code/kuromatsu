@@ -16,24 +16,24 @@ func TestGetConfigPath(t *testing.T) {
 	t.Setenv("HOME", "/tmp/home")
 
 	got := GetConfigPath()
-	want := filepath.Join("/tmp/home", ".picoclaw", "config.json")
+	want := filepath.Join("/tmp/home", ".kuromatsu", "config.json")
 
 	assert.Equal(t, want, got)
 }
 
 func TestGetConfigPath_WithKUROMATSU_HOME(t *testing.T) {
-	t.Setenv(config.EnvHome, "/custom/picoclaw")
+	t.Setenv(config.EnvHome, "/custom/kuromatsu")
 	t.Setenv("HOME", "/tmp/home")
 
 	got := GetConfigPath()
-	want := filepath.Join("/custom/picoclaw", "config.json")
+	want := filepath.Join("/custom/kuromatsu", "config.json")
 
 	assert.Equal(t, want, got)
 }
 
 func TestGetConfigPath_WithKUROMATSU_CONFIG(t *testing.T) {
 	t.Setenv("KUROMATSU_CONFIG", "/custom/config.json")
-	t.Setenv(config.EnvHome, "/custom/picoclaw")
+	t.Setenv(config.EnvHome, "/custom/kuromatsu")
 	t.Setenv("HOME", "/tmp/home")
 
 	got := GetConfigPath()
@@ -51,7 +51,7 @@ func TestGetConfigPath_Windows(t *testing.T) {
 	t.Setenv("USERPROFILE", testUserProfilePath)
 
 	got := GetConfigPath()
-	want := filepath.Join(testUserProfilePath, ".picoclaw", "config.json")
+	want := filepath.Join(testUserProfilePath, ".kuromatsu", "config.json")
 
 	require.True(t, strings.EqualFold(got, want), "GetConfigPath() = %q, want %q", got, want)
 }

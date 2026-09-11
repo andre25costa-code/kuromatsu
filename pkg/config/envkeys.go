@@ -18,14 +18,14 @@ var legacyEnvCompatOnce sync.Once
 // Runtime environment variable keys for the kuromatsu process.
 // These control the location of files and binaries at runtime and are read
 // directly via os.Getenv / os.LookupEnv. All kuromatsu-specific keys use the
-// KUROMATSU_ prefix (legacy PICOCLAW_* values are honored via
+// KUROMATSU_ prefix (legacy KUROMATSU_* values are honored via
 // applyLegacyEnvCompat, ADR-005). Reference these constants instead of
 // inline string literals to keep all supported knobs visible in one place
 // and to prevent typos.
 const (
 	// EnvHome overrides the base directory for all kuromatsu data
 	// (config, workspace, skills, auth store, …).
-	// Default: ~/.kuromatsu (or ~/.picoclaw, read in place, if only that exists)
+	// Default: ~/.kuromatsu (or ~/.kuromatsu, read in place, if only that exists)
 	EnvHome = "KUROMATSU_HOME"
 
 	// EnvConfig overrides the full path to the JSON config file.
@@ -62,8 +62,8 @@ func GetHome() string {
 		return "."
 	}
 
-	newHome := filepath.Join(userHome, pkg.DefaultPicoClawHome)
-	oldHome := filepath.Join(userHome, ".picoclaw")
+	newHome := filepath.Join(userHome, pkg.DefaultKuromatsuHome)
+	oldHome := filepath.Join(userHome, ".kuromatsu")
 	if !dirExists(newHome) && dirExists(oldHome) {
 		// Read the pre-rebrand home in place rather than copying it: cheap,
 		// and correct for a 1GB-RAM deploy target (S32). A dedicated

@@ -150,7 +150,7 @@ func parseAddArgs(args []string) (addOptions, string, string, []string, bool, er
 	if len(explicitCommand) > 0 {
 		if len(positional) != 1 {
 			return addOptions{}, "", "", nil, false, fmt.Errorf(
-				"usage: picoclaw mcp add [flags] <name> <command-or-url> [args...] or picoclaw mcp add [flags] <name> -- <command> [args...]",
+				"usage: kuromatsu mcp add [flags] <name> <command-or-url> [args...] or kuromatsu mcp add [flags] <name> -- <command> [args...]",
 			)
 		}
 		if len(explicitCommand) == 0 {
@@ -161,7 +161,7 @@ func parseAddArgs(args []string) (addOptions, string, string, []string, bool, er
 
 	if len(positional) < 2 {
 		return addOptions{}, "", "", nil, false, fmt.Errorf(
-			"usage: picoclaw mcp add [flags] <name> <command-or-url> [args...] or picoclaw mcp add [flags] <name> -- <command> [args...]",
+			"usage: kuromatsu mcp add [flags] <name> <command-or-url> [args...] or kuromatsu mcp add [flags] <name> -- <command> [args...]",
 		)
 	}
 

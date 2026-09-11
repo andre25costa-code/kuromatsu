@@ -8,11 +8,11 @@ import (
 )
 
 const (
-	legacyEnvPrefix  = "PICOCLAW_"
+	legacyEnvPrefix  = "KUROMATSU_"
 	currentEnvPrefix = "KUROMATSU_"
 )
 
-// applyLegacyEnvCompat copies every still-set PICOCLAW_* environment
+// applyLegacyEnvCompat copies every still-set KUROMATSU_* environment
 // variable to its KUROMATSU_* equivalent, when the new name is not already
 // set, so deployments configured before the Kuromatsu rebrand keep working
 // (ADR-005). It is generic over variable names (not a hardcoded pairing

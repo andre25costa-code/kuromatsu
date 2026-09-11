@@ -110,7 +110,7 @@ func promptPassphrase() (string, error) {
 	return string(p1), nil
 }
 
-// setupSSHKey generates the picoclaw-specific SSH key at ~/.ssh/picoclaw_ed25519.key.
+// setupSSHKey generates the kuromatsu-specific SSH key at ~/.ssh/kuromatsu_ed25519.key.
 // If the key already exists the user is warned and asked to confirm overwrite.
 // Answering anything other than "y" keeps the existing key (not an error).
 func setupSSHKey() error {

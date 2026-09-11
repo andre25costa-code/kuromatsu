@@ -280,7 +280,7 @@ func TestEnsureMCPInitialized_LoadFailureSetsInitErr(t *testing.T) {
 			Servers: map[string]config.MCPServerConfig{
 				"broken": {
 					Enabled: true,
-					Command: "picoclaw-command-that-does-not-exist-for-mcp-tests",
+					Command: "kuromatsu-command-that-does-not-exist-for-mcp-tests",
 				},
 			},
 		},

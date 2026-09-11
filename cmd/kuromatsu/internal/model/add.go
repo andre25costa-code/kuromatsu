@@ -36,7 +36,7 @@ the server.
 
 Sample interactive session (key shown masked):
 
-    $ picoclaw model add \
+    $ kuromatsu model add \
         -b https://ark.cn-beijing.volces.com/api/v3 \
         -k 7dff****-****-****-****-********e829
 
@@ -50,8 +50,8 @@ Sample interactive session (key shown masked):
       115) doubao-seed3d-2-0-260328    (doubao-seed3d-2-0)
     Pick a model (number or id): 48
     ✓ Saved model 'custom-prefer' (deepseek-r1-250120) and set as default.`,
-		Example: `  picoclaw model add --api-base https://api.openai.com/v1 --api-key sk-...
-  picoclaw model add -b http://localhost:8000/v1 -k dummy -m my-model -n local`,
+		Example: `  kuromatsu model add --api-base https://api.openai.com/v1 --api-key sk-...
+  kuromatsu model add -b http://localhost:8000/v1 -k dummy -m my-model -n local`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runAdd(addOptions{

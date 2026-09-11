@@ -30,14 +30,14 @@ If a model name is provided, sets it as the default model.
 To onboard a model from a custom OpenAI-compatible endpoint (fetch the
 available list online and pick one), use the 'add' subcommand:
 
-  picoclaw model add --help
+  kuromatsu model add --help
 
 Examples:
-  picoclaw model                    # Show current default model
-  picoclaw model gpt-5.2           # Set gpt-5.2 as default
-  picoclaw model claude-sonnet-4.6 # Set claude-sonnet-4.6 as default
-  picoclaw model local-model       # Set local VLLM server as default
-  picoclaw model add -b URL -k KEY # Add a model from a custom endpoint
+  kuromatsu model                    # Show current default model
+  kuromatsu model gpt-5.2           # Set gpt-5.2 as default
+  kuromatsu model claude-sonnet-4.6 # Set claude-sonnet-4.6 as default
+  kuromatsu model local-model       # Set local VLLM server as default
+  kuromatsu model add -b URL -k KEY # Add a model from a custom endpoint
 
 Note: 'local-model' is a special value for using a local VLLM server
 (running at localhost:8000 by default) which does not require an API key.`,
@@ -81,8 +81,8 @@ func showCurrentModel(cfg *config.Config) {
 		listAvailableModels(cfg)
 	}
 
-	fmt.Println("\nTip: 'picoclaw model add -b URL -k KEY' adds a model from a custom")
-	fmt.Println("     OpenAI-compatible endpoint (see 'picoclaw model add --help').")
+	fmt.Println("\nTip: 'kuromatsu model add -b URL -k KEY' adds a model from a custom")
+	fmt.Println("     OpenAI-compatible endpoint (see 'kuromatsu model add --help').")
 }
 
 func listAvailableModels(cfg *config.Config) {
@@ -108,7 +108,7 @@ func listAvailableModels(cfg *config.Config) {
 func setDefaultModel(configPath string, cfg *config.Config, modelName string) error {
 	if modelName == NativeModel && !localllm.Built() {
 		return fmt.Errorf(
-			"'%s' requires a binary built with the native inference engine; rebuild with `make build-native` (see `picoclaw status`)",
+			"'%s' requires a binary built with the native inference engine; rebuild with `make build-native` (see `kuromatsu status`)",
 			NativeModel)
 	}
 

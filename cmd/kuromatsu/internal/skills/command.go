@@ -32,7 +32,7 @@ func NewSkillsCommand() *cobra.Command {
 			// get global config directory and builtin skills directory
 			globalDir := filepath.Dir(internal.GetConfigPath())
 			globalSkillsDir := filepath.Join(globalDir, "skills")
-			builtinSkillsDir := filepath.Join(globalDir, "picoclaw", "skills")
+			builtinSkillsDir := filepath.Join(globalDir, "kuromatsu", "skills")
 			d.skillsLoader = skills.NewSkillsLoader(d.workspace, globalSkillsDir, builtinSkillsDir)
 
 			return nil
