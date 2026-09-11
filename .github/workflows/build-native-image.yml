@@ -1,0 +1,61 @@
+name: 🌲 Build Native (nativellm) arm64 Image
+
+# Manual only: this builds the cgo/nativellm image (Bonsai-1.7B embedded via
+# llama.cpp), which needs a real C++ toolchain and noticeably more RAM/time
+# than the regular pure-Go image built by docker-build.yml. It's not part of
+# the release pipeline (S32) -- run it by hand when you need a fresh image
+# for the Oracle deploy.
+#
+# Runs on GitHub's native arm64 runner so the ggml/llama.cpp compile and the
+# cgo link happen on real arm64 hardware with real headroom (4 vCPU / 16 GB
+# per GitHub's spec) -- no QEMU emulation, and none of the dev machine's
+# ~8 GB RAM ceiling that OOM-killed this same build locally (ADR-011).
+on:
+  workflow_dispatch:
+    inputs:
+      llama_build_jobs:
+        description: "cmake parallel build jobs for ggml/llama.cpp"
+        required: false
+        default: "4"
+
+jobs:
+  build:
+    name: 🏗️ Build native-arm64 image
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+
+    steps:
+      - name: 📥 Checkout repository (with llama.cpp submodule)
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: 🔧 Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: 🚀 Build image, export as tarball
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile.native
+          platforms: linux/arm64
+          tags: kuromatsu:native-arm64
+          build-args: |
+            LLAMA_BUILD_JOBS=${{ inputs.llama_build_jobs }}
+          outputs: type=docker,dest=/tmp/kuromatsu-native-arm64.tar
+
+      - name: 📦 Compress
+        run: gzip /tmp/kuromatsu-native-arm64.tar
+
+      - name: ⬆️ Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kuromatsu-native-arm64
+          path: /tmp/kuromatsu-native-arm64.tar.gz
+          retention-days: 14
+
+      # Deploy from your machine once downloaded:
+      #   scp kuromatsu-native-arm64.tar.gz oracle:~/
+      #   ssh oracle 'gunzip -c kuromatsu-native-arm64.tar.gz | docker load'
+      #   ssh oracle 'docker compose -f docker/docker-compose.native.yml --profile gateway up -d'

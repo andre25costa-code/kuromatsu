@@ -10,3 +10,17 @@ config/
 .env.example
 *.md
 assets/
+
+# Kuromatsu native build: never ship the GGUF in the image (BR-003, volume-mounted
+# instead), and never reuse a host-arch CMake cache inside the arm64 cross-build
+# (build-native/ on disk may already hold x86_64 artifacts from a local
+# `make llama-lib` run -- ADR-011 needs a clean configure per target arch).
+models/*.gguf
+models/*.part
+llama.cpp/build-native/
+llama.cpp/build-native-arm64/
+
+# Personal workspace backup (BR-003) -- gitignored already, but a local build
+# context is the real working tree, not a git checkout, so it physically
+# exists on disk here and must be excluded explicitly too.
+docker/data/

@@ -1,0 +1,34 @@
+services:
+  # ─────────────────────────────────────────────
+  # Kuromatsu Agent, native inference (one-shot query)
+  #   docker compose -f docker/docker-compose.native.yml run --rm kuromatsu-native-agent -m "Hello"
+  # ─────────────────────────────────────────────
+  kuromatsu-native-agent:
+    image: kuromatsu:native-arm64
+    container_name: kuromatsu-native-agent
+    profiles:
+      - agent
+    mem_limit: 900m
+    memswap_limit: 900m
+    volumes:
+      - ./data:/root/.kuromatsu
+      - ../models:/models:ro
+    entrypoint: ["kuromatsu", "agent"]
+    stdin_open: true
+    tty: true
+
+  # ─────────────────────────────────────────────
+  # Kuromatsu Gateway, native inference (long-running bot; the deploy target)
+  #   docker compose -f docker/docker-compose.native.yml --profile gateway up
+  # ─────────────────────────────────────────────
+  kuromatsu-native-gateway:
+    image: kuromatsu:native-arm64
+    container_name: kuromatsu-native-gateway
+    restart: unless-stopped
+    profiles:
+      - gateway
+    mem_limit: 900m
+    memswap_limit: 900m
+    volumes:
+      - ./data:/root/.kuromatsu
+      - ../models:/models:ro

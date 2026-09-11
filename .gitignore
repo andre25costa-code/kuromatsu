@@ -74,4 +74,5 @@ docker/data
 models/*.gguf
 models/*.part
 llama.cpp/build-native/
+llama.cpp/build-native-arm64/
 .kuromatsu/

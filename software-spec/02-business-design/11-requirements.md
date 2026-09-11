@@ -2,9 +2,9 @@
 id: S11
 title: Requisitos funcionais e critérios de aceite
 status: confirmed
-version: 1
+version: 2
 owner: André
-last_updated: 2026-09-10
+last_updated: 2026-09-11
 depends_on: [S06, S08, S10, S13, S18]
 ---
 
@@ -59,11 +59,13 @@ fallback chain.
 - **AC-004-2** — Given binário sem a tag, When `kuromatsu model bonsai-local`, Then o comando recusa com a mensagem de rebuild em vez de configurar um modelo inoperante.
 
 ### FR-005 — Build nativo reprodutível
-**Entregável**: E5+E7 · **Módulos**: `Makefile`, `docker/Dockerfile.native` · **ADRs**: 001, 009 · **Regras**: BR-004
+**Entregável**: E5+E7 · **Módulos**: `Makefile`, `docker/Dockerfile.native` · **ADRs**: 001, 009, 011 · **Regras**: BR-004
 
 - **AC-005-1** — Given o submodule pinado, When `make llama-lib && make build-native` (Linux/WSL), Then o binário linka as `.a` estáticas e roda sem `.so` externos.
-- **AC-005-2** — Given o Dockerfile nativo, When `docker buildx --platform linux/arm64`, Then a imagem resulta com o binário cgo e **sem** o GGUF embutido.
+- **AC-005-2** — Given o Dockerfile nativo, When rodado via `.github/workflows/build-native-image.yml` (runner `ubuntu-24.04-arm`) ou via `docker buildx build --platform linux/arm64 -f docker/Dockerfile.native` num host amd64, Then a imagem resulta com o binário cgo para arm64 e **sem** o GGUF embutido.
 - **AC-005-3** — Given `make build` (padrão), When executa em qualquer GOOS/GOARCH da matriz atual, Then compila com CGO_ENABLED=0 e o stub responde `ErrNotBuilt` (NFR-003).
+- **AC-005-4** — Given o estágio builder do `Dockerfile.native`, When compila `ggml`/`llama.cpp` e o binário Go para arm64, Then roda nativamente (`gcc`/`g++` no runner arm64 do GitHub, ou cross-toolchain `aarch64-linux-gnu-gcc`/`g++` num host amd64, ambos via `--platform=$BUILDPLATFORM`) — nenhuma compilação C++ roda sob emulação QEMU (ADR-011).
+- **AC-005-5** — Given a imagem `kuromatsu:native-arm64` já construída (via CI ou local), When entregue ao servidor, Then o caminho é baixar/gerar o `.tar.gz` + `scp` + `docker load` — a Oracle nunca executa um build.
 
 ### FR-006 — Workspace template + embed seguro
 **Entregável**: E1 · **Módulos**: `workspace/`, `onboard_workspace_embed.go` · **Regras**: BR-003

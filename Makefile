@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test integration-test build-all llama-lib llama-lib-arm64 build-native build-native-arm64 run-native bench-native
+.PHONY: all build install uninstall clean help test integration-test build-all llama-lib llama-lib-arm64 build-native build-native-arm64 run-native bench-native docker-build-native docker-save-native
 
 # Build variables
 BINARY_NAME=kuromatsu
@@ -272,6 +272,11 @@ build-pi-zero: build-linux-arm build-linux-arm64
 # targets are the only ones that need a C++ toolchain (S18, S32).
 LLAMA_DIR=llama.cpp
 LLAMA_BUILD_DIR=$(LLAMA_DIR)/build-native
+# Separate build dir for the arm64 cross-compile: CMake fatal-errors if a
+# cache configured for one C/C++ compiler is reused with a different one, so
+# running `make llama-lib` (host arch) and `make llama-lib-arm64` (cross) in
+# the same tree needs distinct directories, not a rm -rf dance.
+LLAMA_BUILD_DIR_ARM64=$(LLAMA_DIR)/build-native-arm64
 CMAKE?=cmake
 # ggml/llama.cpp translation units are large C++; building all of them at
 # full core count can spike host RAM well past what a dev machine has free
@@ -295,14 +300,26 @@ llama-lib:
 	@echo "Static libs in $(LLAMA_BUILD_DIR)/lib:"
 	@ls $(LLAMA_BUILD_DIR)/lib/*.a
 
-## llama-lib-arm64: Cross/target build for linux/arm64 (run on or targeting an
-## Ampere/Neoverse-N1-class host, e.g. Oracle A1 -- dotprod yes, i8mm NO)
+## llama-lib-arm64: True cross-compile for linux/arm64 (targets an
+## Ampere/Neoverse-N1-class host, e.g. Oracle A1 -- dotprod yes, i8mm NO).
+## Runs natively on the amd64 build host via the aarch64-linux-gnu toolchain --
+## no QEMU emulation (ADR-011). Needs `crossbuild-essential-arm64` (Debian/Ubuntu)
+## or equivalent (aarch64-linux-gnu-gcc/g++ on PATH).
+ARM64_CC?=aarch64-linux-gnu-gcc
+ARM64_CXX?=aarch64-linux-gnu-g++
 llama-lib-arm64:
-	@$(CMAKE) -S $(LLAMA_DIR) -B $(LLAMA_BUILD_DIR) $(LLAMA_CMAKE_COMMON) -DGGML_NATIVE=OFF \
-		-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16
-	@$(CMAKE) --build $(LLAMA_BUILD_DIR) -j $(LLAMA_BUILD_JOBS) --target llama
+	@$(CMAKE) -S $(LLAMA_DIR) -B $(LLAMA_BUILD_DIR_ARM64) $(LLAMA_CMAKE_COMMON) -DGGML_NATIVE=OFF \
+		-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 \
+		-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+		-DCMAKE_C_COMPILER=$(ARM64_CC) -DCMAKE_CXX_COMPILER=$(ARM64_CXX)
+	@$(CMAKE) --build $(LLAMA_BUILD_DIR_ARM64) -j $(LLAMA_BUILD_JOBS) --target llama
+	@mkdir -p $(LLAMA_BUILD_DIR_ARM64)/lib
+	@find $(LLAMA_BUILD_DIR_ARM64) -name '*.a' -exec cp -f {} $(LLAMA_BUILD_DIR_ARM64)/lib/ \;
+	# engine_cgo.go's #cgo LDFLAGS hardcodes llama.cpp/build-native/lib (one
+	# path for cgo, regardless of arch) -- mirror the arm64 archives there so
+	# build-native-arm64 links against these and not a stale host-arch build.
 	@mkdir -p $(LLAMA_BUILD_DIR)/lib
-	@find $(LLAMA_BUILD_DIR) -name '*.a' -exec cp -f {} $(LLAMA_BUILD_DIR)/lib/ \;
+	@cp -f $(LLAMA_BUILD_DIR_ARM64)/lib/*.a $(LLAMA_BUILD_DIR)/lib/
 
 ## build-native: Build the binary with in-process inference (host CPU, cgo)
 build-native: generate llama-lib
@@ -310,10 +327,13 @@ build-native: generate llama-lib
 		-o $(BUILD_DIR)/$(BINARY_NAME)-native$(EXT) ./$(CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-native$(EXT)"
 
-## build-native-arm64: linux/arm64 native build (run inside a linux/arm64
-## builder -- see docker/Dockerfile.native; cgo cannot cross-compile the C side)
+## build-native-arm64: True cross-compile of the full binary for linux/arm64,
+## running natively on the amd64 build host (ADR-011) -- no QEMU. Same
+## cross-toolchain as llama-lib-arm64; cgo cross-compiles fine once CC/CXX
+## point at a valid cross-compiler.
 build-native-arm64: generate llama-lib-arm64
-	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 $(GO) build $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
+	CC=$(ARM64_CC) CXX=$(ARM64_CXX) CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
+		$(GO) build $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
 		-o $(BUILD_DIR)/$(BINARY_NAME)-native-linux-arm64 ./$(CMD_DIR)
 
 ## run-native: Build the native binary and download the model if needed
@@ -464,6 +484,28 @@ docker-clean:
 	docker compose -f docker/docker-compose.yml down -v
 	docker compose -f docker/docker-compose.full.yml down -v
 	docker rmi kuromatsu:latest kuromatsu:full 2>/dev/null || true
+
+## docker-build-native: Cross-build the native (nativellm) linux/arm64 image on
+## this (amd64) host -- FALLBACK path, needs real free RAM (see ADR-011); the
+## primary path is .github/workflows/build-native-image.yml (native arm64
+## runner, no RAM ceiling). The heavy C++/cgo compile here runs un-emulated
+## via the aarch64 cross-toolchain inside the builder stage; only the thin
+## final stage needs buildx's arm64 emulation. Needs `docker buildx` with the
+## default binfmt handlers (already set up on Docker Desktop/WSL) and
+## `crossbuild-essential-arm64` reachable inside the builder image (handled
+## automatically by Dockerfile.native itself, nothing to install here).
+docker-build-native:
+	docker buildx build --platform linux/arm64 -f docker/Dockerfile.native \
+		-t kuromatsu:native-arm64 --load .
+
+## docker-save-native: Package the built native image as a portable .tar.gz for
+## `scp` to the Oracle box -- the deploy target never builds anything, it only
+## `docker load`s this file (ADR-011, S32).
+docker-save-native: docker-build-native
+	@mkdir -p $(BUILD_DIR)
+	docker save kuromatsu:native-arm64 | gzip > $(BUILD_DIR)/kuromatsu-native-arm64.tar.gz
+	@echo "Saved: $(BUILD_DIR)/kuromatsu-native-arm64.tar.gz"
+	@echo "Deploy: scp it to the server, then 'gunzip -c kuromatsu-native-arm64.tar.gz | docker load'"
 
 
 ## mem: Build membench, download LOCOMO data (if needed), run benchmark, and show results

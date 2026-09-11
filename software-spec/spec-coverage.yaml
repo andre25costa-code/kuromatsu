@@ -3,7 +3,7 @@
 # Regras: itens mudam de estado, nunca são removidos; atualização incremental.
 
 project: kuromatsu
-updated: 2026-09-10
+updated: 2026-09-11
 spec_version: 0.1.0
 
 items:
