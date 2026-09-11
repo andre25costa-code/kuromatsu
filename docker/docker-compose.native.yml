@@ -10,6 +10,8 @@ services:
       - agent
     mem_limit: 900m
     memswap_limit: 900m
+    environment:
+      - KUROMATSU_MODELS_DIR=/models
     volumes:
       - ./data:/root/.kuromatsu
       - ../models:/models:ro
@@ -29,6 +31,8 @@ services:
       - gateway
     mem_limit: 900m
     memswap_limit: 900m
+    environment:
+      - KUROMATSU_MODELS_DIR=/models
     volumes:
       - ./data:/root/.kuromatsu
       - ../models:/models:ro
