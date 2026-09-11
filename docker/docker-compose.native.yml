@@ -4,7 +4,7 @@ services:
   #   docker compose -f docker/docker-compose.native.yml run --rm kuromatsu-native-agent -m "Hello"
   # ─────────────────────────────────────────────
   kuromatsu-native-agent:
-    image: kuromatsu:native-arm64
+    image: kuromatsu:native-amd64
     container_name: kuromatsu-native-agent
     profiles:
       - agent
@@ -22,7 +22,7 @@ services:
   #   docker compose -f docker/docker-compose.native.yml --profile gateway up
   # ─────────────────────────────────────────────
   kuromatsu-native-gateway:
-    image: kuromatsu:native-arm64
+    image: kuromatsu:native-amd64
     container_name: kuromatsu-native-gateway
     restart: unless-stopped
     profiles:

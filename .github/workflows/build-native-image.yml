@@ -1,4 +1,4 @@
-name: 🌲 Build Native (nativellm) arm64 Image
+name: 🌲 Build Native (nativellm) amd64 Image
 
 # Manual only: this builds the cgo/nativellm image (Bonsai-1.7B embedded via
 # llama.cpp), which needs a real C++ toolchain and noticeably more RAM/time
@@ -6,10 +6,11 @@ name: 🌲 Build Native (nativellm) arm64 Image
 # the release pipeline (S32) -- run it by hand when you need a fresh image
 # for the Oracle deploy.
 #
-# Runs on GitHub's native arm64 runner so the ggml/llama.cpp compile and the
-# cgo link happen on real arm64 hardware with real headroom (4 vCPU / 16 GB
-# per GitHub's spec) -- no QEMU emulation, and none of the dev machine's
-# ~8 GB RAM ceiling that OOM-killed this same build locally (ADR-011).
+# Runs on GitHub's standard amd64 runner -- this is also the real deploy
+# target's architecture (the Oracle box turned out to be x86_64, not ARM64
+# as first assumed; ADR-012 corrects ADR-011). Same-arch build means no
+# cross-toolchain and no QEMU either way; the runner's 16 GB RAM just avoids
+# the dev machine's ~8 GB ceiling that OOM-killed this same build locally.
 on:
   workflow_dispatch:
     inputs:
@@ -20,8 +21,8 @@ on:
 
 jobs:
   build:
-    name: 🏗️ Build native-arm64 image
-    runs-on: ubuntu-24.04-arm
+    name: 🏗️ Build native-amd64 image
+    runs-on: ubuntu-latest
     permissions:
       contents: read
 
@@ -39,23 +40,22 @@ jobs:
         with:
           context: .
           file: docker/Dockerfile.native
-          platforms: linux/arm64
-          tags: kuromatsu:native-arm64
+          tags: kuromatsu:native-amd64
           build-args: |
             LLAMA_BUILD_JOBS=${{ inputs.llama_build_jobs }}
-          outputs: type=docker,dest=/tmp/kuromatsu-native-arm64.tar
+          outputs: type=docker,dest=/tmp/kuromatsu-native-amd64.tar
 
       - name: 📦 Compress
-        run: gzip /tmp/kuromatsu-native-arm64.tar
+        run: gzip /tmp/kuromatsu-native-amd64.tar
 
       - name: ⬆️ Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kuromatsu-native-arm64
-          path: /tmp/kuromatsu-native-arm64.tar.gz
+          name: kuromatsu-native-amd64
+          path: /tmp/kuromatsu-native-amd64.tar.gz
           retention-days: 14
 
       # Deploy from your machine once downloaded:
-      #   scp kuromatsu-native-arm64.tar.gz oracle:~/
-      #   ssh oracle 'gunzip -c kuromatsu-native-arm64.tar.gz | docker load'
+      #   scp kuromatsu-native-amd64.tar.gz oracle:~/
+      #   ssh oracle 'gunzip -c kuromatsu-native-amd64.tar.gz | docker load'
       #   ssh oracle 'docker compose -f docker/docker-compose.native.yml --profile gateway up -d'

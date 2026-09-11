@@ -1,7 +1,8 @@
 ---
 id: ADR-011
 title: Build da imagem nativa via cross-toolchain aarch64, não QEMU
-status: accepted
+status: superseded
+superseded_by: ADR-012
 version: 1
 owner: André
 last_updated: 2026-09-11
@@ -9,6 +10,17 @@ depends_on: [ADR-001, ADR-009]
 ---
 
 # ADR-011 — Cross-compilação real para arm64 em vez de emulação QEMU
+
+> **Superseded por [ADR-012](ADR-012-alvo-x86-64-nao-arm64.md) em 2026-09-11.** A
+> premissa desta ADR (VM Oracle = ARM64/Ampere A1) estava errada: o André não
+> conseguiu disponibilidade da shape A1 e criou a VM com a shape x86 padrão (por isso
+> só 1 GB de RAM — a A1 chegaria a 6 GB). O raciocínio sobre evitar QEMU/emulação
+> continua válido e foi reaproveitado na ADR-012, só que agora não é mais necessário
+> de jeito nenhum (build host e target já são a mesma arquitetura). O caminho descrito
+> aqui **foi executado com sucesso de ponta a ponta** (build real de 3m05s no runner
+> `ubuntu-24.04-arm`) antes da correção, e o código (`llama-lib-arm64`/
+> `build-native-arm64` no Makefile) permanece no repo como suporte a um eventual
+> deploy ARM64 futuro (ex. Raspberry Pi, ou se a shape A1 ficar disponível depois).
 
 ## Contexto
 O E5 mediu, na prática, que compilar `ggml`/`llama.cpp` (C++, estático) e linkar o

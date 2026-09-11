@@ -2,9 +2,9 @@
 id: ADR-007
 title: Poda de escopo (web/, canais, hardware) antes do rebrand
 status: accepted
-version: 1
+version: 2
 owner: André
-last_updated: 2026-09-10
+last_updated: 2026-09-11
 depends_on: []
 ---
 
@@ -20,7 +20,9 @@ Remover, em commits independentes que compilam: `web/` inteiro; canais exceto `p
 `pico_client`, `telegram`, `whatsapp`, `whatsapp_native`; `pkg/tools/hardware`
 (i2c/spi/serial) e o canal `maixcam`; `examples/`, integração órfã e `docs/` legado.
 Os tools de hardware são substituídos funcionalmente pelo `sysmon` (FR-011) — foco em
-observabilidade de memória/processos na máquina ARM64, não em GPIO.
+observabilidade de memória/processos na máquina de deploy, não em GPIO (a arquitetura
+exata da VM Oracle é irrelevante aqui: sysmon lê `/proc` e cgroups, não é específico de
+CPU).
 
 ## Alternativas
 - Manter tudo e só rebrandear — mantido como opção rejeitada pelo usuário (mais

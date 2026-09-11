@@ -62,7 +62,7 @@ items:
   - id: S32
     title: Arquitetura de deploy
     file: 06-infrastructure/32-deployment.md
-    tags: [deploy, docker, oracle, arm64]
+    tags: [deploy, docker, oracle, amd64]
     roles: [dev]
   - id: S35
     title: Registros de decisão de arquitetura

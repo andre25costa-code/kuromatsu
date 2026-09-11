@@ -19,6 +19,7 @@ models/*.gguf
 models/*.part
 llama.cpp/build-native/
 llama.cpp/build-native-arm64/
+llama.cpp/build-native-x86-64/
 
 # Personal workspace backup (BR-003) -- gitignored already, but a local build
 # context is the real working tree, not a git checkout, so it physically

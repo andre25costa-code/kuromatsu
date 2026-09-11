@@ -2,9 +2,9 @@
 id: S01
 title: Contexto do projeto
 status: confirmed
-version: 1
+version: 2
 owner: André
-last_updated: 2026-09-10
+last_updated: 2026-09-11
 depends_on: []
 ---
 
@@ -36,7 +36,8 @@ Um agente pessoal que:
 1. **Roda sem nenhuma chave de API** — a inferência do Bonsai-1.7B-Q1_0 é embutida no
    próprio binário Go (fork prism do llama.cpp, linkado estático via cgo), sem
    llama-server, sem expor modelo na rede, sem subprocessos.
-2. **Cabe em uma máquina Oracle ARM64 com 1 GB de RAM**, operando 24/7 em Docker.
+2. **Cabe em uma máquina Oracle x86_64 (AMD EPYC 7551, Zen1) com 1 GB de RAM**, operando
+   24/7 em Docker.
 3. **Usa modelos externos quando disponíveis** — chaves em `config.json`/`.security.yml`
    colocam APIs na frente da cadeia; o modelo local é o fallback nativo permanente.
 4. **Responde no seu tempo**: mensagens programadas, lembretes, crons e heartbeats usam

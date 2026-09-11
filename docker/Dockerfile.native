@@ -1,46 +1,30 @@
 # ============================================================
 # Native (nativellm) image: the Bonsai-1.7B-Q1_0 GGUF runs in-process via
-# cgo (ADR-001/002/003) instead of a separate llama-server. Built for
-# linux/arm64 (Oracle Ampere A1) elsewhere and shipped as a ready image -- the
-# 1 GB deploy target never builds anything (S32, ADR-011).
+# cgo (ADR-001/002/003) instead of a separate llama-server. Built elsewhere
+# and shipped as a ready image -- the 1 GB Oracle deploy target never builds
+# anything (S32, ADR-012).
 #
-# Build via GitHub Actions (primary path, native arm64 runner -- no RAM
-# ceiling, no emulation): .github/workflows/build-native-image.yml
-# (workflow_dispatch), downloads as a .tar.gz artifact.
+# Target: amd64/x86_64, pinned to the Oracle box's real CPU baseline
+# (VM.Standard.E2.1.Micro -- AMD EPYC 7551 "Naples"/Zen1: AVX2+FMA+F16C, no
+# AVX-512/AVX-VNNI). Build host and target are the same architecture, so
+# this is always a plain native compile -- no cross-toolchain, no QEMU
+# (ADR-012 corrects an earlier ARM64 assumption, see ADR-011).
+#
+# Build via GitHub Actions (primary path, 16GB RAM runner -- no RAM ceiling):
+# .github/workflows/build-native-image.yml (workflow_dispatch), downloads as
+# a .tar.gz artifact.
 #
 # Build locally instead (fallback, needs real free RAM):
 #   make docker-build-native
 # or directly:
-#   docker buildx build --platform linux/arm64 -f docker/Dockerfile.native \
-#     -t kuromatsu:native-arm64 --load .
+#   docker buildx build -f docker/Dockerfile.native -t kuromatsu:native-amd64 --load .
 # ============================================================
 
-# ------------------------------------------------------------
-# Builder: pinned to the build host's own platform ($BUILDPLATFORM) even
-# though the target is linux/arm64, so the heavy C++/cgo compilation always
-# runs NATIVELY (no QEMU) -- ADR-011. Two cases land here:
-#   - amd64 build host (e.g. a dev machine): cross-compiles via the
-#     aarch64-linux-gnu toolchain.
-#   - arm64 build host (e.g. GitHub's native `ubuntu-24.04-arm` runner,
-#     the intended primary path -- avoids the dev machine's ~8 GB RAM
-#     ceiling entirely): compiles natively with plain gcc/g++.
-# The ARM CPU feature set is pinned explicitly either way
-# (armv8.2-a+dotprod+fp16, no i8mm -- Ampere/Neoverse-N1) so the result
-# targets the Oracle A1 regardless of what the *build* CPU actually supports.
-# ------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS builder
+FROM golang:1.25-bookworm AS builder
 
-# Toolchain env is written to a file (not a shell var) so it survives into
-# the later RUN layers that actually invoke `make`.
-RUN set -eu; apt-get update; \
-    if [ "$(uname -m)" = "aarch64" ]; then \
-        apt-get install -y --no-install-recommends cmake make build-essential; \
-        printf 'ARM64_CC=gcc\nARM64_CXX=g++\n' > /etc/kuromatsu-arm64-toolchain.env; \
-    else \
-        apt-get install -y --no-install-recommends cmake make crossbuild-essential-arm64; \
-        printf 'ARM64_CC=aarch64-linux-gnu-gcc\nARM64_CXX=aarch64-linux-gnu-g++\n' > /etc/kuromatsu-arm64-toolchain.env; \
-    fi; \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        cmake make build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
 
@@ -54,20 +38,16 @@ COPY . .
 # already OOM-killed this exact build (and once crashed the whole WSL VM) at
 # LLAMA_BUILD_JOBS=3 on an 8 GB dev host, only stabilizing at fully serial
 # -j 1 (~480 MB peak, per the E5 spike). Default to 1 for that case; the CI
-# workflow (native arm64 runner, 16 GB RAM) overrides this to a higher value
-# since it isn't fighting the same ceiling.
+# workflow (16 GB RAM runner) overrides this to a higher value since it
+# isn't fighting the same ceiling.
 ARG LLAMA_BUILD_JOBS=1
-RUN . /etc/kuromatsu-arm64-toolchain.env && \
-    make llama-lib-arm64 ARM64_CC=$ARM64_CC ARM64_CXX=$ARM64_CXX LLAMA_BUILD_JOBS=${LLAMA_BUILD_JOBS}
-RUN . /etc/kuromatsu-arm64-toolchain.env && \
-    make build-native-arm64 ARM64_CC=$ARM64_CC ARM64_CXX=$ARM64_CXX
+RUN make llama-lib-x86-64 LLAMA_BUILD_JOBS=${LLAMA_BUILD_JOBS}
+RUN make build-native-x86-64
 
 # ------------------------------------------------------------
-# Runtime: the only stage that runs under arm64 emulation when built from a
-# non-arm64 host -- cheap, since it only unpacks a handful of .deb packages,
-# it never compiles anything.
+# Runtime: minimal, no compiler needed.
 # ------------------------------------------------------------
-FROM --platform=linux/arm64 debian:bookworm-slim
+FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ca-certificates tzdata curl python3 python3-pip bash \
@@ -85,7 +65,7 @@ ENV GOMEMLIMIT=650MiB
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -sf http://localhost:18790/health || exit 1
 
-COPY --from=builder /src/build/kuromatsu-native-linux-arm64 /usr/local/bin/kuromatsu
+COPY --from=builder /src/build/kuromatsu-native-linux-amd64 /usr/local/bin/kuromatsu
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

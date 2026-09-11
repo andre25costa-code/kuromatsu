@@ -2,9 +2,9 @@
 id: S10
 title: Escopo — o que fica, o que sai, o que não entra
 status: confirmed
-version: 1
+version: 2
 owner: André
-last_updated: 2026-09-10
+last_updated: 2026-09-11
 depends_on: [S01]
 ---
 
@@ -16,7 +16,7 @@ depends_on: [S01]
 |---|---|
 | Core do agente | Loop, pipeline, fallback chain, tools, sessões, seahorse, cron, heartbeat, evolution — herdados do PicoClaw |
 | Canais | `pico`, `pico_client`, `telegram`, `whatsapp`, `whatsapp_native` |
-| **Novo** | Provider nativo in-process (`pkg/providers/localllm`), fallback automático sem chaves, modo dormir (`pkg/sleep`), tool `sysmon`, skill `kuromatsu-docs`, build/deploy nativo ARM64 |
+| **Novo** | Provider nativo in-process (`pkg/providers/localllm`), fallback automático sem chaves, modo dormir (`pkg/sleep`), tool `sysmon`, skill `kuromatsu-docs`, build/deploy nativo x86_64 (Oracle) |
 | Workspace | Template genérico PT-BR versionado + embed para `onboard` |
 
 ## Fora do escopo (removido nesta refatoração — ADR-007)

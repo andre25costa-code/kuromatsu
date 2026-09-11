@@ -2,9 +2,9 @@
 id: S40
 title: Referências
 status: confirmed
-version: 1
+version: 2
 owner: André
-last_updated: 2026-09-10
+last_updated: 2026-09-11
 depends_on: []
 ---
 
@@ -14,10 +14,11 @@ depends_on: []
 |---|---|---|
 | PicoClaw (upstream) | https://github.com/sipeed/picoclaw | Base do fork (HEAD `bbf6893c`) |
 | Fork prism do llama.cpp | https://github.com/PrismML-Eng/llama.cpp (branch `prism`, pin `d8f26eec7`) | Runtime de inferência Q1_0 |
-| Coleção Bonsai (HF) | https://huggingface.co/collections/prism-ml/bonsai | Modelos; candidata a fonte do download (S25) |
+| Coleção Bonsai (HF) | https://huggingface.co/collections/prism-ml/bonsai | Modelos |
+| GGUF Bonsai-1.7B-Q1_0 | https://huggingface.co/prism-ml/Bonsai-1.7B-gguf | Fonte oficial confirmada do download (S25) |
 | Bonsai-demo | repo `PrismML-Eng/Bonsai-demo` (citado no README do fork) | Binários + modelos prontos; referência |
 | Exemplo de embedding | `llama.cpp/examples/simple-chat/simple-chat.cpp` | Molde do loop do `engine_cgo.go` |
-| Build docs do fork | `llama.cpp/docs/build.md` | Flags ARM64 (dotprod/i8mm) |
+| Build docs do fork | `llama.cpp/docs/build.md` | Flags de CPU (x86 AVX*/ARM dotprod-i8mm) |
 | Dockerfile CPU do fork | `llama.cpp/.devops/cpu.Dockerfile` | Referência de toolchain (gcc-14/glibc) |
 | Docs Clawdbot/OpenClaw | https://docs.clawd.bot | Inspiração da skill de docs (clawddocs) |
 
