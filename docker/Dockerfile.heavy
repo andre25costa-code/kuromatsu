@@ -52,9 +52,9 @@ COPY --from=builder /src/build/kuromatsu /usr/local/bin/kuromatsu
 RUN /usr/local/bin/kuromatsu onboard
 
 # Copy default workspace
-COPY workspace/ /root/.picoclaw/workspace/
+COPY workspace/ /root/.kuromatsu/workspace/
 
-VOLUME /root/.picoclaw/workspace
+VOLUME /root/.kuromatsu/workspace
 
 ENTRYPOINT ["kuromatsu"]
 CMD ["gateway"]

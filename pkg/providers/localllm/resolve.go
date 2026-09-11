@@ -9,8 +9,8 @@ import (
 // EnvModelsDir names the directory the runtime searches for GGUF files
 // before falling back to <home>/models and ./models. This is a
 // Kuromatsu-native variable (no PicoClaw predecessor), so it does not need
-// the PICOCLAW_*/KUROMATSU_* compatibility shim used for renamed variables
-// (ADR-005).
+// the legacy PICOCLAW_*->KUROMATSU_* compatibility shim used for renamed
+// variables (ADR-005).
 const EnvModelsDir = "KUROMATSU_MODELS_DIR"
 
 // ResolveModelPath finds the GGUF file for modelID. home is the caller's

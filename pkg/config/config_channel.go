@@ -737,17 +737,17 @@ func applyTelegramStreamingEnvCompat(target any) {
 		return
 	}
 
-	if raw, ok := os.LookupEnv("PICOCLAW_CHANNELS_TELEGRAM_STREAMING_ENABLED"); ok {
+	if raw, ok := os.LookupEnv("KUROMATSU_CHANNELS_TELEGRAM_STREAMING_ENABLED"); ok {
 		if value, err := strconv.ParseBool(raw); err == nil {
 			settings.Streaming.Enabled = value
 		}
 	}
-	if raw, ok := os.LookupEnv("PICOCLAW_CHANNELS_TELEGRAM_STREAMING_THROTTLE_SECONDS"); ok {
+	if raw, ok := os.LookupEnv("KUROMATSU_CHANNELS_TELEGRAM_STREAMING_THROTTLE_SECONDS"); ok {
 		if value, err := strconv.Atoi(raw); err == nil {
 			settings.Streaming.ThrottleSeconds = value
 		}
 	}
-	if raw, ok := os.LookupEnv("PICOCLAW_CHANNELS_TELEGRAM_STREAMING_MIN_GROWTH_CHARS"); ok {
+	if raw, ok := os.LookupEnv("KUROMATSU_CHANNELS_TELEGRAM_STREAMING_MIN_GROWTH_CHARS"); ok {
 		if value, err := strconv.Atoi(raw); err == nil {
 			settings.Streaming.MinGrowthChars = value
 		}

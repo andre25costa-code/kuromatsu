@@ -21,8 +21,8 @@ func printOnboardPlain(logo string, encrypt bool, configPath string) {
 	fmt.Println("\nNext steps:")
 	if encrypt {
 		fmt.Println("  1. Set your encryption passphrase before starting picoclaw:")
-		fmt.Println("       export PICOCLAW_KEY_PASSPHRASE=<your-passphrase>   # Linux/macOS")
-		fmt.Println("       set PICOCLAW_KEY_PASSPHRASE=<your-passphrase>      # Windows cmd")
+		fmt.Println("       export KUROMATSU_KEY_PASSPHRASE=<your-passphrase>   # Linux/macOS")
+		fmt.Println("       set KUROMATSU_KEY_PASSPHRASE=<your-passphrase>      # Windows cmd")
 		fmt.Println("")
 		fmt.Println("  2. Add your API key to", configPath)
 	} else {
@@ -83,8 +83,8 @@ func buildOnboardingSteps(encrypt bool, configPath string) string {
 	var b strings.Builder
 	if encrypt {
 		b.WriteString("1. Set your encryption passphrase before starting picoclaw:\n")
-		b.WriteString("   export PICOCLAW_KEY_PASSPHRASE=<your-passphrase>   # Linux/macOS\n")
-		b.WriteString("   set PICOCLAW_KEY_PASSPHRASE=<your-passphrase>      # Windows cmd\n\n")
+		b.WriteString("   export KUROMATSU_KEY_PASSPHRASE=<your-passphrase>   # Linux/macOS\n")
+		b.WriteString("   set KUROMATSU_KEY_PASSPHRASE=<your-passphrase>      # Windows cmd\n\n")
 		b.WriteString("2. Add your API key to\n   ")
 		b.WriteString(configPath)
 		b.WriteString("\n")

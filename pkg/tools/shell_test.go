@@ -1948,7 +1948,7 @@ func TestShellTool_CustomAllowDoesNotBypassDenyPatterns(t *testing.T) {
 		t.Fatalf("NewExecToolWithConfig() error: %v", err)
 	}
 
-	got := tool.guardCommand(`jq -n '$ENV.PICOCLAW_VARIANT_CANARY'`, t.TempDir())
+	got := tool.guardCommand(`jq -n '$ENV.KUROMATSU_VARIANT_CANARY'`, t.TempDir())
 	if !strings.Contains(got, "dangerous pattern detected") {
 		t.Fatalf("custom allow should not bypass deny patterns, got: %q", got)
 	}

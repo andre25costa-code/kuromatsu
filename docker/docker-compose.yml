@@ -15,7 +15,7 @@ services:
     #extra_hosts:
     #  - "host.docker.internal:host-gateway"
     volumes:
-      - ./data:/root/.picoclaw
+      - ./data:/root/.kuromatsu
     entrypoint: ["kuromatsu", "agent"]
     stdin_open: true
     tty: true
@@ -37,4 +37,4 @@ services:
     #extra_hosts:
     #  - "host.docker.internal:host-gateway"
     volumes:
-      - ./data:/root/.picoclaw
+      - ./data:/root/.kuromatsu

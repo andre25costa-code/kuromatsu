@@ -52,12 +52,19 @@ func TestRelPathError(t *testing.T) {
 }
 
 func TestResolveTargetHome(t *testing.T) {
-	home, err := os.UserHomeDir()
-	require.NoError(t, err)
+	// Isolate $HOME: ResolveTargetHome delegates to config.GetHome(), which
+	// reads an existing ~/.picoclaw in place (ADR-005) -- asserting against
+	// the real, uncontrolled home directory would be flaky depending on
+	// whatever happens to be on the machine running the test.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	os.Unsetenv("KUROMATSU_HOME")
+	os.Unsetenv("PICOCLAW_HOME")
 
 	result, err := ResolveTargetHome("")
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join(home, ".picoclaw"), result)
+	assert.Equal(t, filepath.Join(home, ".kuromatsu"), result)
 }
 
 func TestResolveTargetHomeWithOverride(t *testing.T) {

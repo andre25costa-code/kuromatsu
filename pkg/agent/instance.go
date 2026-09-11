@@ -590,7 +590,7 @@ func resolveAgentWorkspace(agentCfg *config.AgentConfig, defaults *config.AgentD
 	if agentCfg != nil && strings.TrimSpace(agentCfg.Workspace) != "" {
 		return expandHome(strings.TrimSpace(agentCfg.Workspace))
 	}
-	// Use the configured default workspace (respects PICOCLAW_HOME)
+	// Use the configured default workspace (respects KUROMATSU_HOME)
 	if agentCfg == nil || agentCfg.Default || agentCfg.ID == "" ||
 		routing.NormalizeAgentID(agentCfg.ID) == "main" {
 		return expandHome(defaults.Workspace)

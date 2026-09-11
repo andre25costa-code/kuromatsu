@@ -12,9 +12,10 @@ build/
 /picoclaw-test
 cmd/**/workspace
 
-# Picoclaw specific
+# Kuromatsu specific
 
-# PicoClaw
+# Kuromatsu (and the pre-rebrand PicoClaw home dir, read in place per ADR-005)
+.kuromatsu/
 .picoclaw/
 config.json
 sessions/

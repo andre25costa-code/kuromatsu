@@ -130,9 +130,9 @@ func TestAgentLoop_ProcessDirectWithChannel_AutoMountsProcessHook(t *testing.T) 
 				Enabled: true,
 				Command: processHookHelperCommand(),
 				Env: map[string]string{
-					"PICOCLAW_HOOK_HELPER":    "1",
-					"PICOCLAW_HOOK_MODE":      "rewrite",
-					"PICOCLAW_HOOK_EVENT_LOG": eventLog,
+					"KUROMATSU_HOOK_HELPER":    "1",
+					"KUROMATSU_HOOK_MODE":      "rewrite",
+					"KUROMATSU_HOOK_EVENT_LOG": eventLog,
 				},
 				Observe:   []string{"turn_end"},
 				Intercept: []string{"before_llm", "after_llm"},

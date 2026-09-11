@@ -57,8 +57,8 @@ const testReleaseAPIPath = "/api.github.com/repos/sipeed/picoclaw/releases/lates
 // TestDownloadAndExtractRelease_IntegrationLatestRelease downloads the latest
 // public release for a single platform as an opt-in smoke test.
 func TestDownloadAndExtractRelease_IntegrationLatestRelease(t *testing.T) {
-	if os.Getenv("PICOCLAW_INTEGRATION_TESTS") == "" {
-		t.Skip("skipping integration test (set PICOCLAW_INTEGRATION_TESTS=1 to enable)")
+	if os.Getenv("KUROMATSU_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test (set KUROMATSU_INTEGRATION_TESTS=1 to enable)")
 	}
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

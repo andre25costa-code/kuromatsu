@@ -19,7 +19,7 @@ import (
 )
 
 func TestProcessHook_HelperProcess(t *testing.T) {
-	if os.Getenv("PICOCLAW_HOOK_HELPER") != "1" {
+	if os.Getenv("KUROMATSU_HOOK_HELPER") != "1" {
 		return
 	}
 	if err := runProcessHookHelper(); err != nil {
@@ -263,11 +263,11 @@ func processHookHelperCommand() []string {
 
 func processHookHelperEnv(mode, eventLog string) []string {
 	env := []string{
-		"PICOCLAW_HOOK_HELPER=1",
-		"PICOCLAW_HOOK_MODE=" + mode,
+		"KUROMATSU_HOOK_HELPER=1",
+		"KUROMATSU_HOOK_MODE=" + mode,
 	}
 	if eventLog != "" {
-		env = append(env, "PICOCLAW_HOOK_EVENT_LOG="+eventLog)
+		env = append(env, "KUROMATSU_HOOK_EVENT_LOG="+eventLog)
 	}
 	return env
 }
@@ -342,8 +342,8 @@ func waitForFileContains(t *testing.T, path, substring string) {
 }
 
 func runProcessHookHelper() error {
-	mode := os.Getenv("PICOCLAW_HOOK_MODE")
-	eventLog := os.Getenv("PICOCLAW_HOOK_EVENT_LOG")
+	mode := os.Getenv("KUROMATSU_HOOK_MODE")
+	eventLog := os.Getenv("KUROMATSU_HOOK_EVENT_LOG")
 
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), processHookReadBufferSize)

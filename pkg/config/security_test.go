@@ -236,8 +236,8 @@ skills:
 			Tools: original.Tools,
 		}
 
-		t.Setenv("PICOCLAW_CHANNELS_TELEGRAM_TOKEN", "telegram_token_env")
-		t.Setenv("PICOCLAW_TOOLS_WEB_BRAVE_API_KEYS", "brave_key_env,abc")
+		t.Setenv("KUROMATSU_CHANNELS_TELEGRAM_TOKEN", "telegram_token_env")
+		t.Setenv("KUROMATSU_TOOLS_WEB_BRAVE_API_KEYS", "brave_key_env,abc")
 
 		require.NoError(t, env.Parse(envCfg))
 		// Channel env overrides need explicit handling since ChannelsConfig is map-based

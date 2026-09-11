@@ -3,6 +3,7 @@
 .git
 .gitignore
 build/
+.kuromatsu/
 .picoclaw/
 config/
 .env
