@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test integration-test build-all
+.PHONY: all build install uninstall clean help test integration-test build-all llama-lib llama-lib-arm64 build-native build-native-arm64 run-native bench-native
 
 # Build variables
 BINARY_NAME=kuromatsu
@@ -263,6 +263,68 @@ build-android-arm64: generate
 ## build-pi-zero: Build for Raspberry Pi Zero 2 W (32-bit and 64-bit)
 build-pi-zero: build-linux-arm build-linux-arm64
 	@echo "Pi Zero 2 W builds: $(BUILD_DIR)/$(BINARY_NAME)-linux-arm (32-bit), $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 (64-bit)"
+
+# ---- Native llama.cpp inference (build tag: nativellm) ----
+# Embeds the Bonsai-1.7B-Q1_0 GGUF's runtime (the PrismML "prism" fork of
+# llama.cpp, git submodule at ./llama.cpp) directly in the binary via cgo,
+# instead of talking to a separate llama-server process (ADR-001/002/003).
+# `make build` above is untouched and stays CGO_ENABLED=0 pure Go; these
+# targets are the only ones that need a C++ toolchain (S18, S32).
+LLAMA_DIR=llama.cpp
+LLAMA_BUILD_DIR=$(LLAMA_DIR)/build-native
+CMAKE?=cmake
+# ggml/llama.cpp translation units are large C++; building all of them at
+# full core count can spike host RAM well past what a dev machine has free
+# (observed OOM at unlimited -j on a 12-core/8GB box). Override with
+# `make llama-lib LLAMA_BUILD_JOBS=8` on a beefier machine, but never build
+# this ON the 1GB-RAM deploy target itself -- see docker/Dockerfile.native
+# (E7), which is the only place this is meant to run for a real deploy.
+LLAMA_BUILD_JOBS?=3
+LLAMA_CMAKE_COMMON=-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_STATIC=ON \
+	-DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=OFF \
+	-DLLAMA_BUILD_SERVER=OFF -DLLAMA_BUILD_APP=OFF -DLLAMA_BUILD_UI=OFF \
+	-DLLAMA_BUILD_COMMON=OFF -DLLAMA_CURL=OFF \
+	-DGGML_BACKEND_DL=OFF -DGGML_OPENMP=OFF -DGGML_CPU_REPACK=ON
+
+## llama-lib: Build static llama.cpp/ggml libraries for the host CPU (dev/test)
+llama-lib:
+	@$(CMAKE) -S $(LLAMA_DIR) -B $(LLAMA_BUILD_DIR) $(LLAMA_CMAKE_COMMON) -DGGML_NATIVE=ON
+	@$(CMAKE) --build $(LLAMA_BUILD_DIR) -j $(LLAMA_BUILD_JOBS) --target llama
+	@mkdir -p $(LLAMA_BUILD_DIR)/lib
+	@find $(LLAMA_BUILD_DIR) -name '*.a' -exec cp -f {} $(LLAMA_BUILD_DIR)/lib/ \;
+	@echo "Static libs in $(LLAMA_BUILD_DIR)/lib:"
+	@ls $(LLAMA_BUILD_DIR)/lib/*.a
+
+## llama-lib-arm64: Cross/target build for linux/arm64 (run on or targeting an
+## Ampere/Neoverse-N1-class host, e.g. Oracle A1 -- dotprod yes, i8mm NO)
+llama-lib-arm64:
+	@$(CMAKE) -S $(LLAMA_DIR) -B $(LLAMA_BUILD_DIR) $(LLAMA_CMAKE_COMMON) -DGGML_NATIVE=OFF \
+		-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16
+	@$(CMAKE) --build $(LLAMA_BUILD_DIR) -j $(LLAMA_BUILD_JOBS) --target llama
+	@mkdir -p $(LLAMA_BUILD_DIR)/lib
+	@find $(LLAMA_BUILD_DIR) -name '*.a' -exec cp -f {} $(LLAMA_BUILD_DIR)/lib/ \;
+
+## build-native: Build the binary with in-process inference (host CPU, cgo)
+build-native: generate llama-lib
+	CGO_ENABLED=1 $(GO) build $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
+		-o $(BUILD_DIR)/$(BINARY_NAME)-native$(EXT) ./$(CMD_DIR)
+	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-native$(EXT)"
+
+## build-native-arm64: linux/arm64 native build (run inside a linux/arm64
+## builder -- see docker/Dockerfile.native; cgo cannot cross-compile the C side)
+build-native-arm64: generate llama-lib-arm64
+	CGO_ENABLED=1 GOOS=linux GOARCH=arm64 $(GO) build $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
+		-o $(BUILD_DIR)/$(BINARY_NAME)-native-linux-arm64 ./$(CMD_DIR)
+
+## run-native: Build the native binary and download the model if needed
+run-native: build-native model-download
+	@$(BUILD_DIR)/$(BINARY_NAME)-native$(EXT) status
+
+## bench-native: Build the native binary and run the tok/s + RSS micro-benchmark
+bench-native: build-native model-download
+	CGO_ENABLED=1 $(GO) build $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
+		-o $(BUILD_DIR)/nativebench$(EXT) ./cmd/nativebench
+	@$(BUILD_DIR)/nativebench$(EXT) -model models/Bonsai-1.7B-Q1_0.gguf
 
 ## build-all: Build the kuromatsu core binary for all Makefile-managed platforms
 build-all: generate

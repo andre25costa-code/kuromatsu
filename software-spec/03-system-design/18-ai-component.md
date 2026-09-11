@@ -2,7 +2,7 @@
 id: S18
 title: Componente de IA — Bonsai-1.7B-Q1_0 embutido
 status: confirmed
-version: 1
+version: 2
 owner: André
 last_updated: 2026-09-10
 depends_on: [S06, S13]
@@ -52,6 +52,28 @@ o "humano" é o próprio usuário conversando.
 
 ## Avaliação
 
-Baseline (tok/s prefill/geração, RSS, taxa de tool-call válido) será medida com
-`cmd/nativebench` na máquina alvo no E7 e registrada como S39 — sem números inventados
+Baseline completo (tok/s prefill/geração, RSS, taxa de tool-call válido) será medido com
+`cmd/nativebench` na máquina alvo no E7 e registrado como S39 — sem números inventados
 antes da medição (coverage S39 = tbd).
+
+**Medição parcial já confirmada (E5)**: teste de integração real
+(`pkg/providers/localllm/engine_cgo_test.go`, `TestCgoEngine_RealModel_Integration`) rodado
+em WSL/x86_64 (não é o alvo ARM64 — apenas valida que o pipeline funciona ponta a ponta,
+não serve de baseline de performance) carregou o GGUF real e gerou uma resposta coerente
+("Olá!") a partir de um prompt em português. Números observados nessa rodada, a `n_ctx=512`:
+
+| Buffer | Tamanho observado |
+|---|---|
+| Modelo (CPU_Mapped) | 231,13 MiB |
+| KV cache (q8_0, 512 tokens, 28 camadas) | 29,75 MiB (K: 14,88 + V: 14,88) |
+| Buffer de computação (compute/graph) | 152,12 MiB |
+
+O buffer de computação medido (152 MiB) é **maior que a estimativa inicial do orçamento de
+RAM em S29** (~60 MiB) — S29 precisa ser revisto com esse dado real antes do E7 (ver
+depends_on ali). O fork também habilita `flash_attn` automaticamente quando o cache V é
+quantizado (log: "enabling flash_attn since it is required for quantized V cache") —
+comportamento nativo do llama.cpp, não requer configuração nossa. O tensor de embeddings
+(`token_embd.weight`, Q1_0) não usa o caminho de repack otimizado para ARM (fica em CPU
+simples) — irrelevante para performance já que a busca de embedding não é matmul-bound;
+as camadas de atenção/FFN (onde o repack realmente importa) não foram inspecionadas
+individualmente nesta rodada.
