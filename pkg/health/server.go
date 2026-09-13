@@ -21,6 +21,12 @@ type Server struct {
 	startTime  time.Time
 	reloadFunc func() error
 	authToken  string // optional bearer token for protected endpoints
+
+	// stateFunc is the Trilho C runstate hook (ADR-016 point 5,
+	// FR-017/AC-017-1): installed only when runstate.enabled=true
+	// (gateway.go, C2). nil (the default) means the JSON below never
+	// gains a "state" field -- byte-identical to today (AC-017-7).
+	stateFunc func() (bits uint32, names []string)
 }
 
 type Check struct {
@@ -35,6 +41,20 @@ type StatusResponse struct {
 	Uptime string           `json:"uptime"`
 	PID    int              `json:"pid,omitempty"`
 	Checks map[string]Check `json:"checks,omitempty"`
+	// State is the Trilho C runstate snapshot (ADR-016 point 5): aditive,
+	// only present when SetStateFunc has installed a reader
+	// (runstate.enabled=true) -- omitted entirely otherwise, keeping the
+	// JSON shape exactly what it was before Trilho C (AC-017-7).
+	State *StateInfo `json:"state,omitempty"`
+}
+
+// StateInfo mirrors runstate.Mode without pkg/health importing
+// pkg/runstate: Bits is the raw uint32 (run/state's "bits="), Names is the
+// same sorted active-bit-name list (run/state's "names=", sd_notify's
+// STATUS=).
+type StateInfo struct {
+	Bits  uint32   `json:"bits"`
+	Names []string `json:"names"`
 }
 
 func NewServer(host string, port int, token string) *Server {
@@ -119,6 +139,29 @@ func (s *Server) SetReloadFunc(fn func() error) {
 	s.reloadFunc = fn
 }
 
+// SetStateFunc installs the Trilho C runstate reader (AC-017-1): fn is
+// called on every /health and /ready response to populate the aditive
+// "state" field. Pass nil to remove it (the default) -- /health and
+// /ready then go back to omitting "state" entirely.
+func (s *Server) SetStateFunc(fn func() (bits uint32, names []string)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stateFunc = fn
+}
+
+// currentStateInfo returns the current *StateInfo, or nil when no
+// stateFunc is installed.
+func (s *Server) currentStateInfo() *StateInfo {
+	s.mu.RLock()
+	fn := s.stateFunc
+	s.mu.RUnlock()
+	if fn == nil {
+		return nil
+	}
+	bits, names := fn()
+	return &StateInfo{Bits: bits, Names: names}
+}
+
 func (s *Server) reloadHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Content-Type", "application/json")
@@ -174,6 +217,7 @@ func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 		Status: "ok",
 		Uptime: uptime.String(),
 		PID:    os.Getpid(),
+		State:  s.currentStateInfo(),
 	}
 
 	_ = json.NewEncoder(w).Encode(resp)
@@ -214,6 +258,7 @@ func (s *Server) readyHandler(w http.ResponseWriter, r *http.Request) {
 		Status: "ready",
 		Uptime: uptime.String(),
 		Checks: checks,
+		State:  s.currentStateInfo(),
 	})
 }
 

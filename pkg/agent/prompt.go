@@ -124,6 +124,29 @@ type PromptBuildRequest struct {
 	AllowedSkills               []string
 	AllowedTools                []string
 	ToolUseFallback             bool
+
+	// The fields below implement the compact prompt / prefix-cache-friendly
+	// path from ADR-014 point 3 / FR-015. All default to the zero value,
+	// which reproduces today's behavior exactly (AC-015-3/AC-014-9).
+
+	// CompactSystemPrompt selects the short framework identity
+	// (getIdentityCompact, ≤~150 tokens of overhead) instead of the full
+	// one.
+	CompactSystemPrompt bool
+	// MemoryMode overrides how much memory context is loaded: "" (or
+	// "default") keeps today's MEMORY.md + recent daily notes, "core"
+	// loads MEMORY.md only, "off" loads none.
+	MemoryMode string
+	// DynamicContext selects the per-request context block: "" (or "full",
+	// the default) keeps today's Current Time/Runtime/Session/Sender
+	// block; "date" emits only "## Current Date" (no per-minute
+	// timestamp), which is what keeps the prefix byte-identical across
+	// turns on the same day for prefix-cache reuse (ADR-015/S21).
+	DynamicContext string
+	// NeedsTime appends "[now: HH:MM]" to the end of the assembled user
+	// message for this LLM call only — never to the system prompt, never
+	// to the message persisted in session history.
+	NeedsTime bool
 }
 
 type PromptContributor interface {

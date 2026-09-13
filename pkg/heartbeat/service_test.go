@@ -220,6 +220,87 @@ func TestBuildPrompt_DefaultTemplateStaysIdle(t *testing.T) {
 	}
 }
 
+// AC-017-2: with SetShouldSkip returning true, a heartbeat that would
+// otherwise fire (non-empty HEARTBEAT.md, a working handler) is skipped
+// entirely -- the handler must never be called.
+func TestExecuteHeartbeat_ShouldSkipPreventsDispatch(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "heartbeat-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	hs := NewHeartbeatService(tmpDir, 30, true)
+	hs.stopChan = make(chan struct{})
+
+	called := false
+	hs.SetHandler(func(prompt, channel, chatID string) *tools.ToolResult {
+		called = true
+		return &tools.ToolResult{Silent: true}
+	})
+	hs.SetShouldSkip(func() bool { return true })
+
+	os.WriteFile(filepath.Join(tmpDir, "HEARTBEAT.md"), []byte("Test task"), 0o644)
+	hs.executeHeartbeat()
+
+	if called {
+		t.Fatal("handler was called despite SetShouldSkip returning true")
+	}
+}
+
+// AC-017-7 (compat side): with no ShouldSkip hook installed (the default,
+// runstate.enabled=false), a heartbeat that would normally fire still
+// fires -- nothing about the pre-existing dispatch path changes.
+func TestExecuteHeartbeat_NoShouldSkipHookRunsNormally(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "heartbeat-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	hs := NewHeartbeatService(tmpDir, 30, true)
+	hs.stopChan = make(chan struct{})
+
+	called := false
+	hs.SetHandler(func(prompt, channel, chatID string) *tools.ToolResult {
+		called = true
+		return &tools.ToolResult{Silent: true}
+	})
+
+	os.WriteFile(filepath.Join(tmpDir, "HEARTBEAT.md"), []byte("Test task"), 0o644)
+	hs.executeHeartbeat()
+
+	if !called {
+		t.Fatal("handler was not called with no ShouldSkip hook installed")
+	}
+}
+
+// SetShouldSkip(nil) removes a previously installed hook.
+func TestSetShouldSkip_NilRemovesHook(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "heartbeat-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	hs := NewHeartbeatService(tmpDir, 30, true)
+	hs.stopChan = make(chan struct{})
+	hs.SetShouldSkip(func() bool { return true })
+	hs.SetShouldSkip(nil)
+
+	called := false
+	hs.SetHandler(func(prompt, channel, chatID string) *tools.ToolResult {
+		called = true
+		return &tools.ToolResult{Silent: true}
+	})
+	os.WriteFile(filepath.Join(tmpDir, "HEARTBEAT.md"), []byte("Test task"), 0o644)
+	hs.executeHeartbeat()
+
+	if !called {
+		t.Fatal("handler was not called after SetShouldSkip(nil) removed the hook")
+	}
+}
+
 func TestBuildPrompt_UserTasksAfterMarkerProducePrompt(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "heartbeat-test-*")
 	if err != nil {

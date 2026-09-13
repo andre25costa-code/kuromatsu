@@ -29,6 +29,14 @@ type CronPayload struct {
 	Command string `json:"command,omitempty"`
 	Channel string `json:"channel,omitempty"`
 	To      string `json:"to,omitempty"`
+	// Window optionally names a focus window (ADR-014/FR-014) this job's
+	// "Message" kind should run in — pkg/tools/cron.go's ExecuteJob
+	// prefixes the dispatched message with "[foco:<Window>] " so the
+	// router (pkg/routing/focus.go) picks it up via the same inline-tag
+	// precedence a user typing that tag would get. Empty means "let the
+	// router's Origins["cron"] mapping decide" (or "chat" if focus is
+	// disabled — a no-op either way).
+	Window string `json:"window,omitempty"`
 }
 
 type CronJobState struct {

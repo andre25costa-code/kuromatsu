@@ -1,6 +1,51 @@
 package agent
 
-import "testing"
+import (
+	"sync"
+	"testing"
+
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
+)
+
+// S09/ADR-016 point 6: activeRequestsInc is the Inference hook every real
+// LLM call (CallLLM/retryLLMCall) goes through -- it must refuse while
+// Suspended, and must not touch activeReqCount when it does (nothing was
+// actually started, so there is nothing for activeRequestsDec to undo).
+func TestActiveRequestsInc_RefusedWhenSuspended(t *testing.T) {
+	rs := runstate.New()
+	rs.Suspend()
+	defer rs.Resume()
+
+	al := &AgentLoop{runstate: rs}
+	al.activeReqCond = sync.NewCond(&al.activeReqMu)
+
+	if ok := al.activeRequestsInc(); ok {
+		t.Fatal("activeRequestsInc() = true while Suspended, want false")
+	}
+	al.activeReqMu.Lock()
+	count := al.activeReqCount
+	al.activeReqMu.Unlock()
+	if count != 0 {
+		t.Fatalf("activeReqCount = %d after a refused Inc, want 0", count)
+	}
+}
+
+func TestActiveRequestsInc_SucceedsWhenNotSuspended(t *testing.T) {
+	rs := runstate.New()
+	al := &AgentLoop{runstate: rs}
+	al.activeReqCond = sync.NewCond(&al.activeReqMu)
+
+	if ok := al.activeRequestsInc(); !ok {
+		t.Fatal("activeRequestsInc() = false on a non-Suspended engine, want true")
+	}
+	if !rs.Snapshot().Has(runstate.Inference) {
+		t.Fatal("Inference bit not set after a successful activeRequestsInc")
+	}
+	al.activeRequestsDec()
+	if rs.Snapshot().Has(runstate.Inference) {
+		t.Fatal("Inference bit still set after activeRequestsDec")
+	}
+}
 
 func TestInferMediaType(t *testing.T) {
 	tests := []struct {

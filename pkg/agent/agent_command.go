@@ -32,6 +32,10 @@ func (al *AgentLoop) handleCommand(
 		return reply, handled
 	}
 
+	if matched, handled, reply := al.applyExplicitFocusCommand(msg.Content, opts); matched {
+		return reply, handled
+	}
+
 	if al.cmdRegistry == nil {
 		return "", false
 	}
@@ -122,6 +126,93 @@ func (al *AgentLoop) applyExplicitSkillCommand(
 	}
 
 	return true, false, ""
+}
+
+// applyExplicitFocusCommand implements "/foco" (alias "/focus",
+// ADR-014/FR-014 AC-014-8), mirroring applyExplicitSkillCommand above: it
+// needs to mutate the in-flight processOptions (arm session aderência,
+// rewrite the message with an inline tag) in ways a generic Runtime
+// handler can't, so it's special-cased here, checked before the generic
+// executor runs.
+//
+//   - "/foco" (no args): lists windows and reports the current one.
+//   - "/foco <window>": arms aderência (pins the window indefinitely for
+//     this session) and replies immediately — matched=true, handled=true.
+//   - "/foco <window> <message>": routes just this message via the same
+//     inline-tag mechanism a user typing "[foco:<window>] <message>"
+//     would use — matched=true, handled=false, falls through to the LLM.
+//   - "/foco auto" or "/foco off": forgets any pinned window.
+func (al *AgentLoop) applyExplicitFocusCommand(
+	raw string,
+	opts *processOptions,
+) (matched bool, handled bool, reply string) {
+	normalizeProcessOptionsInPlace(opts)
+
+	cmdName, ok := commands.CommandName(raw)
+	if !ok || (cmdName != "foco" && cmdName != "focus") {
+		return false, false, ""
+	}
+
+	fr := al.focusRuntimeSnapshot()
+	if fr == nil {
+		return true, true, "Focus windows are disabled (focus.enabled=false)."
+	}
+	if opts == nil || strings.TrimSpace(opts.Dispatch.SessionKey) == "" {
+		return true, true, "Focus command unavailable: no active session."
+	}
+	sessionKey := opts.Dispatch.SessionKey
+
+	parts := strings.Fields(strings.TrimSpace(raw))
+	if len(parts) < 2 {
+		return true, true, buildFocoCommandHelp(fr, sessionKey)
+	}
+
+	arg := strings.ToLower(strings.TrimSpace(parts[1]))
+	if arg == "auto" || arg == "off" {
+		fr.Forget(sessionKey)
+		return true, true, "Focus aderência cleared; back to automatic routing."
+	}
+
+	if _, ok := fr.ResolveWindow(arg); !ok {
+		return true, true, fmt.Sprintf(
+			"Unknown focus window: %s\nAvailable: %s",
+			arg, strings.Join(fr.ListWindowNames(), ", "),
+		)
+	}
+
+	if len(parts) < 3 {
+		fr.Pin(sessionKey, arg)
+		return true, true, fmt.Sprintf("Focus window pinned to %q for this session.", arg)
+	}
+
+	message := strings.TrimSpace(strings.Join(parts[2:], " "))
+	if message == "" {
+		return true, true, buildFocoCommandHelp(fr, sessionKey)
+	}
+
+	// Route just this one message via the inline-tag mechanism
+	// (routing.FocusRouter's own precedence rules), rather than pinning
+	// aderência — the next message goes back to normal routing.
+	tagged := fmt.Sprintf("[foco:%s] %s", arg, message)
+	opts.Dispatch.UserMessage = tagged
+	opts.UserMessage = tagged
+	return true, false, ""
+}
+
+func buildFocoCommandHelp(fr *focusRuntime, sessionKey string) string {
+	names := fr.ListWindowNames()
+	current, sticky := fr.Current(sessionKey)
+	var status string
+	switch {
+	case current != "" && sticky:
+		status = fmt.Sprintf("Current window: %s (pinned)", current)
+	default:
+		status = "Current window: auto (routed per message)"
+	}
+	return fmt.Sprintf(
+		"%s\nAvailable windows: %s\nUsage: /foco [window|auto|off] [message]",
+		status, strings.Join(names, ", "),
+	)
 }
 
 func (al *AgentLoop) buildCommandsRuntime(
@@ -256,6 +347,19 @@ func (al *AgentLoop) buildCommandsRuntime(
 				return nil
 			}
 			return al.channelManager.GetEnabledChannels()
+		},
+		ListFocusWindows: func() []string {
+			return al.focusRuntimeSnapshot().ListWindowNames()
+		},
+		GetFocusState: func() (string, bool) {
+			fr := al.focusRuntimeSnapshot()
+			if fr == nil || opts == nil {
+				return "", false
+			}
+			return fr.Current(opts.Dispatch.SessionKey)
+		},
+		QueryStats: func(ctx context.Context, window string, hours int) (string, error) {
+			return al.telemetrySnapshot().queryStats(ctx, window, hours)
 		},
 		GetActiveTurn: func() any {
 			info := al.GetActiveTurn()

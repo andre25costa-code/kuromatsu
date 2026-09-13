@@ -2,7 +2,7 @@
 id: S40
 title: Referências
 status: confirmed
-version: 2
+version: 3
 owner: André
 last_updated: 2026-09-11
 depends_on: []
@@ -31,7 +31,18 @@ depends_on: []
 | tok/s geração na Oracle | — | — | E7 → S39 |
 | RSS pico / idle na Oracle | — | — | E7 → S39 |
 
-Ambas as medições foram feitas com `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags goolm,stdjson`,
+> **Por que essas duas linhas continuam vazias (nota 2026-09-11, auditoria E0-E7)**:
+> não é uma pendência esquecida — o smoke test real de E7 na Oracle (commit
+> `bf52e3b8`) mediu que o prefill do prompt completo do agente (~2793 tokens,
+> registrado em S06/R6) não terminava em 15+ minutos na VM real (`VM.Standard.E2.1.Micro`,
+> 1 OCPU). Um número de tok/s extraído desse cenário não serviria de baseline —
+> confundiria "CPU sob throttle" com "prompt grande demais" no mesmo dado. Por isso
+> `S39` continua `tbd` (ver `spec-coverage.yaml`): a medição formal com
+> `cmd/nativebench` (já embarcado na imagem desde E7) fica para quando o alvo de
+> medição/mitigação estiver decidido — ver `BACKLOG.md`. Preencher esta tabela com
+> números não medidos violaria a regra de não invenção da skill `software-spec-writing`.
+
+Ambas as medições de binário/pacotes acima foram feitas com `GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -tags goolm,stdjson`,
 em git worktrees isolados presos a cada commit (evitando contaminação por trabalho em paralelo
 não commitado no branch principal). "Antes" = `d17b2150` (fim do E1, ainda com `web/`, os 22 canais e
 `pkg/tools/hardware`). "Depois" = `cb895bec` (fim do E2, após os 4 commits de poda: remoção do

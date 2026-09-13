@@ -284,6 +284,84 @@ func TestTurnProfileConfig_ValidationRejectsUnsupportedModes(t *testing.T) {
 	}
 }
 
+// TestTurnProfileConfig_SystemPromptCompactAllowedOnlyForSystemPrompt covers
+// the A6 addition of TurnProfileModeCompact (ADR-014 point 3 / FR-015
+// AC-015-1): "compact" is a valid system_prompt.mode, but every other block
+// (history/skills/tools) still rejects it exactly like any other unknown mode.
+func TestTurnProfileConfig_SystemPromptCompactAllowedOnlyForSystemPrompt(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Agents.Defaults.TurnProfile = TurnProfileConfig{
+		Enabled:      true,
+		SystemPrompt: TurnProfileBlock{Mode: TurnProfileModeCompact},
+	}
+	if err := cfg.ValidateTurnProfile(); err != nil {
+		t.Fatalf("ValidateTurnProfile() error = %v, want nil for system_prompt.mode=compact", err)
+	}
+	profile, ok, err := cfg.Agents.Defaults.ResolveTurnProfile()
+	if err != nil {
+		t.Fatalf("ResolveTurnProfile() error = %v", err)
+	}
+	if !ok || profile.SystemPromptMode != TurnProfileModeCompact {
+		t.Fatalf("resolved profile = %+v, want SystemPromptMode=compact", profile)
+	}
+
+	for _, tt := range []struct {
+		field string
+		block *TurnProfileBlock
+	}{
+		{"history", &cfg.Agents.Defaults.TurnProfile.History},
+		{"skills", &cfg.Agents.Defaults.TurnProfile.Skills},
+		{"tools", &cfg.Agents.Defaults.TurnProfile.Tools},
+	} {
+		cfg.Agents.Defaults.TurnProfile = TurnProfileConfig{Enabled: true}
+		*fieldBlock(&cfg.Agents.Defaults.TurnProfile, tt.field) = TurnProfileBlock{Mode: TurnProfileModeCompact}
+		err := cfg.ValidateTurnProfile()
+		if err == nil {
+			t.Fatalf("ValidateTurnProfile() error = nil for %s.mode=compact, want error", tt.field)
+		}
+		if !strings.Contains(err.Error(), "compact is not supported") {
+			t.Fatalf("ValidateTurnProfile() error = %v, want mentioning compact not supported", err)
+		}
+	}
+}
+
+func fieldBlock(profile *TurnProfileConfig, field string) *TurnProfileBlock {
+	switch field {
+	case "history":
+		return &profile.History
+	case "skills":
+		return &profile.Skills
+	case "tools":
+		return &profile.Tools
+	default:
+		return &profile.SystemPrompt
+	}
+}
+
+// TestEffectiveTurnProfile_FocusFieldsDefaultToZeroValue documents the
+// compatibility invariant A2/A3/A4 rely on: a profile resolved from the
+// plain, static AgentDefaults.TurnProfile (never touched by focus routing)
+// always leaves Window/MemoryMode/NeedsTime/EscalateTo at the zero value, so
+// nothing added for the focus feature can change behavior when
+// focus.enabled=false (AC-014-9).
+func TestEffectiveTurnProfile_FocusFieldsDefaultToZeroValue(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Agents.Defaults.TurnProfile = TurnProfileConfig{
+		Enabled: true,
+		Tools:   TurnProfileBlock{Mode: TurnProfileModeCustom, Allow: []string{"echo_text"}},
+	}
+	profile, ok, err := cfg.Agents.Defaults.ResolveTurnProfile()
+	if err != nil {
+		t.Fatalf("ResolveTurnProfile() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("ResolveTurnProfile() ok = false, want true")
+	}
+	if profile.Window != "" || profile.MemoryMode != "" || profile.NeedsTime || profile.EscalateTo != "" {
+		t.Fatalf("plain turn profile leaked focus fields: %+v", profile)
+	}
+}
+
 func TestDefaultConfig_MCPMaxInlineTextChars(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.Tools.MCP.GetMaxInlineTextChars() != DefaultMCPMaxInlineTextChars {

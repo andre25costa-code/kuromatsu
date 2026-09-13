@@ -162,7 +162,17 @@ func NewAgentInstance(
 		}
 	}
 	if cfg.Tools.IsToolEnabled("sysmon") {
-		toolsRegistry.Register(tools.NewSysmonTool(cfg.Tools.Sysmon.AllowDestructive))
+		sysmonTool := tools.NewSysmonTool(cfg.Tools.Sysmon.AllowDestructive)
+		// Trilho C bridge (ADR-016 point 5): only wired when runstate is
+		// actually on, so action=state's "not available" fallback is what
+		// every other build/config keeps seeing (FR-011 unchanged).
+		if rs := runstateEngineForConfig(cfg); rs != nil {
+			sysmonTool.WithStateReader(func() (uint32, []string) {
+				mode := rs.Snapshot()
+				return uint32(mode), mode.Names()
+			})
+		}
+		toolsRegistry.Register(sysmonTool)
 	}
 
 	sessionsDir := filepath.Join(workspace, "sessions")
@@ -202,15 +212,36 @@ func NewAgentInstance(
 		maxTokens = 8192
 	}
 
+	// FR-015/AC-015-6: for a model that declares its real native runtime
+	// limits (extra_body.n_ctx/max_predict — today only the seeded
+	// "bonsai-local" entry), let ContextWindow/MaxTokens reflect them
+	// instead of the generic heuristics below, so the proactive overflow
+	// cut (context_budget.go) fires before the engine's own hard n_ctx
+	// error rather than never (native's ContextWindow default of
+	// maxTokens*4 = 32768 was 16x the real 2048 n_ctx). Every other
+	// provider's ModelConfig has no n_ctx/max_predict in ExtraBody, so
+	// nativeNCtx/nativeMaxPredict stay 0 and this is a no-op for them.
+	var nativeNCtx, nativeMaxPredict int
+	if mc, err := cfg.GetModelConfig(model); err == nil {
+		nativeNCtx, nativeMaxPredict, _ = config.NativeLimits(mc)
+	}
+	if nativeMaxPredict > 0 && nativeMaxPredict < maxTokens {
+		maxTokens = nativeMaxPredict
+	}
+
 	contextWindow := defaults.ContextWindow
 	if contextWindow == 0 {
-		// Default heuristic: 4x the output token limit.
-		// Most models have context windows well above their output limits
-		// (e.g., GPT-4o 128k ctx / 16k out, Claude 200k ctx / 8k out).
-		// 4x is a conservative lower bound that avoids premature
-		// summarization while remaining safe — the reactive
-		// forceCompression handles any overshoot.
-		contextWindow = maxTokens * 4
+		if nativeNCtx > 0 {
+			contextWindow = nativeNCtx
+		} else {
+			// Default heuristic: 4x the output token limit.
+			// Most models have context windows well above their output limits
+			// (e.g., GPT-4o 128k ctx / 16k out, Claude 200k ctx / 8k out).
+			// 4x is a conservative lower bound that avoids premature
+			// summarization while remaining safe — the reactive
+			// forceCompression handles any overshoot.
+			contextWindow = maxTokens * 4
+		}
 	}
 
 	temperature := 0.7

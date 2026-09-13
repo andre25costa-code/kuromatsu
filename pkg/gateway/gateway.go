@@ -58,6 +58,20 @@ type services struct {
 	VoiceAgentCancel context.CancelFunc
 	manualReloadChan chan struct{}
 	reloading        atomic.Bool
+
+	// runstatePublishersStop cancels the file/log/sd_notify publisher
+	// goroutines installRunstateIntegration started (Trilho C, C2). nil
+	// when runstate.enabled=false, or before the first
+	// installRunstateIntegration call. Re-set on every reload so a
+	// previous reload's goroutines never leak past the new ones.
+	runstatePublishersStop func()
+
+	// memguardStop cancels the memguard PSI watchdog goroutine
+	// installMemguardIntegration started (Trilho C, C3). nil when
+	// memguard.enabled=false, or before the first
+	// installMemguardIntegration call. Re-set on every reload, same
+	// reasoning as runstatePublishersStop.
+	memguardStop func()
 	authToken        string
 }
 
@@ -206,6 +220,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	// otherwise set this) is never called — we flip the flag explicitly here.
 	runningServices.HealthServer.SetReady(true)
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReady, startedAt, nil)
+	sdReadyIfEnabled(cfg, agentLoop)
 	closeListeners = false
 
 	// Setup manual reload channel for /reload endpoint
@@ -513,12 +528,24 @@ func setupAndStartServices(
 		fmt.Println("✓ Device event service started")
 	}
 
+	installRunstateIntegration(cfg, agentLoop, runningServices)
+	installMemguardIntegration(cfg, agentLoop, runningServices)
+
 	return runningServices, nil
 }
 
 func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Duration, isReload bool) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
+
+	if runningServices.runstatePublishersStop != nil {
+		runningServices.runstatePublishersStop()
+		runningServices.runstatePublishersStop = nil
+	}
+	if runningServices.memguardStop != nil {
+		runningServices.memguardStop()
+		runningServices.memguardStop = nil
+	}
 
 	// reload should not stop channel manager
 	if !isReload && runningServices.ChannelManager != nil {
@@ -551,6 +578,9 @@ func shutdownGateway(
 	fullShutdown bool,
 ) {
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayShutdown, time.Time{}, nil)
+	if fullShutdown {
+		sdStoppingIfEnabled(agentLoop.GetConfig(), agentLoop)
+	}
 
 	if cp, ok := provider.(providers.StatefulProvider); ok && fullShutdown {
 		cp.Close()
@@ -731,6 +761,9 @@ func restartServices(
 	logChannelVoiceCapabilities(runningServices.ChannelManager, transcriber != nil, ttsAvailable)
 	// NOTE: PID file is written once at startup and not updated on reload.
 	// Changing the gateway listen address requires a full restart.
+
+	installRunstateIntegration(cfg, al, runningServices)
+	installMemguardIntegration(cfg, al, runningServices)
 
 	return nil
 }

@@ -46,6 +46,24 @@ func NewProvider(opts Options) (*Provider, error) {
 	return p, nil
 }
 
+// UnloadAll unloads every process-wide cached engine (ADR-017/FR-018,
+// C3): called by the memguard PSI watchdog under sustained severe memory
+// pressure, before the OOM killer would otherwise act. Safe to call even
+// when nothing is loaded (each engine's unload() is itself idempotent --
+// see engine_cgo.go's unloadLocked/unload).
+func UnloadAll() {
+	registryMu.Lock()
+	snapshot := make([]*Provider, 0, len(registry))
+	for _, p := range registry {
+		snapshot = append(snapshot, p)
+	}
+	registryMu.Unlock()
+
+	for _, p := range snapshot {
+		p.eng.unload()
+	}
+}
+
 // GetDefaultModel returns the model id derived from the GGUF filename
 // (e.g. "Bonsai-1.7B-Q1_0" for ".../Bonsai-1.7B-Q1_0.gguf").
 func (p *Provider) GetDefaultModel() string {
@@ -98,6 +116,9 @@ func (p *Provider) Chat(
 			PromptTokens:     result.PromptTokens,
 			CompletionTokens: result.OutputTokens,
 			TotalTokens:      result.PromptTokens + result.OutputTokens,
+			CachedTokens:     result.CachedTokens,
+			PrefillMs:        result.Prefill.Milliseconds(),
+			GenerationMs:     result.Generation.Milliseconds(),
 		},
 	}, nil
 }

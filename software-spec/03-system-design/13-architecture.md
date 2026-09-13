@@ -2,9 +2,9 @@
 id: S13
 title: Arquitetura geral
 status: confirmed
-version: 1
+version: 2
 owner: André
-last_updated: 2026-09-10
+last_updated: 2026-09-11
 depends_on: [S10, S18]
 ---
 
@@ -50,4 +50,4 @@ flowchart TB
 - **Provedores LLM via HTTP** — opcionais, só com chave em `config.json`/`.security.yml`.
 - **Telegram/WhatsApp** — canais de entrada/saída.
 - **GitHub (PrismML-Eng/llama.cpp)** — origem do submodule pinado.
-- **Fonte do GGUF** (S25, TBD) — usada apenas pelo script de download; runtime nunca baixa nada.
+- **Fonte do GGUF** (S25, confirmada) — usada apenas pelo script de download; runtime nunca baixa nada.

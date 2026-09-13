@@ -147,6 +147,41 @@ func TestApplyNativeFallback_RespectsExplicitDefault(t *testing.T) {
 	}
 }
 
+// TestNativeLimits_ReadsExtraBodyKeys covers A8/FR-015 AC-015-6: NativeLimits
+// must read exactly the ExtraBody keys nativeOptionsFromModelConfig reads,
+// so ContextWindow/MaxTokens can't silently drift from the engine's real
+// n_ctx/max_predict.
+func TestNativeLimits_ReadsExtraBodyKeys(t *testing.T) {
+	nCtx, maxPredict, ok := NativeLimits(&ModelConfig{
+		ExtraBody: map[string]any{"n_ctx": 2048, "max_predict": 512, "kv_cache_type": "q8_0"},
+	})
+	if !ok {
+		t.Fatal("NativeLimits() ok = false, want true")
+	}
+	if nCtx != 2048 || maxPredict != 512 {
+		t.Fatalf("NativeLimits() = (%d, %d), want (2048, 512)", nCtx, maxPredict)
+	}
+}
+
+func TestNativeLimits_NilOrEmptyExtraBodyIsNotOK(t *testing.T) {
+	if _, _, ok := NativeLimits(nil); ok {
+		t.Fatal("NativeLimits(nil) ok = true, want false")
+	}
+	if _, _, ok := NativeLimits(&ModelConfig{}); ok {
+		t.Fatal("NativeLimits(no ExtraBody) ok = true, want false")
+	}
+	if _, _, ok := NativeLimits(&ModelConfig{ExtraBody: map[string]any{"kv_cache_type": "q8_0"}}); ok {
+		t.Fatal("NativeLimits(unrelated ExtraBody keys) ok = true, want false")
+	}
+}
+
+func TestNativeLimits_PartialKeysStillOK(t *testing.T) {
+	nCtx, maxPredict, ok := NativeLimits(&ModelConfig{ExtraBody: map[string]any{"n_ctx": 4096}})
+	if !ok || nCtx != 4096 || maxPredict != 0 {
+		t.Fatalf("NativeLimits(n_ctx only) = (%d, %d, %v), want (4096, 0, true)", nCtx, maxPredict, ok)
+	}
+}
+
 func TestApplyNativeFallback_IdempotentOnRepeatedCalls(t *testing.T) {
 	withNativeBuilt(t, true)
 	home := withHome(t)

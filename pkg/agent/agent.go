@@ -26,6 +26,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/media"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 	"github.com/andre25costa-code/kuromatsu/pkg/routing"
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 	"github.com/andre25costa-code/kuromatsu/pkg/session"
 	"github.com/andre25costa-code/kuromatsu/pkg/state"
 	"github.com/andre25costa-code/kuromatsu/pkg/utils"
@@ -61,6 +62,43 @@ type AgentLoop struct {
 	pendingSkills  sync.Map
 	pendingStops   sync.Map
 	mu             sync.RWMutex
+
+	// focus is the Trilho A "janelas de foco" runtime (ADR-014/FR-014). nil
+	// whenever focus.enabled=false (the default) — applyFocus is then a
+	// complete no-op, which is what keeps that path byte-identical to
+	// today (AC-014-9). Recreated (not mutated) on every config reload, so
+	// aderência/sticky state resets alongside everything else config
+	// reload already resets. Guarded by mu, like cfg/registry.
+	focus *focusRuntime
+
+	// reflexes is the Trilho A "reflexos" runtime (ADR-014 point 6/FR-013).
+	// nil whenever no reflexes are configured (the default) — see
+	// reflex.go. Guarded by mu, like focus.
+	reflexes *reflexRuntime
+
+	// runstate is the Trilho C "motor de estados" engine (ADR-016/FR-017).
+	// nil whenever runstate.enabled=false (the default everywhere but the
+	// demetrius deploy target) — every hook site (activeRequestsInc/Dec,
+	// askSideQuestion, ExecuteTools, tryReflex, the evolution/sleep
+	// dreamGates) treats a nil runstate as "do nothing", which is what
+	// keeps ADR-016's "evolução igual"/"heartbeat nunca pulado" compat
+	// promise exact rather than approximate. When non-nil it is always
+	// runstate.Default() (never a fresh runstate.New()), so a config
+	// reload that keeps runstate.enabled=true swaps this field to the
+	// *same* Engine pointer — see runstateEngineForConfig. Guarded by mu,
+	// like focus/reflexes.
+	runstate *runstate.Engine
+
+	// sleep is the Trilho C "bridge do sono" scheduler (FR-010/ADR-018,
+	// C5/E9 parte 2). nil whenever sleep.enabled=false (the default) or
+	// ReloadProviderAndConfig is mid-swap — see sleep_bridge.go.
+	sleep *sleepBridge
+
+	// telemetry is the Trilho C per-turn telemetry bridge (FR-019/C4,
+	// ADR-017). nil whenever telemetry.enabled=false (the default) — no
+	// turns.db file is ever created (AC-019-6). See telemetry_bridge.go.
+	// Guarded by mu, like runstate/sleep.
+	telemetry *telemetryBridge
 
 	// workerSem limits concurrent turn processing workers.
 	workerSem chan struct{}
@@ -110,6 +148,16 @@ type processOptions struct {
 	InboundContext          *bus.InboundContext    // Normalized inbound facts for events/hooks
 	RouteResult             *routing.ResolvedRoute // Route decision snapshot for events/hooks
 	SessionScope            *session.SessionScope  // Session scope snapshot for events/hooks
+
+	// Origin and FocusWindow are the Trilho A "janelas de foco" additions
+	// (ADR-014/FR-014). Origin is one of OriginUser (default, "" also
+	// means user), OriginHeartbeat, OriginCron, OriginSystem, OriginReflex;
+	// callers that know their origin (ProcessHeartbeat, processMessage) set
+	// it explicitly, applyFocus infers it otherwise. FocusWindow is an
+	// output: applyFocus fills it in with the resolved window name (empty
+	// when focus is disabled) for turnState/telemetry to read.
+	Origin      string
+	FocusWindow string
 }
 
 type continuationTarget struct {
@@ -343,6 +391,22 @@ func (al *AgentLoop) Close() {
 				})
 		}
 	}
+	if sleepBr := al.sleepSnapshot(); sleepBr != nil {
+		if err := sleepBr.Close(); err != nil {
+			logger.ErrorCF("agent", "Failed to close sleep bridge",
+				map[string]any{
+					"error": err.Error(),
+				})
+		}
+	}
+	if telemetryBr := al.telemetrySnapshot(); telemetryBr != nil {
+		if err := telemetryBr.Close(); err != nil {
+			logger.ErrorCF("agent", "Failed to close telemetry bridge",
+				map[string]any{
+					"error": err.Error(),
+				})
+		}
+	}
 
 	al.GetRegistry().Close()
 	if al.hooks != nil {
@@ -413,7 +477,9 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 	// Ensure shared tools are re-registered on the new registry
 	registerSharedTools(al, cfg, al.bus, registry, provider)
 
-	newEvolution, evolutionErr := newEvolutionBridge(registry, cfg, provider)
+	rs := runstateEngineForConfig(cfg)
+
+	newEvolution, evolutionErr := newEvolutionBridge(registry, cfg, al.providerFactory, rs)
 	if evolutionErr != nil {
 		logger.WarnCF("agent", "Failed to reinitialize evolution bridge during reload",
 			map[string]any{"error": evolutionErr.Error()})
@@ -426,16 +492,49 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 		}
 	}
 
+	// newSleepBridge takes explicit dependencies (not a live al) precisely
+	// so it can be built here, before the lock, from the same
+	// about-to-become-current registry/cfg/rs the evolution bridge above
+	// already used -- never through an unsynchronized read of al's
+	// mutable fields.
+	newSleepBr := newSleepBridge(cfg, registry, al.providerFactory, rs)
+
+	// newTelemetryBridge is likewise built from explicit dependencies
+	// before the lock (same reasoning as newSleepBr above), and recreated
+	// (not mutated) on every reload -- consistent with evolution/sleep,
+	// even when telemetry.enabled/retention_days/db_path didn't actually
+	// change.
+	newTelemetry, telemetryErr := newTelemetryBridge(cfg, rs)
+	if telemetryErr != nil {
+		logger.WarnCF("agent", "Failed to reinitialize telemetry bridge during reload",
+			map[string]any{"error": telemetryErr.Error()})
+	}
+	if newTelemetry != nil {
+		if err := newTelemetry.subscribeRuntimeEvents(al.runtimeEvents.Channel()); err != nil {
+			logger.WarnCF("agent", "Failed to subscribe reloaded telemetry bridge to runtime events",
+				map[string]any{"error": err.Error()})
+		}
+	}
+
 	// Atomically swap the config and registry under write lock
 	// This ensures readers see a consistent pair
 	al.mu.Lock()
 	oldRegistry := al.registry
 	oldEvolution := al.evolution
+	oldSleep := al.sleep
+	oldTelemetry := al.telemetry
 
 	// Store new values
 	al.cfg = cfg
 	al.registry = registry
 	al.evolution = newEvolution
+	al.sleep = newSleepBr
+	al.telemetry = newTelemetry
+	// Recreated (not mutated) so aderência/sticky and compiled-reflex state
+	// reset alongside everything else a reload already resets — ADR-014.
+	al.focus = newFocusRuntime(cfg)
+	al.reflexes = newReflexRuntime(cfg)
+	al.runstate = rs
 
 	// Also update fallback chain with new config; rebuild rate limiter registry.
 	newRL := providers.NewRateLimiterRegistry()
@@ -449,6 +548,19 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 
 	al.mu.Unlock()
 	al.refreshRuntimeEventLogger(cfg)
+
+	if oldSleep != nil {
+		if err := oldSleep.Close(); err != nil {
+			logger.WarnCF("agent", "Failed to close previous sleep bridge during reload",
+				map[string]any{"error": err.Error()})
+		}
+	}
+	if oldTelemetry != nil {
+		if err := oldTelemetry.Close(); err != nil {
+			logger.WarnCF("agent", "Failed to close previous telemetry bridge during reload",
+				map[string]any{"error": err.Error()})
+		}
+	}
 
 	oldMCPManager := al.mcp.reset()
 	al.hookRuntime.reset(al)
@@ -536,6 +648,11 @@ func (al *AgentLoop) runAgentLoop(
 	if err != nil {
 		return "", err
 	}
+	// applyFocus is the single funnel every entry path (user message,
+	// heartbeat, cron, system) goes through, right after the static
+	// turn_profile resolution above — ADR-014/FR-014. With
+	// focus.enabled=false it returns opts untouched.
+	opts = al.applyFocus(opts)
 
 	// Record last channel for heartbeat notifications (skip internal channels and cli)
 	if opts.Dispatch.Channel() != "" &&
@@ -572,6 +689,11 @@ func (al *AgentLoop) runAgentLoop(
 	if result.status == TurnEndStatusAborted {
 		return "", nil
 	}
+	// ADR-014 point 1: arm/refresh session aderência for the window that
+	// actually served this turn (ts.focusWindow, which may differ from
+	// opts.FocusWindow if A4 escalated mid-turn) — only for user-origin
+	// turns; heartbeat/cron/system never build up sticky state.
+	al.rememberFocusWindow(deriveFocusOrigin(opts), opts.Dispatch.SessionKey, ts.focusWindowSnapshot())
 
 	for _, followUp := range result.followUps {
 		if pubErr := al.bus.PublishInbound(ctx, followUp); pubErr != nil {

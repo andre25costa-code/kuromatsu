@@ -48,6 +48,15 @@ type Config struct {
 	Heartbeat HeartbeatConfig `json:"heartbeat"           yaml:"-"`
 	Devices   DevicesConfig   `json:"devices"             yaml:"-"`
 	Voice     VoiceConfig     `json:"voice"               yaml:"-"`
+	// Runstate, Memguard and Telemetry are the Trilho C additions
+	// (ADR-016/017, FR-017/018/019). All default to their zero value
+	// (disabled), which is a strict no-op -- see each config type's doc.
+	Runstate  RunstateConfig  `json:"runstate,omitempty"  yaml:"-"`
+	Memguard  MemguardConfig  `json:"memguard,omitempty"  yaml:"-"`
+	Telemetry TelemetryConfig `json:"telemetry,omitempty" yaml:"-"`
+	// Sleep is the modo dormir bridge config (FR-010/ADR-006/018, Trilho C
+	// C5/E9 parte 2). Zero value keeps sleep disabled (BR-005).
+	Sleep SleepConfig `json:"sleep,omitempty" yaml:"-"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 
@@ -63,6 +72,19 @@ type EvolutionConfig struct {
 	MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
 	ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 	ColdPathTimes   []string `json:"cold_path_times,omitempty"`
+	// Model is a model_list ref the evolution cold path (LLM pattern
+	// clustering, draft generation, success judging) must use instead of
+	// the agent's default chain -- ADR-018 point 5: like sleep, evolution
+	// is not allowed to run its LLM calls against the native Bonsai model
+	// (same three reasons: e2-micro CPU budget, MEMORY.md/skill integrity,
+	// RAM). Empty, or resolving to the native provider (the default), does
+	// NOT turn evolution off entirely -- FinalizeTurn's non-LLM hot-path
+	// case collection keeps running either way (Enabled alone controls
+	// that); only the cold path itself stays disabled until this is set to
+	// a valid external model_list entry. See HasValidExternalModel
+	// (pkg/config/sleep.go) and AC-010-9; the gate itself lives in
+	// evolution_bridge.go's newEvolutionBridge, mirroring newSleepBridge.
+	Model string `json:"model,omitempty"`
 	// Deprecated: use MinTaskCount.
 	MinCaseCount int `json:"min_case_count,omitempty"`
 	// Deprecated: use MinSuccessRatio.
@@ -78,6 +100,7 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
 		ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 		ColdPathTimes   []string `json:"cold_path_times,omitempty"`
+		Model           string   `json:"model,omitempty"`
 	}{
 		Enabled:         c.Enabled,
 		Mode:            c.Mode,
@@ -86,6 +109,7 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		MinSuccessRatio: c.EffectiveMinSuccessRatio(),
 		ColdPathTrigger: strings.TrimSpace(c.ColdPathTrigger),
 		ColdPathTimes:   c.EffectiveColdPathTimes(),
+		Model:           strings.TrimSpace(c.Model),
 	}
 	if !out.Enabled {
 		out.Mode = ""
@@ -447,6 +471,11 @@ type AgentDefaults struct {
 	TurnProfile               TurnProfileConfig  `json:"turn_profile,omitempty"`
 	MaxLLMRetries             int                `json:"max_llm_retries,omitempty"        env:"KUROMATSU_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
 	LLMRetryBackoffSecs       int                `json:"llm_retry_backoff_secs,omitempty" env:"KUROMATSU_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
+	// Focus and Reflexes are the Trilho A "janelas de foco" additions
+	// (ADR-014/FR-013/FR-014). Both default to their zero value (disabled /
+	// empty), which is a strict no-op — see FocusConfig and ReflexConfig.
+	Focus    FocusConfig    `json:"focus,omitempty"`
+	Reflexes []ReflexConfig `json:"reflexes,omitempty"`
 }
 
 const DefaultMaxMediaSize = 20 * 1024 * 1024 // 20 MB
@@ -1359,6 +1388,15 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	if err = cfg.ValidateTurnProfile(); err != nil {
+		return nil, err
+	}
+	if err = cfg.ValidateFocus(); err != nil {
+		return nil, err
+	}
+	if err = cfg.ValidateReflexes(); err != nil {
+		return nil, err
+	}
+	if err = cfg.ValidateSleep(); err != nil {
 		return nil, err
 	}
 	cfg.Gateway.Host, err = resolveGatewayHostFromEnv(gatewayHostBeforeEnv)

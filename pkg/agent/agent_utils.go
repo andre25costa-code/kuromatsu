@@ -15,6 +15,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 	"github.com/andre25costa-code/kuromatsu/pkg/session"
 	"github.com/andre25costa-code/kuromatsu/pkg/utils"
 )
@@ -592,11 +593,46 @@ func closeProviderIfStateful(provider providers.LLMProvider) {
 	}
 }
 
-// activeRequestsInc atomically increments the active request count.
-func (al *AgentLoop) activeRequestsInc() {
+// errRuntimeSuspendedOverloaded is what CallLLM's inner callLLM closure
+// (pipeline_llm.go) returns when activeRequestsInc refuses because
+// runstate.Suspended is active (S09/ADR-016 point 6 -- the memguard,
+// ADR-017, decided the process is critically low on memory and vetoed a
+// new Inference entry). The word "overloaded" is deliberate: pipeline_llm.
+// go's existing error classification (transientLLMRetryReason ->
+// providers.ClassifyError -> overloadedPatterns's substr("overloaded"))
+// already maps any error whose text contains it to FailoverRateLimit
+// (transient, retry-with-backoff) -- the exact same treatment
+// runstate.ErrOverloaded's PreLoad refusal already gets (S17) -- so no new
+// retry logic is needed here, just the right words. Wraps runstate.ErrBusy
+// (%w) so errors.Is(err, runstate.ErrBusy) still recognizes it as the same
+// "busy, try again" family every other gated call site uses.
+var errRuntimeSuspendedOverloaded = fmt.Errorf("runstate: system overloaded (suspended): %w", runstate.ErrBusy)
+
+// activeRequestsInc atomically increments the active request count and the
+// runstate.Inference refcount, refusing when the engine is Suspended
+// (S09/ADR-016 point 6: "enquanto Suspended está ativo, nenhuma nova
+// entrada de Inference/ToolExec/Dream é aceita"). Returns ok=false when
+// refused -- callers must not proceed to call the provider, and must NOT
+// call activeRequestsDec in that case (nothing was incremented, on either
+// counter).
+//
+// This is also the Trilho C Inference hook (ADR-016 point 7): every real
+// LLM call goes through here (pipeline_llm.go's CallLLM, context_legacy.go)
+// paired with activeRequestsDec below, so runstate.Inference tracks the
+// exact same set of "an active request is in flight" moments the pre-
+// existing activeReqCount refcount already tracked -- no new call site,
+// no new invariant to keep in sync. A nil al.runstate (runstate.enabled=
+// false, the default) makes this always succeed, exactly as before C3.
+func (al *AgentLoop) activeRequestsInc() (ok bool) {
+	if rs := al.rsSnapshot(); rs != nil {
+		if _, entered := rs.TryEnter(runstate.Inference); !entered {
+			return false
+		}
+	}
 	al.activeReqMu.Lock()
 	al.activeReqCount++
 	al.activeReqMu.Unlock()
+	return true
 }
 
 // activeRequestsDec atomically decrements the active request count
@@ -609,6 +645,9 @@ func (al *AgentLoop) activeRequestsDec() {
 		al.activeReqCond.Broadcast()
 	}
 	al.activeReqMu.Unlock()
+	if rs := al.rsSnapshot(); rs != nil {
+		rs.Dec(runstate.Inference)
+	}
 }
 
 func (al *AgentLoop) waitForActiveRequests(ctx context.Context, timeout time.Duration) bool {

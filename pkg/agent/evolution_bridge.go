@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/evolution"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 )
 
 type evolutionBridge struct {
@@ -34,35 +37,77 @@ type evolutionBridge struct {
 
 const evolutionDirectDeliveryAttr = "evolution_direct_delivery"
 
+// newEvolutionBridge constructs the bridge. providerFactory resolves
+// cfg.Evolution.Model into a dedicated provider/model for the cold path
+// (mirrors newSleepBridge's own providerFactory param exactly); nil
+// defaults to providers.CreateProviderFromConfig, same as
+// newSleepChatFunc does.
 func newEvolutionBridge(
 	registry *AgentRegistry,
 	cfg *config.Config,
-	provider providers.LLMProvider,
+	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error),
+	rs *runstate.Engine,
 ) (*evolutionBridge, error) {
 	if cfg == nil {
 		return nil, nil
 	}
 
-	modelID := resolvedEvolutionModelID(cfg, provider)
-	runtime, err := evolution.NewRuntime(evolution.RuntimeOptions{
+	runtimeOpts := evolution.RuntimeOptions{
 		Config: cfg.Evolution,
-		PatternClusterer: evolution.NewLLMPatternClusterer(
-			provider,
-			modelID,
-			evolution.NewHeuristicPatternClusterer(cfg.Evolution.EffectiveMinTaskCount(), nil),
-			cfg.Evolution.EffectiveMinTaskCount(),
-			nil,
-		),
-		GeneratorFactory: func(workspace string) evolution.DraftGenerator {
-			return evolution.NewDraftGeneratorForWorkspace(workspace, provider, modelID)
-		},
-		SuccessJudgeFactory: func(workspace string) evolution.SuccessJudge {
-			return evolution.NewLLMTaskSuccessJudge(provider, modelID, &evolution.HeuristicSuccessJudge{})
-		},
 		ApplierFactory: func(workspace string) *evolution.Applier {
 			return evolution.NewApplier(evolution.NewPaths(workspace, cfg.Evolution.StateDir), nil)
 		},
-	})
+	}
+
+	// ADR-018 point 5 / AC-010-9: the LLM-driven cold path (pattern
+	// clustering, draft generation, success judging) must never run
+	// against the native Bonsai model -- same "trava" newSleepBridge
+	// applies to modo dormir, and for the same three reasons (e2-micro CPU
+	// budget, MEMORY.md/skill integrity, RAM). Resolve a dedicated
+	// provider from evolution.model up front, before runtimeOpts is
+	// finalized: without a valid external model there (logged, not a
+	// fatal boot error -- mirrors ValidateSleep/newSleepBridge), the LLM
+	// factories below are simply never set and evolution.NewRuntime falls
+	// back to its own pure-heuristic implementations
+	// (NewHeuristicPatternClusterer/NewDefaultDraftGenerator/
+	// HeuristicSuccessJudge) -- but coldPathRunner (below) also stays nil
+	// in that case, so RunColdPathOnce is never even reachable either way;
+	// the heuristic fallback is belt-and-suspenders, not the real gate.
+	coldPathNeeded := cfg.Evolution.RunsColdPathAutomatically()
+	coldPathModelOK := coldPathNeeded && cfg.Evolution.HasValidExternalModel(cfg.ModelList)
+	var evoProvider providers.LLMProvider
+	var evoModelID string
+	if coldPathNeeded {
+		if !coldPathModelOK {
+			logger.WarnC("evolution", "evolução requer um modelo externo em evolution.model; cold path desativado")
+		} else {
+			var provErr error
+			evoProvider, evoModelID, provErr = resolvedEvolutionProvider(cfg, providerFactory)
+			if provErr != nil {
+				logger.WarnCF("evolution", "failed to resolve evolution.model provider; cold path desativado", map[string]any{
+					"error": provErr.Error(),
+				})
+				coldPathModelOK = false
+			}
+		}
+	}
+	if coldPathModelOK {
+		runtimeOpts.PatternClusterer = evolution.NewLLMPatternClusterer(
+			evoProvider,
+			evoModelID,
+			evolution.NewHeuristicPatternClusterer(cfg.Evolution.EffectiveMinTaskCount(), nil),
+			cfg.Evolution.EffectiveMinTaskCount(),
+			nil,
+		)
+		runtimeOpts.GeneratorFactory = func(workspace string) evolution.DraftGenerator {
+			return evolution.NewDraftGeneratorForWorkspace(workspace, evoProvider, evoModelID)
+		}
+		runtimeOpts.SuccessJudgeFactory = func(workspace string) evolution.SuccessJudge {
+			return evolution.NewLLMTaskSuccessJudge(evoProvider, evoModelID, &evolution.HeuristicSuccessJudge{})
+		}
+	}
+
+	runtime, err := evolution.NewRuntime(runtimeOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -75,14 +120,31 @@ func newEvolutionBridge(
 		bgCtx:    bgCtx,
 		cancel:   cancel,
 	}
-	if cfg.Evolution.RunsColdPathAutomatically() {
-		bridge.coldPathRunner = evolution.NewColdPathRunnerWithErrorHandler(runtime, func(err error) {
+	if coldPathModelOK {
+		onError := func(err error) {
+			if errors.Is(err, runstate.ErrBusy) {
+				// Expected under load, not a bug -- ADR-016/S17: the
+				// engine was not Idle, so the cold path deferred to an
+				// active user turn. Retriggering (below) covers the retry;
+				// this is just visibility, at a quieter level than a real
+				// failure.
+				logger.DebugCF("agent", "Cold path deferred: runstate busy", nil)
+				return
+			}
 			logger.WarnCF("agent", "Cold path run failed", map[string]any{
 				"error": err.Error(),
 			})
-		})
+		}
+		// dreamGate is nil-rs-safe (an ungated passthrough when
+		// runstate.enabled=false), so this is always wired the same way
+		// regardless of rs -- no separate "runstate off" branch to keep in
+		// sync (ADR-016 point 7).
+		gate := &dreamGate{inner: runtime, rs: rs}
+		runner := evolution.NewColdPathRunnerWithErrorHandler(gate, onError)
+		gate.retrigger = runner.Trigger
+		bridge.coldPathRunner = runner
 	}
-	if cfg.Evolution.RunsColdPathScheduled() {
+	if cfg.Evolution.RunsColdPathScheduled() && coldPathModelOK {
 		bridge.startScheduledColdPath(cfg.Agents.Defaults.Workspace, cfg.Evolution.EffectiveColdPathTimes())
 		bridge.rememberScheduledColdPathWorkspaces(registryWorkspaces(registry))
 	}
@@ -90,16 +152,30 @@ func newEvolutionBridge(
 	return bridge, nil
 }
 
-func resolvedEvolutionModelID(cfg *config.Config, provider providers.LLMProvider) string {
-	if cfg != nil {
-		if modelID := cfg.Agents.Defaults.GetModelName(); modelID != "" {
-			return modelID
-		}
+// resolvedEvolutionProvider resolves the dedicated LLM provider/model
+// evolution's cold path (pattern clustering, draft generation, success
+// judging) must call -- cfg.Evolution.Model via a model_list lookup, never
+// the agent's default chain (ADR-018 point 5 / AC-010-9). Mirrors
+// newSleepChatFunc's resolvedRuntimeModelConfig+providerFactory pattern
+// exactly (sleep_bridge.go). Only called after HasValidExternalModel has
+// already confirmed cfg.Evolution.Model resolves to a real, non-native
+// model_list entry.
+func resolvedEvolutionProvider(
+	cfg *config.Config,
+	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error),
+) (providers.LLMProvider, string, error) {
+	if providerFactory == nil {
+		providerFactory = providers.CreateProviderFromConfig
 	}
-	if provider != nil {
-		return provider.GetDefaultModel()
+	modelCfg, err := resolvedRuntimeModelConfig(cfg, cfg.Evolution.Model, cfg.Agents.Defaults.Workspace)
+	if err != nil {
+		return nil, "", fmt.Errorf("evolution: resolving evolution.model %q: %w", cfg.Evolution.Model, err)
 	}
-	return ""
+	provider, modelID, err := providerFactory(modelCfg)
+	if err != nil {
+		return nil, "", fmt.Errorf("evolution: creating provider for evolution.model %q: %w", cfg.Evolution.Model, err)
+	}
+	return provider, modelID, nil
 }
 
 func (b *evolutionBridge) Close() error {

@@ -48,14 +48,41 @@ jobs:
       - name: 📦 Compress
         run: gzip /tmp/kuromatsu-native-amd64.tar
 
-      - name: ⬆️ Upload artifact
+      - name: ⬆️ Upload image artifact
         uses: actions/upload-artifact@v4
         with:
           name: kuromatsu-native-amd64
           path: /tmp/kuromatsu-native-amd64.tar.gz
           retention-days: 14
 
-      # Deploy from your machine once downloaded:
+      # AC-020-3/FR-020 (ADR-013): the demetrius deploy path runs the binary
+      # directly under systemd, no Docker in runtime -- extract the two
+      # binaries straight from the image we just built (same layers a manual
+      # `docker create` + `docker cp` would read) so a plain scp+systemctl
+      # restart never has to unpack the whole image tarball just to get them.
+      - name: 📤 Extract raw binaries from the built image
+        run: |
+          set -euo pipefail
+          container_id=$(docker create kuromatsu:native-amd64)
+          docker cp "$container_id":/usr/local/bin/kuromatsu /tmp/kuromatsu-native-linux-amd64
+          docker cp "$container_id":/usr/local/bin/nativebench /tmp/nativebench-linux-amd64
+          docker rm "$container_id" >/dev/null
+          chmod +x /tmp/kuromatsu-native-linux-amd64 /tmp/nativebench-linux-amd64
+          ls -la /tmp/kuromatsu-native-linux-amd64 /tmp/nativebench-linux-amd64
+
+      - name: ⬆️ Upload raw binaries artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kuromatsu-native-binaries-amd64
+          path: |
+            /tmp/kuromatsu-native-linux-amd64
+            /tmp/nativebench-linux-amd64
+          retention-days: 14
+
+      # Deploy the image manually (Oracle/Docker path):
       #   scp kuromatsu-native-amd64.tar.gz oracle:~/
       #   ssh oracle 'gunzip -c kuromatsu-native-amd64.tar.gz | docker load'
       #   ssh oracle 'docker compose -f docker/docker-compose.native.yml --profile gateway up -d'
+      # Deploy the raw binaries manually (demetrius/systemd path, AC-020-4):
+      #   scp kuromatsu-native-linux-amd64 nativebench-linux-amd64 demetrius:/tmp/
+      #   ssh demetrius 'sudo install -m755 /tmp/kuromatsu-native-linux-amd64 /opt/kuromatsu/bin/kuromatsu && sudo install -m755 /tmp/nativebench-linux-amd64 /opt/kuromatsu/bin/nativebench && sudo systemctl restart kuromatsu'

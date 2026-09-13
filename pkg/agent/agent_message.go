@@ -99,6 +99,7 @@ func (al *AgentLoop) ProcessHeartbeat(
 		SendResponse:         false,
 		SuppressToolFeedback: true,
 		NoHistory:            true, // Don't load session history for heartbeat
+		Origin:               OriginHeartbeat,
 	})
 }
 
@@ -118,6 +119,17 @@ func (al *AgentLoop) prepareInboundMessageForAgent(
 	}
 
 	return msg
+}
+
+// originForInboundMessage derives the focus origin (ADR-014/S16) for a
+// message flowing through processMessage. ProcessDirectWithChannel (used by
+// cron's "Message" job kind, pkg/tools/cron.go ExecuteJob) sets SenderID to
+// "cron"; every other inbound message here is a genuine user turn.
+func originForInboundMessage(msg bus.InboundMessage) string {
+	if msg.SenderID == OriginCron {
+		return OriginCron
+	}
+	return OriginUser
 }
 
 func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage) (string, error) {
@@ -192,6 +204,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		EnableSummary:           true,
 		SendResponse:            false,
 		AllowInterimPicoPublish: true,
+		Origin:                  originForInboundMessage(msg),
 	}
 	var err error
 	opts, err = resolveTurnProfileOptions(al.GetConfig(), opts)
@@ -203,6 +216,16 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	// "unavailable" when the required capability is nil.
 	if response, handled := al.handleCommand(ctx, msg, agent, &opts); handled {
 		return response, nil
+	}
+
+	// Reflexes (FR-013/ADR-014 point 6): a 0-token, deterministic shortcut
+	// checked after slash commands and before the focus router/LLM call,
+	// only for origin "user". With no reflexes configured (the default)
+	// al.reflexes is nil and this is a no-op (AC-013-5).
+	if opts.Origin == OriginUser {
+		if response, matched := al.tryReflex(ctx, agent, msg, &opts); matched {
+			return response, nil
+		}
 	}
 
 	if pending := al.takePendingSkills(opts.Dispatch.SessionKey); len(pending) > 0 {
@@ -312,5 +335,6 @@ func (al *AgentLoop) processSystemMessage(
 		DefaultResponse: "Background task completed.",
 		EnableSummary:   false,
 		SendResponse:    true,
+		Origin:          OriginSystem,
 	})
 }

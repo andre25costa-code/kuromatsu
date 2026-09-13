@@ -1,0 +1,19 @@
+[Unit]
+Description=Kuromatsu — backup noturno para a VM Oracle (kuro), cross-cloud
+# TODO(runstate/C1): condicionar a execucao ao runstate == Idle (ADR-016) antes
+# de habilitar o timer em producao — por ora, roda no horario e aceita colidir
+# com uma inferencia em andamento (raro na janela 04:30, mas nao gated ainda).
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=kuromatsu
+Group=kuromatsu
+WorkingDirectory=/var/lib/kuromatsu
+ExecStart=/opt/kuromatsu/bin/backup-to-kuro.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target
