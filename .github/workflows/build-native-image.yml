@@ -45,6 +45,29 @@ jobs:
             LLAMA_BUILD_JOBS=${{ inputs.llama_build_jobs }}
           outputs: type=docker,dest=/tmp/kuromatsu-native-amd64.tar
 
+      # AC-020-3/FR-020 (ADR-013): the demetrius deploy path runs the binary
+      # directly under systemd, no Docker in runtime -- extract the two
+      # binaries straight from the image we just built (same layers a manual
+      # `docker create` + `docker cp` would read) so a plain scp+systemctl
+      # restart never has to unpack the whole image tarball just to get them.
+      #
+      # Must run *before* the tar is gzipped, and needs an explicit `docker
+      # load`: build-push-action's `outputs: type=docker,dest=...` exports
+      # straight to that tarball without also loading the image into the
+      # runner's local daemon, so `docker create kuromatsu:native-amd64`
+      # alone 404s ("pull access denied ... repository does not exist") --
+      # confirmed for real on the first run of this step.
+      - name: 📤 Extract raw binaries from the built image
+        run: |
+          set -euo pipefail
+          docker load -i /tmp/kuromatsu-native-amd64.tar
+          container_id=$(docker create kuromatsu:native-amd64)
+          docker cp "$container_id":/usr/local/bin/kuromatsu /tmp/kuromatsu-native-linux-amd64
+          docker cp "$container_id":/usr/local/bin/nativebench /tmp/nativebench-linux-amd64
+          docker rm "$container_id" >/dev/null
+          chmod +x /tmp/kuromatsu-native-linux-amd64 /tmp/nativebench-linux-amd64
+          ls -la /tmp/kuromatsu-native-linux-amd64 /tmp/nativebench-linux-amd64
+
       - name: 📦 Compress
         run: gzip /tmp/kuromatsu-native-amd64.tar
 
@@ -54,21 +77,6 @@ jobs:
           name: kuromatsu-native-amd64
           path: /tmp/kuromatsu-native-amd64.tar.gz
           retention-days: 14
-
-      # AC-020-3/FR-020 (ADR-013): the demetrius deploy path runs the binary
-      # directly under systemd, no Docker in runtime -- extract the two
-      # binaries straight from the image we just built (same layers a manual
-      # `docker create` + `docker cp` would read) so a plain scp+systemctl
-      # restart never has to unpack the whole image tarball just to get them.
-      - name: 📤 Extract raw binaries from the built image
-        run: |
-          set -euo pipefail
-          container_id=$(docker create kuromatsu:native-amd64)
-          docker cp "$container_id":/usr/local/bin/kuromatsu /tmp/kuromatsu-native-linux-amd64
-          docker cp "$container_id":/usr/local/bin/nativebench /tmp/nativebench-linux-amd64
-          docker rm "$container_id" >/dev/null
-          chmod +x /tmp/kuromatsu-native-linux-amd64 /tmp/nativebench-linux-amd64
-          ls -la /tmp/kuromatsu-native-linux-amd64 /tmp/nativebench-linux-amd64
 
       - name: ⬆️ Upload raw binaries artifact
         uses: actions/upload-artifact@v4
