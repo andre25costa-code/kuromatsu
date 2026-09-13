@@ -19,11 +19,10 @@ package localllm
 // This is deliberately plain C, not a Go function exported back to C via
 // //export: the callback's C signature (bool(*)(void*), see
 // ggml_abort_callback in ggml.h) would otherwise depend on exactly how cgo
-// lowers a Go bool across the export boundary, which cannot be verified on
-// this machine (no Go/cgo toolchain available -- see SOUL.md). Keeping the
-// callback itself in C sidesteps that ABI question entirely: Go only ever
-// flips an int flag through the two tiny setters below, which is a
-// well-established, low-risk cgo pattern (calling a plain C function).
+// lowers a Go bool across the export boundary. Keeping the callback itself
+// in C sidesteps that ABI question entirely: Go only ever flips an int flag
+// through the two tiny setters below, a well-established, low-risk cgo
+// pattern (calling a plain C function).
 //
 // A single process-wide flag is correct here because ADR-003's one-context-
 // per-process design (S18) means at most one cgoEngine is ever actually
@@ -32,7 +31,17 @@ package localllm
 // abort_callback_data instead of a bare global).
 static volatile int kuromatsu_abort_flag = 0;
 
-static bool kuromatsu_abort_cb(void *data) {
+// Not static: cgo takes this function's *address* as a value below
+// (C.ggml_abort_callback(C.kuromatsu_abort_cb)), which the linker resolves
+// from cgo's separately-compiled generated glue code -- a static function
+// has internal linkage and is invisible outside this preamble's own
+// translation unit, causing "undefined reference to kuromatsu_abort_cb" at
+// link time (confirmed for real on the first native CI build after this
+// file was written without a compiler available -- see git history).
+// kuromatsu_abort_flag/kuromatsu_set_abort below are only ever *called*,
+// never referenced by address, so static (internal linkage, inlinable) is
+// fine and preferred for them.
+bool kuromatsu_abort_cb(void *data) {
 	(void)data;
 	return kuromatsu_abort_flag != 0;
 }
