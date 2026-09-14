@@ -471,6 +471,15 @@ type AgentDefaults struct {
 	TurnProfile               TurnProfileConfig  `json:"turn_profile,omitempty"`
 	MaxLLMRetries             int                `json:"max_llm_retries,omitempty"        env:"KUROMATSU_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
 	LLMRetryBackoffSecs       int                `json:"llm_retry_backoff_secs,omitempty" env:"KUROMATSU_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
+	// RunstateResumeWaitSecs, when > 0, gives a runstate.ErrBusy suspension
+	// (the memguard vetoing a new inference entry, ADR-017) its own wait
+	// budget instead of the generic MaxLLMRetries/LLMRetryBackoffSecs
+	// budget -- that one is sized for provider rate limits (a few seconds),
+	// which is incompatible with memguard's resume window (PSISustainSecs,
+	// typically tens of seconds). 0 (default) is a strict no-op: identical
+	// to today's behavior, matching every other Trilho C knob's "off by
+	// default".
+	RunstateResumeWaitSecs int `json:"runstate_resume_wait_secs,omitempty" env:"KUROMATSU_AGENTS_DEFAULTS_RUNSTATE_RESUME_WAIT_SECS"`
 	// Focus and Reflexes are the Trilho A "janelas de foco" additions
 	// (ADR-014/FR-013/FR-014). Both default to their zero value (disabled /
 	// empty), which is a strict no-op — see FocusConfig and ReflexConfig.

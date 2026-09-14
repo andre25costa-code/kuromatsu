@@ -14,6 +14,7 @@ import (
 	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 )
 
 // CallLLM performs an LLM call with fallback support, hook invocation, and retry logic.
@@ -325,6 +326,23 @@ func (p *Pipeline) CallLLM(
 			)
 		}
 
+		// runstate.ErrBusy (memguard suspension, see errRuntimeSuspendedOverloaded)
+		// is deliberately classified below as the same "overloaded" family as a
+		// provider rate limit -- but its real recovery signal is a runstate
+		// transition, not a fixed few-second backoff (memguard's resume window,
+		// PSISustainSecs, typically runs tens of seconds). Wait on that signal
+		// with its own budget before falling into the generic classification;
+		// still consumes a retry slot either way (retry++ is the for-loop's own
+		// post-statement), it just doesn't burn it on a doomed short sleep.
+		if errors.Is(err, runstate.ErrBusy) && retry < maxRetries {
+			waitSecs := p.Cfg.Agents.Defaults.RunstateResumeWaitSecs
+			if waitForRunstateResume(turnCtx, al.rsSnapshot(), time.Duration(waitSecs)*time.Second) {
+				logger.InfoCF("agent", "Runstate resumed after suspension; retrying LLM call",
+					map[string]any{"retry": retry})
+				continue
+			}
+		}
+
 		errMsg := strings.ToLower(err.Error())
 		retryReason, isTransientError := transientLLMRetryReason(err)
 		isContextError := !isTransientError && (strings.Contains(errMsg, "context_length_exceeded") ||
@@ -611,22 +629,29 @@ func (p *Pipeline) CallLLM(
 	}
 	logger.DebugCF("agent", "LLM response", llmResponseFields)
 
-	// No-tool-call path: steering check and direct response
+	// No-tool-call path: always finalize the direct response immediately.
+	//
+	// This used to check al.dequeueSteeringMessagesForScope here and, if a
+	// steering message had already arrived, discard responseContent (never
+	// persisted, never logged beyond a char count) and return ControlContinue
+	// to process the steering first. That meant a fully-generated answer was
+	// silently lost whenever a user's follow-up landed in the narrow window
+	// before this check -- confirmed in production 2026-09-14: a 683-char
+	// answer was generated, a "ainda esta ai" steering message arrived ~36min
+	// later while the turn was still open, and the whole turn ended in error
+	// (memguard suspension on the steering continuation) with nothing ever
+	// delivered or persisted, not even the original answer.
+	//
+	// Finalize (via ControlBreak below) now always runs first, which
+	// persists+delivers this response through the normal path. Any steering
+	// message already queued is drained AFTERWARD by
+	// drainQueuedSteeringContinuations (agent_steering.go), which already
+	// exists for exactly this "turn ended, steering still pending" case and
+	// already preserves the original response if the continuation fails.
 	if len(exec.response.ToolCalls) == 0 || exec.gracefulTerminal {
 		responseContent := exec.response.Content
 		if responseContent == "" && exec.response.ReasoningContent != "" && ts.channel != "pico" {
 			responseContent = exec.response.ReasoningContent
-		}
-		if steerMsgs := al.dequeueSteeringMessagesForScope(ts.sessionKey); len(steerMsgs) > 0 {
-			cancelConfiguredStreamingLLM(turnCtx, exec)
-			logger.InfoCF("agent", "Steering arrived after direct LLM response; continuing turn",
-				map[string]any{
-					"agent_id":       ts.agent.ID,
-					"iteration":      iteration,
-					"steering_count": len(steerMsgs),
-				})
-			exec.pendingMessages = append(exec.pendingMessages, steerMsgs...)
-			return ControlContinue, nil
 		}
 
 		exec.finalContent = responseContent

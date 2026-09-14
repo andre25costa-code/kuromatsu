@@ -1,8 +1,10 @@
 package agent
 
 import (
+	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 )
@@ -117,5 +119,79 @@ func TestInferMediaType(t *testing.T) {
 				t.Fatalf("inferMediaType(%q, %q) = %q, want %q", tt.filename, tt.contentType, got, tt.want)
 			}
 		})
+	}
+}
+
+// A.3 (Trilho G): waitForRunstateResume gives a runstate.ErrBusy suspension
+// its own wait budget, distinct from the generic max_llm_retries backoff.
+
+func TestWaitForRunstateResume_ReturnsTrueOnResumeWithinBudget(t *testing.T) {
+	rs := runstate.New()
+	rs.Suspend()
+
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		rs.Resume()
+	}()
+
+	start := time.Now()
+	got := waitForRunstateResume(context.Background(), rs, time.Second)
+	elapsed := time.Since(start)
+
+	if !got {
+		t.Fatal("waitForRunstateResume() = false, want true after Resume() within budget")
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("waitForRunstateResume() took %v, want close to the ~30ms Resume() delay", elapsed)
+	}
+}
+
+func TestWaitForRunstateResume_TimesOutBeyondGenericBudget(t *testing.T) {
+	rs := runstate.New()
+	rs.Suspend()
+	defer rs.Resume()
+
+	start := time.Now()
+	got := waitForRunstateResume(context.Background(), rs, 50*time.Millisecond)
+	elapsed := time.Since(start)
+
+	if got {
+		t.Fatal("waitForRunstateResume() = true, want false -- engine never resumed")
+	}
+	if elapsed < 50*time.Millisecond {
+		t.Fatalf("waitForRunstateResume() returned after %v, want it to have waited out the 50ms budget", elapsed)
+	}
+}
+
+func TestWaitForRunstateResume_NilEngineOrZeroBudgetIsNoOp(t *testing.T) {
+	if got := waitForRunstateResume(context.Background(), nil, time.Second); got {
+		t.Fatal("waitForRunstateResume(nil engine) = true, want false (no-op)")
+	}
+	rs := runstate.New()
+	if got := waitForRunstateResume(context.Background(), rs, 0); got {
+		t.Fatal("waitForRunstateResume(max=0) = true, want false (no-op, byte-identical to before this existed)")
+	}
+}
+
+func TestWaitForRunstateResume_ReturnsFalseWhenCtxCanceled(t *testing.T) {
+	rs := runstate.New()
+	rs.Suspend()
+	defer rs.Resume()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		cancel()
+	}()
+
+	start := time.Now()
+	got := waitForRunstateResume(ctx, rs, 5*time.Second)
+	elapsed := time.Since(start)
+
+	if got {
+		t.Fatal("waitForRunstateResume() = true, want false -- ctx was canceled, engine never resumed")
+	}
+	if elapsed > time.Second {
+		t.Fatalf("waitForRunstateResume() took %v, want it to return promptly on ctx cancellation, not wait out the 5s budget", elapsed)
 	}
 }

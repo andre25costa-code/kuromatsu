@@ -608,6 +608,48 @@ func closeProviderIfStateful(provider providers.LLMProvider) {
 // "busy, try again" family every other gated call site uses.
 var errRuntimeSuspendedOverloaded = fmt.Errorf("runstate: system overloaded (suspended): %w", runstate.ErrBusy)
 
+// waitForRunstateResume blocks until engine's Mode no longer has Suspended
+// set, or until max elapses / ctx is done, whichever comes first. Returns
+// true only if a non-Suspended Mode was actually observed within budget.
+//
+// Exists because errRuntimeSuspendedOverloaded above is deliberately
+// classified as the same "overloaded" family as a provider rate-limit
+// (transient, retry-with-backoff) -- but the generic backoff
+// (agents.defaults.max_llm_retries/llm_retry_backoff_secs, ~6s total by
+// default) is sized for provider rate limits, not for a memguard
+// suspension: recovering from Suspended requires PSISustainSecs of
+// sustained low pressure (pkg/runstate/memguard.go), typically tens of
+// seconds. A caller that detects this specific error can use this to wait
+// on the real resume signal instead of guessing with a fixed sleep.
+//
+// engine nil or max<=0 returns false immediately -- callers must fall
+// through to the generic classification path in that case, which keeps
+// agents.defaults.runstate_resume_wait_secs=0 byte-identical to before
+// this existed.
+func waitForRunstateResume(ctx context.Context, engine *runstate.Engine, max time.Duration) bool {
+	if engine == nil || max <= 0 {
+		return false
+	}
+	ch, cancel := engine.Subscribe()
+	defer cancel()
+
+	timer := time.NewTimer(max)
+	defer timer.Stop()
+
+	for {
+		select {
+		case mode := <-ch:
+			if !mode.Has(runstate.Suspended) {
+				return true
+			}
+		case <-timer.C:
+			return false
+		case <-ctx.Done():
+			return false
+		}
+	}
+}
+
 // activeRequestsInc atomically increments the active request count and the
 // runstate.Inference refcount, refusing when the engine is Suspended
 // (S09/ADR-016 point 6: "enquanto Suspended está ativo, nenhuma nova
