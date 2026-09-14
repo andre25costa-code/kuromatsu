@@ -64,9 +64,10 @@ jobs:
           container_id=$(docker create kuromatsu:native-amd64)
           docker cp "$container_id":/usr/local/bin/kuromatsu /tmp/kuromatsu-native-linux-amd64
           docker cp "$container_id":/usr/local/bin/nativebench /tmp/nativebench-linux-amd64
+          docker cp "$container_id":/usr/local/bin/localllm-integration-test /tmp/localllm-integration-test-linux-amd64
           docker rm "$container_id" >/dev/null
-          chmod +x /tmp/kuromatsu-native-linux-amd64 /tmp/nativebench-linux-amd64
-          ls -la /tmp/kuromatsu-native-linux-amd64 /tmp/nativebench-linux-amd64
+          chmod +x /tmp/kuromatsu-native-linux-amd64 /tmp/nativebench-linux-amd64 /tmp/localllm-integration-test-linux-amd64
+          ls -la /tmp/kuromatsu-native-linux-amd64 /tmp/nativebench-linux-amd64 /tmp/localllm-integration-test-linux-amd64
 
       - name: 📦 Compress
         run: gzip /tmp/kuromatsu-native-amd64.tar
@@ -85,6 +86,18 @@ jobs:
           path: |
             /tmp/kuromatsu-native-linux-amd64
             /tmp/nativebench-linux-amd64
+          retention-days: 14
+
+      # B2's real number (KR3.1) needs the real GGUF + real cgo build, which
+      # this runner has and a 1GB deploy target doesn't -- ship the
+      # self-contained test binary, run it by hand where the model lives:
+      #   KUROMATSU_INTEGRATION_TESTS=1 KUROMATSU_TEST_MODEL=<path-to-gguf> \
+      #     ./localllm-integration-test-linux-amd64 -test.v -test.run TestCgoEngine_CoreParking_Integration
+      - name: ⬆️ Upload localllm integration test binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: localllm-integration-test-amd64
+          path: /tmp/localllm-integration-test-linux-amd64
           retention-days: 14
 
       # Deploy the image manually (Oracle/Docker path):

@@ -44,6 +44,7 @@ ARG LLAMA_BUILD_JOBS=1
 RUN make llama-lib-x86-64 LLAMA_BUILD_JOBS=${LLAMA_BUILD_JOBS}
 RUN make build-native-x86-64
 RUN make nativebench-x86-64
+RUN make localllm-integration-test-x86-64
 
 # ------------------------------------------------------------
 # Runtime: minimal, no compiler needed.
@@ -68,6 +69,7 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 COPY --from=builder /src/build/kuromatsu-native-linux-amd64 /usr/local/bin/kuromatsu
 COPY --from=builder /src/build/nativebench-linux-amd64 /usr/local/bin/nativebench
+COPY --from=builder /src/build/localllm-integration-test-linux-amd64 /usr/local/bin/localllm-integration-test
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
