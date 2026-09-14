@@ -211,7 +211,19 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 
 	logger.InfoCF("agent", "Agent initialized", startupStatus.logFields)
 
-	runningServices, err := setupAndStartServices(cfg, agentLoop, msgBus, pidData.Token, listenResult)
+	// Created here (not further down, where it used to live) because
+	// setupAndStartServices below wires it into the heartbeat/cron handlers
+	// via createHeartbeatHandler/setupCronTool -- without this, those
+	// closures fell back to context.Background(), and a heartbeat- or
+	// cron-originated turn in flight during shutdown never saw cancel() at
+	// all, defeating Fix 2's abort_callback wiring for exactly the origins
+	// most likely to be running during a scheduled restart (confirmed for
+	// real on demetrius: two SIGKILLs on heartbeat turns during this
+	// deploy, before this fix).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runningServices, err := setupAndStartServices(ctx, cfg, agentLoop, msgBus, pidData.Token, listenResult)
 	if err != nil {
 		return err
 	}
@@ -247,9 +259,6 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		fmt.Printf("✓ Gateway started on %s\n", net.JoinHostPort(bindHost, strconv.Itoa(cfg.Gateway.Port)))
 	}
 	fmt.Println("Press Ctrl+C to stop")
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	// Unconditional (no runstate/config gate), same reasoning as
 	// sdReadyOnStartup: the deploy unit's Type=notify+WatchdogSec makes
@@ -413,6 +422,7 @@ func createStartupProvider(
 }
 
 func setupAndStartServices(
+	ctx context.Context,
 	cfg *config.Config,
 	agentLoop *agent.AgentLoop,
 	msgBus *bus.MessageBus,
@@ -424,6 +434,7 @@ func setupAndStartServices(
 	execTimeout := time.Duration(cfg.Tools.Cron.ExecTimeoutMinutes) * time.Minute
 	var err error
 	runningServices.CronService, err = setupCronTool(
+		ctx,
 		agentLoop,
 		msgBus,
 		cfg.WorkspacePath(),
@@ -445,7 +456,7 @@ func setupAndStartServices(
 		cfg.Heartbeat.Enabled,
 	)
 	runningServices.HeartbeatService.SetBus(msgBus)
-	runningServices.HeartbeatService.SetHandler(createHeartbeatHandler(agentLoop))
+	runningServices.HeartbeatService.SetHandler(createHeartbeatHandler(ctx, agentLoop))
 	if err = runningServices.HeartbeatService.Start(); err != nil {
 		return nil, fmt.Errorf("error starting heartbeat service: %w", err)
 	}
@@ -651,7 +662,7 @@ func handleConfigReload(
 	if err != nil {
 		logger.Errorf("  ⚠ Error creating new provider: %v", err)
 		logger.Warn("  Attempting to restart services with old provider and config...")
-		if restartErr := restartServices(al, runningServices, msgBus); restartErr != nil {
+		if restartErr := restartServices(ctx, al, runningServices, msgBus); restartErr != nil {
 			logger.Errorf("  ⚠ Failed to restart services: %v", restartErr)
 		}
 		return fmt.Errorf("error creating new provider: %w", err)
@@ -670,7 +681,7 @@ func handleConfigReload(
 			cp.Close()
 		}
 		logger.Warn("  Attempting to restart services with old provider and config...")
-		if restartErr := restartServices(al, runningServices, msgBus); restartErr != nil {
+		if restartErr := restartServices(ctx, al, runningServices, msgBus); restartErr != nil {
 			logger.Errorf("  ⚠ Failed to restart services: %v", restartErr)
 		}
 		return fmt.Errorf("error reloading agent loop: %w", err)
@@ -679,7 +690,7 @@ func handleConfigReload(
 	*providerRef = newProvider
 
 	logger.Info("  Restarting all services with new configuration...")
-	if err := restartServices(al, runningServices, msgBus); err != nil {
+	if err := restartServices(ctx, al, runningServices, msgBus); err != nil {
 		logger.Errorf("  ⚠ Error restarting services: %v", err)
 		return fmt.Errorf("error restarting services: %w", err)
 	}
@@ -698,6 +709,7 @@ func handleConfigReload(
 }
 
 func restartServices(
+	ctx context.Context,
 	al *agent.AgentLoop,
 	runningServices *services,
 	msgBus *bus.MessageBus,
@@ -707,6 +719,7 @@ func restartServices(
 	execTimeout := time.Duration(cfg.Tools.Cron.ExecTimeoutMinutes) * time.Minute
 	var err error
 	runningServices.CronService, err = setupCronTool(
+		ctx,
 		al,
 		msgBus,
 		cfg.WorkspacePath(),
@@ -728,7 +741,7 @@ func restartServices(
 		cfg.Heartbeat.Enabled,
 	)
 	runningServices.HeartbeatService.SetBus(msgBus)
-	runningServices.HeartbeatService.SetHandler(createHeartbeatHandler(al))
+	runningServices.HeartbeatService.SetHandler(createHeartbeatHandler(ctx, al))
 	if err = runningServices.HeartbeatService.Start(); err != nil {
 		return fmt.Errorf("error restarting heartbeat service: %w", err)
 	}
@@ -881,6 +894,7 @@ func getFileSize(path string) int64 {
 }
 
 func setupCronTool(
+	ctx context.Context,
 	agentLoop *agent.AgentLoop,
 	msgBus *bus.MessageBus,
 	workspace string,
@@ -905,7 +919,10 @@ func setupCronTool(
 
 	if cronTool != nil {
 		cronService.SetOnJob(func(job *cron.CronJob) (string, error) {
-			result := cronTool.ExecuteJob(context.Background(), job)
+			// ctx here is the long-lived gateway ctx (Run's own, or the same
+			// one threaded through a config reload) -- NOT context.Background()
+			// (see createHeartbeatHandler's comment for why that was a bug).
+			result := cronTool.ExecuteJob(ctx, job)
 			return result, nil
 		})
 	}
@@ -913,13 +930,19 @@ func setupCronTool(
 	return cronService, nil
 }
 
-func createHeartbeatHandler(agentLoop *agent.AgentLoop) func(prompt, channel, chatID string) *tools.ToolResult {
+func createHeartbeatHandler(ctx context.Context, agentLoop *agent.AgentLoop) func(prompt, channel, chatID string) *tools.ToolResult {
 	return func(prompt, channel, chatID string) *tools.ToolResult {
 		if channel == "" || chatID == "" {
 			channel, chatID = "cli", "direct"
 		}
 
-		response, err := agentLoop.ProcessHeartbeat(context.Background(), prompt, channel, chatID)
+		// ctx is the long-lived gateway ctx, the same one agentLoop.Run(ctx)
+		// gets for user-originated turns -- previously this was
+		// context.Background(), so a heartbeat turn in flight never saw
+		// cancel() during shutdown at all, and Fix 2's abort_callback wiring
+		// (B0) never fired for it. Confirmed for real: two SIGKILLs on
+		// heartbeat turns during the deploy that found this, before the fix.
+		response, err := agentLoop.ProcessHeartbeat(ctx, prompt, channel, chatID)
 		if err != nil {
 			return tools.ErrorResult(fmt.Sprintf("Heartbeat error: %v", err))
 		}

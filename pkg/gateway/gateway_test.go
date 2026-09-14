@@ -16,6 +16,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/bus"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 )
 
 func TestRun_StartupFailuresReturnErrorAndEmitStructuredLog(t *testing.T) {
@@ -250,6 +251,58 @@ func TestPublishGatewayEvent(t *testing.T) {
 	}
 	if evt.Attrs["duration_ms"] == nil {
 		t.Fatalf("gateway event attrs missing duration_ms: %#v", evt.Attrs)
+	}
+}
+
+type ctxProbeKey struct{}
+
+// ctxCapturingChatProvider records the ctx it receives in Chat(), so a test
+// can check which ctx object actually reached the LLM call.
+type ctxCapturingChatProvider struct {
+	called      bool
+	capturedCtx context.Context
+}
+
+func (p *ctxCapturingChatProvider) Chat(
+	ctx context.Context,
+	_ []providers.Message,
+	_ []providers.ToolDefinition,
+	_ string,
+	_ map[string]any,
+) (*providers.LLMResponse, error) {
+	p.called = true
+	p.capturedCtx = ctx
+	return &providers.LLMResponse{Content: "HEARTBEAT_OK"}, nil
+}
+
+func (p *ctxCapturingChatProvider) GetDefaultModel() string { return "" }
+
+// TestCreateHeartbeatHandler_PropagatesGatewayContext is a real production
+// bug this deploy found: createHeartbeatHandler used to call
+// agentLoop.ProcessHeartbeat(context.Background(), ...) instead of
+// forwarding the ctx it (now) receives -- so a heartbeat-originated turn in
+// flight during shutdown never saw cancel() at all, and Fix 2's
+// abort_callback wiring never fired for it. Confirmed for real on
+// demetrius: two SIGKILLs on heartbeat turns during this same deploy,
+// before this fix. A value stashed on the outer ctx (rather than checking
+// Err()) proves the exact ctx object reaches Chat(), regardless of whether
+// some earlier step in ProcessHeartbeat might otherwise short-circuit on a
+// canceled context before ever calling it.
+func TestCreateHeartbeatHandler_PropagatesGatewayContext(t *testing.T) {
+	fake := &ctxCapturingChatProvider{}
+	al := agent.NewAgentLoop(config.DefaultConfig(), bus.NewMessageBus(), fake)
+	t.Cleanup(al.Close)
+
+	ctx := context.WithValue(context.Background(), ctxProbeKey{}, "gateway-ctx-marker")
+
+	handler := createHeartbeatHandler(ctx, al)
+	handler("check heartbeat tasks", "telegram", "chat-1")
+
+	if !fake.called {
+		t.Fatal("provider.Chat was never called")
+	}
+	if got, _ := fake.capturedCtx.Value(ctxProbeKey{}).(string); got != "gateway-ctx-marker" {
+		t.Fatalf("ctx observed by provider.Chat carries marker %q, want %q -- createHeartbeatHandler must propagate the gateway's own ctx, not context.Background()", got, "gateway-ctx-marker")
 	}
 }
 
