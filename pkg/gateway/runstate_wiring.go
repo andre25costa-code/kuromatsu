@@ -63,6 +63,11 @@ func installRunstateIntegration(cfg *config.Config, al *agent.AgentLoop, running
 	go runstate.RunLogPublisher(ctx, rs)
 	if cfg.Runstate.EffectiveSdNotify() {
 		go runstate.RunSdNotifyPublisher(ctx, rs)
+		// A no-op unless the unit itself sets WatchdogSec (WATCHDOG_USEC in
+		// the environment) -- see RunSdWatchdogPinger's doc comment for why
+		// this needs no separate config knob or runstate.enabled gate of
+		// its own beyond sd_notify being on.
+		go runstate.RunSdWatchdogPinger(ctx)
 	}
 	// AC-017-6: the CPU-credit (steal%) watchdog that toggles the purely
 	// informative Throttled bit. Shares runstatePublishersStop's lifecycle
@@ -72,24 +77,26 @@ func installRunstateIntegration(cfg *config.Config, al *agent.AgentLoop, running
 	go runstate.RunThrottleWatchdog(ctx, rs, sysinfo.CPUStatTotal)
 }
 
-// sdReadyIfEnabled sends sd_notify READY=1 when runstate+sd_notify are on.
-// Called once, right after the gateway is fully up (boot only -- never on
-// reload, matching systemd's own "the unit only starts once" semantics).
-func sdReadyIfEnabled(cfg *config.Config, al *agent.AgentLoop) {
-	if al.Runstate() == nil || !cfg.Runstate.EffectiveSdNotify() {
-		return
-	}
+// sdReadyOnStartup sends sd_notify READY=1, unconditionally -- deliberately
+// NOT gated on cfg.Runstate (unlike installRunstateIntegration above): the
+// deploy unit's Type=notify makes this a systemd contract the process must
+// honor regardless of whether the optional runstate feature is on, or
+// systemd leaves the unit stuck "activating" until TimeoutStartSec kills
+// it. SdNotify itself is already a safe no-op with no NOTIFY_SOCKET (not
+// running under systemd, or a unit without NotifyAccess) or on platforms
+// without unixgram sockets. Called once, right after the gateway is fully
+// up (boot only -- never on reload, matching systemd's own "the unit only
+// starts once" semantics).
+func sdReadyOnStartup() {
 	if err := runstate.SdReady(); err != nil {
 		logger.DebugCF("gateway", "sd_notify READY=1 failed", map[string]any{"error": err.Error()})
 	}
 }
 
-// sdStoppingIfEnabled sends sd_notify STOPPING=1 when runstate+sd_notify
-// are on. Called once, at the start of a full (not reload) shutdown.
-func sdStoppingIfEnabled(cfg *config.Config, al *agent.AgentLoop) {
-	if al.Runstate() == nil || !cfg.Runstate.EffectiveSdNotify() {
-		return
-	}
+// sdStoppingOnShutdown sends sd_notify STOPPING=1, unconditionally (see
+// sdReadyOnStartup for why). Called once, at the start of a full (not
+// reload) shutdown.
+func sdStoppingOnShutdown() {
 	if err := runstate.SdStopping(); err != nil {
 		logger.DebugCF("gateway", "sd_notify STOPPING=1 failed", map[string]any{"error": err.Error()})
 	}

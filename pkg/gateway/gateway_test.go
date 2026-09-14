@@ -253,6 +253,29 @@ func TestPublishGatewayEvent(t *testing.T) {
 	}
 }
 
+// TestInitiateShutdown_CancelsContextBeforeShutdownSequence is Fix 2 (the
+// graceful-shutdown gap the S39 benchmark found: an in-flight decode used
+// to block shutdown up to systemd's 90s TimeoutStopSec and get SIGKILLed).
+// ctx must already be Done by the time shutdownGateway starts running, not
+// only afterward via Run's own deferred cancel().
+func TestInitiateShutdown_CancelsContextBeforeShutdownSequence(t *testing.T) {
+	msgBus := bus.NewMessageBus()
+	al := agent.NewAgentLoop(config.DefaultConfig(), msgBus, &startupBlockedProvider{reason: "not used"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if ctx.Err() != nil {
+		t.Fatal("ctx already Done before initiateShutdown ran")
+	}
+
+	initiateShutdown(cancel, &services{}, al, &startupBlockedProvider{reason: "not used"}, msgBus)
+
+	if !errors.Is(ctx.Err(), context.Canceled) {
+		t.Fatalf("ctx.Err() = %v after initiateShutdown, want context.Canceled", ctx.Err())
+	}
+}
+
 func TestShutdownGatewayClosesMessageBus(t *testing.T) {
 	msgBus := bus.NewMessageBus()
 	al := agent.NewAgentLoop(

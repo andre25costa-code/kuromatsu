@@ -5,9 +5,14 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
-# TODO(runstate/C1): trocar para Type=notify + NotifyAccess=main + WatchdogSec=120
-# quando o publicador sd_notify (pkg/runstate) estiver implementado (ADR-016).
+Type=notify
+NotifyAccess=main
+# Systemd sets WATCHDOG_USEC from this and RunSdWatchdogPinger (pkg/runstate)
+# pings at half the interval -- a plain liveness ping on its own ticker,
+# independent of runstate transitions, so a genuinely idle agent (heartbeat
+# up to an hour apart) is never killed just for having nothing to do; it
+# only catches the Go runtime itself getting stuck.
+WatchdogSec=120
 User=kuromatsu
 Group=kuromatsu
 WorkingDirectory=/var/lib/kuromatsu

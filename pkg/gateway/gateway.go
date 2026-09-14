@@ -34,6 +34,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/netbind"
 	"github.com/andre25costa-code/kuromatsu/pkg/pid"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 	"github.com/andre25costa-code/kuromatsu/pkg/state"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
@@ -220,7 +221,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	// otherwise set this) is never called — we flip the flag explicitly here.
 	runningServices.HealthServer.SetReady(true)
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReady, startedAt, nil)
-	sdReadyIfEnabled(cfg, agentLoop)
+	sdReadyOnStartup()
 	closeListeners = false
 
 	// Setup manual reload channel for /reload endpoint
@@ -250,6 +251,15 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Unconditional (no runstate/config gate), same reasoning as
+	// sdReadyOnStartup: the deploy unit's Type=notify+WatchdogSec makes
+	// this a systemd contract regardless of the optional runstate feature.
+	// RunSdWatchdogPinger itself is a no-op without WATCHDOG_USEC (not
+	// running under a unit with WatchdogSec configured), and lives for the
+	// whole process (ctx here, not a per-reload one), since liveness
+	// pinging has nothing to do with runstate/config reload cycles.
+	go runstate.RunSdWatchdogPinger(ctx)
+
 	go agentLoop.Run(ctx)
 
 	var configReloadChan <-chan *config.Config
@@ -267,7 +277,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		select {
 		case <-sigChan:
 			logger.Info("Shutting down...")
-			shutdownGateway(runningServices, agentLoop, provider, msgBus, true)
+			initiateShutdown(cancel, runningServices, agentLoop, provider, msgBus)
 			return nil
 		case newCfg := <-configReloadChan:
 			if !runningServices.reloading.CompareAndSwap(false, true) {
@@ -570,6 +580,26 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 	}
 }
 
+// initiateShutdown cancels ctx BEFORE running the full shutdown sequence --
+// not only via a deferred cancel() in Run, which would otherwise fire only
+// after shutdownGateway itself already returned. ctx is the same context
+// every in-flight turn's completion() call received (agentLoop.Run(ctx) ->
+// runTurnWithSteering(ctx, ...), never rerooted along the way), and
+// completion() already arms context.AfterFunc(ctx, ...) to flip
+// llama.cpp's abort_callback on cancellation (ADR-015 point 5). Cancelling
+// first lets an in-flight decode unwind immediately instead of blocking
+// shutdown up to systemd's 90s TimeoutStopSec and getting SIGKILLed.
+func initiateShutdown(
+	cancel context.CancelFunc,
+	runningServices *services,
+	agentLoop *agent.AgentLoop,
+	provider providers.LLMProvider,
+	msgBus *bus.MessageBus,
+) {
+	cancel()
+	shutdownGateway(runningServices, agentLoop, provider, msgBus, true)
+}
+
 func shutdownGateway(
 	runningServices *services,
 	agentLoop *agent.AgentLoop,
@@ -579,7 +609,7 @@ func shutdownGateway(
 ) {
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayShutdown, time.Time{}, nil)
 	if fullShutdown {
-		sdStoppingIfEnabled(agentLoop.GetConfig(), agentLoop)
+		sdStoppingOnShutdown()
 	}
 
 	if cp, ok := provider.(providers.StatefulProvider); ok && fullShutdown {
