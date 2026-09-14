@@ -37,6 +37,16 @@ type CronPayload struct {
 	// router's Origins["cron"] mapping decide" (or "chat" if focus is
 	// disabled — a no-op either way).
 	Window string `json:"window,omitempty"`
+	// AgentID optionally names a registered agent (Trilho G B.2) this
+	// job's "Message" kind must run on, bypassing agents.dispatch.rules
+	// entirely — pkg/tools/cron.go's ExecuteJob calls
+	// AgentLoop.ProcessDirectForAgent instead of ProcessDirectWithChannel
+	// when set. Empty (the default) means "route by Channel/To like any
+	// other message", which is already agent-aware today: a job whose
+	// Channel/To matches a dispatch rule already lands on that rule's
+	// agent with zero code changes. This field exists only for a job
+	// that wants a specific agent independent of channel/chat.
+	AgentID string `json:"agent_id,omitempty"`
 }
 
 type CronJobState struct {

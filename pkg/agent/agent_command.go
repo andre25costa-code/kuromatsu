@@ -14,6 +14,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/routing"
 )
 
 func (al *AgentLoop) handleCommand(
@@ -33,6 +34,10 @@ func (al *AgentLoop) handleCommand(
 	}
 
 	if matched, handled, reply := al.applyExplicitFocusCommand(msg.Content, opts); matched {
+		return reply, handled
+	}
+
+	if matched, handled, reply := al.applyExplicitAgentCommand(msg.Content, opts); matched {
 		return reply, handled
 	}
 
@@ -197,6 +202,88 @@ func (al *AgentLoop) applyExplicitFocusCommand(
 	opts.Dispatch.UserMessage = tagged
 	opts.UserMessage = tagged
 	return true, false, ""
+}
+
+// applyExplicitAgentCommand implements "/agent" (Trilho G B.3): pins which
+// registered AgentInstance handles this chat, as an override on top of the
+// automatic agents.dispatch.rules routing (resolveMessageRoute checks the
+// pin first — precedence pin > dispatch rules > default).
+//
+// Unlike applyExplicitFocusCommand, this can't offer a one-off
+// "/agent <id> <message>" form: switching agents changes which
+// AgentInstance (and therefore which model/workspace/tools/session store)
+// handles the turn, and that's decided in resolveMessageRoute, called
+// *before* handleCommand ever runs — by the time this function sees the
+// command, the message routing for THIS message is already resolved. So
+// a pin here only takes effect starting with the chat's next message.
+//
+//   - "/agent" (no args): shows the current pin (or "auto") and the list
+//     of registered agents.
+//   - "/agent <id>": pins this chat to <id> starting with the next
+//     message. Persisted (agent_pin.go) so it survives a restart.
+//   - "/agent auto" or "/agent off": clears the pin, back to automatic
+//     agents.dispatch.rules routing.
+func (al *AgentLoop) applyExplicitAgentCommand(
+	raw string,
+	opts *processOptions,
+) (matched bool, handled bool, reply string) {
+	normalizeProcessOptionsInPlace(opts)
+
+	cmdName, ok := commands.CommandName(raw)
+	if !ok || cmdName != "agent" {
+		return false, false, ""
+	}
+
+	if opts == nil {
+		return true, true, "Agent command unavailable: no chat context."
+	}
+	key := chatPinKey(bus.InboundContext{
+		Channel: opts.Dispatch.Channel(),
+		ChatID:  opts.Dispatch.ChatID(),
+	})
+	if key == "" {
+		return true, true, "Agent command unavailable: no chat context."
+	}
+
+	registry := al.GetRegistry()
+	ids := registry.ListAgentIDs()
+	sort.Strings(ids)
+
+	parts := strings.Fields(strings.TrimSpace(raw))
+	if len(parts) < 2 {
+		return true, true, buildAgentCommandHelp(al, key, ids)
+	}
+
+	arg := strings.ToLower(strings.TrimSpace(parts[1]))
+	if arg == "auto" || arg == "off" {
+		al.unpinAgentID(key)
+		return true, true, "Agent pin cleared; back to automatic dispatch routing."
+	}
+
+	normalized := routing.NormalizeAgentID(arg)
+	if _, exists := registry.GetAgent(normalized); !exists {
+		return true, true, fmt.Sprintf(
+			"Unknown agent: %s\nRegistered agents: %s",
+			arg, strings.Join(ids, ", "),
+		)
+	}
+
+	al.pinAgentID(key, normalized)
+	return true, true, fmt.Sprintf(
+		"This chat is now pinned to agent %q, starting with your next message. Use /agent auto to clear.",
+		normalized,
+	)
+}
+
+func buildAgentCommandHelp(al *AgentLoop, key string, ids []string) string {
+	status := "auto (routed by agents.dispatch.rules)"
+	if pinned, ok := al.pinnedAgentID(key); ok {
+		status = fmt.Sprintf("%s (pinned)", pinned)
+	}
+	return fmt.Sprintf(
+		"Current agent for this chat: %s\nRegistered agents: %s\nUsage: /agent [id|auto]",
+		status, strings.Join(ids, ", "),
+	)
 }
 
 func buildFocoCommandHelp(fr *focusRuntime, sessionKey string) string {

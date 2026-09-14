@@ -21,8 +21,10 @@ func newTestAgentLoop(t *testing.T, cfg *config.Config) *agent.AgentLoop {
 
 func newTestRunningServices() *services {
 	return &services{
-		HeartbeatService: heartbeat.NewHeartbeatService(".", 30, false),
-		HealthServer:     health.NewServer("127.0.0.1", 0, ""),
+		HeartbeatServices: map[string]*heartbeat.HeartbeatService{
+			"main": heartbeat.NewHeartbeatService(".", 30, false),
+		},
+		HealthServer: health.NewServer("127.0.0.1", 0, ""),
 	}
 }
 

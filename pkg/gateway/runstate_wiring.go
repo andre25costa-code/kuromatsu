@@ -31,8 +31,8 @@ func installRunstateIntegration(cfg *config.Config, al *agent.AgentLoop, running
 
 	rs := al.Runstate()
 	if rs == nil {
-		if runningServices.HeartbeatService != nil {
-			runningServices.HeartbeatService.SetShouldSkip(nil)
+		for _, svc := range runningServices.HeartbeatServices {
+			svc.SetShouldSkip(nil)
 		}
 		if runningServices.HealthServer != nil {
 			runningServices.HealthServer.SetStateFunc(nil)
@@ -47,13 +47,16 @@ func installRunstateIntegration(cfg *config.Config, al *agent.AgentLoop, running
 		})
 	}
 
-	if runningServices.HeartbeatService != nil {
+	// The runstate engine is process-wide (one al.runstate shared across
+	// every agent, ADR-016) -- so this hook is the same function for every
+	// agent's HeartbeatService, not something to key per-agent.
+	for _, svc := range runningServices.HeartbeatServices {
 		if cfg.Runstate.EffectiveSkipHeartbeatWhenBusy() {
-			runningServices.HeartbeatService.SetShouldSkip(func() bool {
+			svc.SetShouldSkip(func() bool {
 				return rs.Snapshot().Any(runstate.Inference | runstate.ToolExec | runstate.Dream)
 			})
 		} else {
-			runningServices.HeartbeatService.SetShouldSkip(nil)
+			svc.SetShouldSkip(nil)
 		}
 	}
 

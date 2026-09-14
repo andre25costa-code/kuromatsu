@@ -976,6 +976,42 @@ func TestDefaultConfig_HeartbeatEnabled(t *testing.T) {
 	}
 }
 
+// Trilho G B.1: per-agent heartbeat overrides.
+
+func TestEffectiveHeartbeat_EmptyAgentsListMatchesGlobal(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Heartbeat = HeartbeatConfig{Enabled: true, Interval: 60}
+
+	got := cfg.EffectiveHeartbeat("main")
+	if got != cfg.Heartbeat {
+		t.Fatalf("EffectiveHeartbeat() = %+v, want exactly cfg.Heartbeat %+v (agents.list empty)", got, cfg.Heartbeat)
+	}
+}
+
+func TestEffectiveHeartbeat_PerAgentOverrideWinsOverGlobal(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Heartbeat = HeartbeatConfig{Enabled: true, Interval: 60}
+	disabled := false
+	cfg.Agents.List = []AgentConfig{
+		{ID: "sensores", Heartbeat: &AgentHeartbeatConfig{Enabled: &disabled}},
+		{ID: "estudos", Heartbeat: &AgentHeartbeatConfig{Interval: 15}},
+		{ID: "no-override"},
+	}
+
+	if got := cfg.EffectiveHeartbeat("sensores"); got.Enabled {
+		t.Fatalf("EffectiveHeartbeat(sensores).Enabled = true, want false (explicit override)")
+	}
+	if got := cfg.EffectiveHeartbeat("estudos"); got.Interval != 15 || !got.Enabled {
+		t.Fatalf("EffectiveHeartbeat(estudos) = %+v, want Interval=15, Enabled=true (inherited)", got)
+	}
+	if got := cfg.EffectiveHeartbeat("no-override"); got != cfg.Heartbeat {
+		t.Fatalf("EffectiveHeartbeat(no-override) = %+v, want exactly the global block %+v", got, cfg.Heartbeat)
+	}
+	if got := cfg.EffectiveHeartbeat("unregistered-id"); got != cfg.Heartbeat {
+		t.Fatalf("EffectiveHeartbeat(unregistered-id) = %+v, want exactly the global block %+v (no matching AgentConfig)", got, cfg.Heartbeat)
+	}
+}
+
 // TestDefaultConfig_WorkspacePath verifies workspace path is correctly set
 func TestDefaultConfig_WorkspacePath(t *testing.T) {
 	cfg := DefaultConfig()

@@ -19,6 +19,9 @@ import (
 // JobExecutor is the interface for executing cron jobs through the agent
 type JobExecutor interface {
 	ProcessDirectWithChannel(ctx context.Context, content, sessionKey, channel, chatID string) (string, error)
+	// ProcessDirectForAgent is ProcessDirectWithChannel's per-agent form
+	// (Trilho G B.2), used when payload.AgentID is set.
+	ProcessDirectForAgent(ctx context.Context, agentID, content, sessionKey, channel, chatID string) (string, error)
 	// PublishResponseIfNeeded sends response to the outbound bus only when the
 	// agent did not already deliver content through the message tool in this round.
 	PublishResponseIfNeeded(ctx context.Context, channel, chatID, sessionKey, response string)
@@ -666,14 +669,30 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 		jobMessage = fmt.Sprintf("[foco:%s] %s", window, jobMessage)
 	}
 
-	// Call agent with the job message
-	response, err := t.executor.ProcessDirectWithChannel(
-		ctx,
-		jobMessage,
-		sessionKey,
-		channel,
-		chatID,
-	)
+	// Call agent with the job message. An explicit job.Payload.AgentID
+	// (Trilho G B.2) bypasses agents.dispatch.rules entirely -- without
+	// it, a job whose Channel/To already matches a dispatch rule lands on
+	// that rule's agent with zero code changes here.
+	var response string
+	var err error
+	if agentID := strings.TrimSpace(job.Payload.AgentID); agentID != "" {
+		response, err = t.executor.ProcessDirectForAgent(
+			ctx,
+			agentID,
+			jobMessage,
+			sessionKey,
+			channel,
+			chatID,
+		)
+	} else {
+		response, err = t.executor.ProcessDirectWithChannel(
+			ctx,
+			jobMessage,
+			sessionKey,
+			channel,
+			chatID,
+		)
+	}
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}

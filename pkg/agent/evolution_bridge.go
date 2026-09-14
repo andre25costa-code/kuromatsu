@@ -307,8 +307,14 @@ func (b *evolutionBridge) handleTurnEndAsync(meta EventMeta, payload TurnEndPayl
 	return true
 }
 
+// isEvolutionHeartbeatInput matches both the bare "heartbeat" session key
+// (single implicit agent) and the per-agent "heartbeat:<agentID>" form
+// ProcessHeartbeatForAgent uses since Trilho G B.1 -- a HasPrefix check on
+// "heartbeat" already covers the bare form (empty suffix) without a
+// separate branch.
 func isEvolutionHeartbeatInput(input evolution.TurnCaseInput) bool {
-	return strings.EqualFold(strings.TrimSpace(input.SessionKey), "heartbeat")
+	key := strings.ToLower(strings.TrimSpace(input.SessionKey))
+	return key == "heartbeat" || strings.HasPrefix(key, "heartbeat:")
 }
 
 func (b *evolutionBridge) subscribeRuntimeEvents(ch runtimeevents.EventChannel) error {

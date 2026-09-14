@@ -13,6 +13,7 @@ func BuiltinDefinitions() []Definition {
 		listCommand(),
 		useCommand(),
 		focoCommand(),
+		agentCommand(),
 		btwCommand(),
 		switchCommand(),
 		checkCommand(),

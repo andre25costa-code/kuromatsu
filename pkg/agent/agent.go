@@ -63,6 +63,19 @@ type AgentLoop struct {
 	pendingStops   sync.Map
 	mu             sync.RWMutex
 
+	// agentPins is the runtime cache for /agent pins (chatPinKey ->
+	// agentID, ADR-019/Trilho G B.3) -- precedence pin > agents.dispatch.
+	// rules > default in resolveMessageRoute. Persisted to
+	// $KUROMATSU_HOME/run/agent-pins.json (agent_pin.go) so a pin survives
+	// a restart -- an in-memory-only pin would silently revert a chat to
+	// the default agent on every deploy/crash, which for a chat pinned to
+	// a paid external-model agent is a real mixed-context surprise, not
+	// just a UX papercut (caught by agy-bridge's adversarial_review).
+	// Loaded once at construction (agent_init.go); NOT recreated on config
+	// reload, same lifecycle as pendingSkills/pendingStops above -- it is
+	// runtime/session state, not derived from config.
+	agentPins sync.Map
+
 	// focus is the Trilho A "janelas de foco" runtime (ADR-014/FR-014). nil
 	// whenever focus.enabled=false (the default) — applyFocus is then a
 	// complete no-op, which is what keeps that path byte-identical to

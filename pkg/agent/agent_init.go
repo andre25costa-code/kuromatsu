@@ -128,6 +128,10 @@ func NewAgentLoop(
 	// Register shared tools to all agents (now that al is created)
 	registerSharedTools(al, cfg, msgBus, registry, provider)
 
+	for key, agentID := range loadAgentPins() {
+		al.agentPins.Store(key, agentID)
+	}
+
 	return al
 }
 

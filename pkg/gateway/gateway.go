@@ -50,9 +50,13 @@ const (
 )
 
 type services struct {
-	CronService      *cron.CronService
-	HeartbeatService *heartbeat.HeartbeatService
-	MediaStore       media.MediaStore
+	CronService *cron.CronService
+	// HeartbeatServices is one HeartbeatService per registered agent that
+	// has heartbeat enabled (Trilho G B.1; agents.list empty -> at most
+	// one entry, keyed by the implicit "main" agent's ID, same behavior
+	// as the pre-multi-agent single HeartbeatService field this replaced).
+	HeartbeatServices map[string]*heartbeat.HeartbeatService
+	MediaStore        media.MediaStore
 	ChannelManager   *channels.Manager
 	DeviceService    *devices.Service
 	HealthServer     *health.Server
@@ -450,17 +454,9 @@ func setupAndStartServices(
 	}
 	fmt.Println("✓ Cron service started")
 
-	runningServices.HeartbeatService = heartbeat.NewHeartbeatService(
-		cfg.WorkspacePath(),
-		cfg.Heartbeat.Interval,
-		cfg.Heartbeat.Enabled,
-	)
-	runningServices.HeartbeatService.SetBus(msgBus)
-	runningServices.HeartbeatService.SetHandler(createHeartbeatHandler(ctx, agentLoop))
-	if err = runningServices.HeartbeatService.Start(); err != nil {
-		return nil, fmt.Errorf("error starting heartbeat service: %w", err)
+	if err := startHeartbeatServices(ctx, cfg, agentLoop, msgBus, runningServices); err != nil {
+		return nil, err
 	}
-	fmt.Println("✓ Heartbeat service started")
 
 	runningServices.MediaStore = media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
 		Enabled:  cfg.Tools.MediaCleanup.Enabled,
@@ -578,8 +574,8 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 	if runningServices.DeviceService != nil {
 		runningServices.DeviceService.Stop()
 	}
-	if runningServices.HeartbeatService != nil {
-		runningServices.HeartbeatService.Stop()
+	for _, svc := range runningServices.HeartbeatServices {
+		svc.Stop()
 	}
 	if runningServices.CronService != nil {
 		runningServices.CronService.Stop()
@@ -735,17 +731,9 @@ func restartServices(
 	}
 	fmt.Println("  ✓ Cron service restarted")
 
-	runningServices.HeartbeatService = heartbeat.NewHeartbeatService(
-		cfg.WorkspacePath(),
-		cfg.Heartbeat.Interval,
-		cfg.Heartbeat.Enabled,
-	)
-	runningServices.HeartbeatService.SetBus(msgBus)
-	runningServices.HeartbeatService.SetHandler(createHeartbeatHandler(ctx, al))
-	if err = runningServices.HeartbeatService.Start(); err != nil {
+	if err := startHeartbeatServices(ctx, cfg, al, msgBus, runningServices); err != nil {
 		return fmt.Errorf("error restarting heartbeat service: %w", err)
 	}
-	fmt.Println("  ✓ Heartbeat service restarted")
 
 	runningServices.MediaStore = media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
 		Enabled:  cfg.Tools.MediaCleanup.Enabled,
@@ -930,7 +918,82 @@ func setupCronTool(
 	return cronService, nil
 }
 
-func createHeartbeatHandler(ctx context.Context, agentLoop *agent.AgentLoop) func(prompt, channel, chatID string) *tools.ToolResult {
+// heartbeatStartStagger is the delay between starting each additional
+// agent's HeartbeatService, beyond the first (Trilho G B.1, per an
+// agy-bridge adversarial_review finding): HeartbeatService fires an
+// initial heartbeat ~1s after Start() (service.go), so N agents all
+// starting at once would fire N near-simultaneous local-model turns on
+// boot -- combined with A.3's runstate_resume_wait_secs (which can make a
+// contested runstate.Engine lock wait far longer than the old fixed
+// backoff), that pile-up is a real queuing problem on constrained
+// hardware (Raspberry Pi), not just a theoretical one.
+const heartbeatStartStagger = 2 * time.Second
+
+// startHeartbeatServices creates and starts one HeartbeatService per
+// registered agent that has heartbeat enabled (cfg.EffectiveHeartbeat),
+// used by both the initial startup and every config reload. The first
+// service starts synchronously (a real startup failure there still fails
+// gateway startup, matching the pre-multi-agent behavior); every
+// additional agent's service starts heartbeatStartStagger later than the
+// previous one, logged rather than returned if it fails, since by then
+// gateway startup has already succeeded.
+func startHeartbeatServices(
+	ctx context.Context,
+	cfg *config.Config,
+	agentLoop *agent.AgentLoop,
+	msgBus *bus.MessageBus,
+	runningServices *services,
+) error {
+	runningServices.HeartbeatServices = make(map[string]*heartbeat.HeartbeatService)
+
+	agentIDs := agentLoop.GetRegistry().ListAgentIDs()
+	sort.Strings(agentIDs)
+
+	started := 0
+	for _, agentID := range agentIDs {
+		agentInst, ok := agentLoop.GetRegistry().GetAgent(agentID)
+		if !ok {
+			continue
+		}
+		hbCfg := cfg.EffectiveHeartbeat(agentID)
+		if !hbCfg.Enabled {
+			continue
+		}
+
+		svc := heartbeat.NewHeartbeatService(agentInst.Workspace, hbCfg.Interval, true)
+		svc.SetBus(msgBus)
+		svc.SetHandler(createHeartbeatHandlerForAgent(ctx, agentLoop, agentID))
+		runningServices.HeartbeatServices[agentID] = svc
+
+		delay := time.Duration(started) * heartbeatStartStagger
+		started++
+		if delay <= 0 {
+			if err := svc.Start(); err != nil {
+				return fmt.Errorf("error starting heartbeat service for agent %q: %w", agentID, err)
+			}
+			continue
+		}
+		time.AfterFunc(delay, func() {
+			if err := svc.Start(); err != nil {
+				logger.WarnCF("gateway", "staggered heartbeat service failed to start", map[string]any{
+					"agent_id": agentID,
+					"error":    err.Error(),
+				})
+			}
+		})
+	}
+
+	fmt.Printf("✓ Heartbeat service(s) started (%d agent(s))\n", len(runningServices.HeartbeatServices))
+	return nil
+}
+
+// createHeartbeatHandlerForAgent is createHeartbeatHandler's per-agent form
+// (Trilho G B.1): agentID is baked into the closure so each agent's
+// HeartbeatService always dispatches to that same agent, never the
+// registry default.
+func createHeartbeatHandlerForAgent(
+	ctx context.Context, agentLoop *agent.AgentLoop, agentID string,
+) func(prompt, channel, chatID string) *tools.ToolResult {
 	return func(prompt, channel, chatID string) *tools.ToolResult {
 		if channel == "" || chatID == "" {
 			channel, chatID = "cli", "direct"
@@ -942,9 +1005,9 @@ func createHeartbeatHandler(ctx context.Context, agentLoop *agent.AgentLoop) fun
 		// cancel() during shutdown at all, and Fix 2's abort_callback wiring
 		// (B0) never fired for it. Confirmed for real: two SIGKILLs on
 		// heartbeat turns during the deploy that found this, before the fix.
-		response, err := agentLoop.ProcessHeartbeat(ctx, prompt, channel, chatID)
+		response, err := agentLoop.ProcessHeartbeatForAgent(ctx, agentID, prompt, channel, chatID)
 		if err != nil {
-			return tools.ErrorResult(fmt.Sprintf("Heartbeat error: %v", err))
+			return tools.ErrorResult(fmt.Sprintf("Heartbeat error (agent=%s): %v", agentID, err))
 		}
 		if response == "HEARTBEAT_OK" {
 			return tools.SilentResult("Heartbeat OK")

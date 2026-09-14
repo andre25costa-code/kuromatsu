@@ -336,13 +336,27 @@ func (m AgentModelConfig) MarshalJSON() ([]byte, error) {
 }
 
 type AgentConfig struct {
-	ID        string            `json:"id"`
-	Default   bool              `json:"default,omitempty"`
-	Name      string            `json:"name,omitempty"`
-	Workspace string            `json:"workspace,omitempty"`
-	Model     *AgentModelConfig `json:"model,omitempty"`
-	Skills    []string          `json:"skills,omitempty"`
-	Subagents *SubagentsConfig  `json:"subagents,omitempty"`
+	ID        string                `json:"id"`
+	Default   bool                  `json:"default,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	Workspace string                `json:"workspace,omitempty"`
+	Model     *AgentModelConfig     `json:"model,omitempty"`
+	Skills    []string              `json:"skills,omitempty"`
+	Subagents *SubagentsConfig      `json:"subagents,omitempty"`
+	Heartbeat *AgentHeartbeatConfig `json:"heartbeat,omitempty"`
+}
+
+// AgentHeartbeatConfig is a per-agent heartbeat override
+// (agents.list[].heartbeat, Trilho G B.1). nil (the default) means this
+// agent inherits the global heartbeat block entirely. Unlike
+// HeartbeatConfig it has no env bindings on purpose -- env vars only ever
+// apply to the one global block (mirrors AgentModelConfig, which also
+// only takes JSON), so an override here can never be silently clobbered
+// by a process-wide KUROMATSU_HEARTBEAT_* env var meant for a different
+// agent.
+type AgentHeartbeatConfig struct {
+	Enabled  *bool `json:"enabled,omitempty"`
+	Interval int   `json:"interval,omitempty"`
 }
 
 type SubagentsConfig struct {
@@ -615,6 +629,35 @@ type PicoClientSettings struct {
 type HeartbeatConfig struct {
 	Enabled  bool `json:"enabled"  env:"KUROMATSU_HEARTBEAT_ENABLED"`
 	Interval int  `json:"interval" env:"KUROMATSU_HEARTBEAT_INTERVAL"` // minutes, min 5
+}
+
+// EffectiveHeartbeat resolves the heartbeat settings for agentID: its own
+// agents.list[].heartbeat override where set, falling back field-by-field
+// to the global c.Heartbeat (Trilho G B.1). With agents.list empty (the
+// implicit "main" agent) there is never a matching AgentConfig, so this is
+// always exactly c.Heartbeat -- byte-identical to before per-agent
+// heartbeat existed.
+//
+// Deliberately does not import pkg/routing to normalize agentID (routing
+// already imports pkg/config, so that would be a cycle) -- agentID here is
+// expected to already be normalized, since callers get it from
+// AgentRegistry.ListAgentIDs()/AgentInstance.ID, which are normalized once
+// when the registry is built.
+func (c *Config) EffectiveHeartbeat(agentID string) HeartbeatConfig {
+	eff := c.Heartbeat
+	for _, ac := range c.Agents.List {
+		if !strings.EqualFold(strings.TrimSpace(ac.ID), strings.TrimSpace(agentID)) || ac.Heartbeat == nil {
+			continue
+		}
+		if ac.Heartbeat.Enabled != nil {
+			eff.Enabled = *ac.Heartbeat.Enabled
+		}
+		if ac.Heartbeat.Interval > 0 {
+			eff.Interval = ac.Heartbeat.Interval
+		}
+		break
+	}
+	return eff
 }
 
 type DevicesConfig struct {
