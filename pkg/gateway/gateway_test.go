@@ -253,11 +253,30 @@ func TestPublishGatewayEvent(t *testing.T) {
 	}
 }
 
+// ctxCapturingProvider is a StatefulProvider whose Close() (invoked from
+// inside shutdownGateway, see gateway.go's "cp.Close()" call) snapshots
+// ctx.Err() at the moment it runs -- this is what actually distinguishes
+// "cancel() ran before the shutdown sequence's internals" from "cancel()
+// ran before initiateShutdown returned", which is true either way since
+// initiateShutdown's two statements are sequential regardless of ordering.
+type ctxCapturingProvider struct {
+	startupBlockedProvider
+	ctx        context.Context
+	closedWith error
+	closed     bool
+}
+
+func (p *ctxCapturingProvider) Close() {
+	p.closed = true
+	p.closedWith = p.ctx.Err()
+}
+
 // TestInitiateShutdown_CancelsContextBeforeShutdownSequence is Fix 2 (the
 // graceful-shutdown gap the S39 benchmark found: an in-flight decode used
 // to block shutdown up to systemd's 90s TimeoutStopSec and get SIGKILLed).
-// ctx must already be Done by the time shutdownGateway starts running, not
-// only afterward via Run's own deferred cancel().
+// ctx must already be Done by the time shutdownGateway's internals run
+// (specifically, by the time the provider's Close() fires), not only
+// afterward via Run's own deferred cancel().
 func TestInitiateShutdown_CancelsContextBeforeShutdownSequence(t *testing.T) {
 	msgBus := bus.NewMessageBus()
 	al := agent.NewAgentLoop(config.DefaultConfig(), msgBus, &startupBlockedProvider{reason: "not used"})
@@ -269,10 +288,14 @@ func TestInitiateShutdown_CancelsContextBeforeShutdownSequence(t *testing.T) {
 		t.Fatal("ctx already Done before initiateShutdown ran")
 	}
 
-	initiateShutdown(cancel, &services{}, al, &startupBlockedProvider{reason: "not used"}, msgBus)
+	spy := &ctxCapturingProvider{startupBlockedProvider: startupBlockedProvider{reason: "not used"}, ctx: ctx}
+	initiateShutdown(cancel, &services{}, al, spy, msgBus)
 
-	if !errors.Is(ctx.Err(), context.Canceled) {
-		t.Fatalf("ctx.Err() = %v after initiateShutdown, want context.Canceled", ctx.Err())
+	if !spy.closed {
+		t.Fatal("provider.Close() was never called -- shutdownGateway's fullShutdown path did not run")
+	}
+	if !errors.Is(spy.closedWith, context.Canceled) {
+		t.Fatalf("ctx.Err() at provider.Close() time = %v, want context.Canceled (cancel() must run before shutdownGateway's internals, not just before initiateShutdown returns)", spy.closedWith)
 	}
 }
 
