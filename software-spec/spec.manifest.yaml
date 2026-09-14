@@ -115,6 +115,11 @@ items:
     id_prefix: ADR
     tags: [adr, decisions]
     roles: [dev]
+  - id: S39
+    title: Baseline de desempenho — benchmark quantitativo na demetrius
+    file: 06-infrastructure/39-baseline-benchmarks.md
+    tags: [benchmark, performance, kv-cache, demetrius, nfr]
+    roles: [dev]
   - id: S40
     title: Referências
     file: 09-appendix/40-references.md

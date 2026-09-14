@@ -212,13 +212,17 @@ items:
     status: missing
     note: Estratégia de teste está distribuída nos gates de cada entregável (S11): make vet+test por commit, golden tests do ChatML, teste de fallback. Consolidar se crescer.
   S39:
-    status: tbd
-    note: 'Alvo mudou de Oracle para `demetrius` (2026-09-11). Primeira medição real
-      feita (G0, ver .claude/team/research/g0-medicao-real.md): piso sob throttle de
-      créditos de burst ~1,1-2,0 tok/s (vs ~5,1/7,3 tok/s em burst, medido pelo André
-      antes desta sessão) — threads(2 vs 4)/tipo de KV testados e descartados como
-      causa. Ainda falta: medir o piso "burst pleno" numa VM fria antes de fechar;
-      não inventar um número único de baseline ainda.'
+    status: confirmed
+    file: 06-infrastructure/39-baseline-benchmarks.md
+    note: 'Benchmark quantitativo real na `demetrius` pós-deploy dos Trilhos A/B/C
+      (2026-09-13): cache de prefixo do KV confirmado dentro do turno (98,3% hit,
+      ~40x) e entre turnos de heartbeat (88,0% hit, ~11x); n_threads=4 trava a VM
+      (valida ADR-015); regressão PICOCLAW_* confirmada em produção; memória dentro
+      da meta (NFR-001/008). Achado crítico não corrigido: shutdown gracioso não
+      cancela inferência em voo (SIGKILL após timeout de 90s) — decisão aberta do
+      André, ver BACKLOG. Ainda não medido: piso "burst pleno" em VM fria,
+      NFR-003/004/006-burst, overhead de framework isolado (NFR-007, possível gap
+      flagueado, precisa do prompt_size_test/A9 para confirmar).'
     owner: André
     blocks: []
 

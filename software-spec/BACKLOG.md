@@ -65,26 +65,39 @@ confirmação do André antes de implementar — Gate da metodologia).
 AC-010-2/3/5/6 estão cobertas dentro de `pkg/sleep` isoladamente, mas não
 fim-a-fim.
 
-### Gate de desempenho do E7 (NFR-002, S39) — superado por decisão de alvo, não por medição
+### Gate de desempenho do E7 (NFR-002, S39) — fechado com benchmark real dos Trilhos A/B/C (2026-09-13)
 
-**Status**: aberto, mas a causa raiz mudou de entendimento nesta rodada. O
-smoke test do E7 (`bf52e3b8`) mostrou o prefill do prompt completo (~2793
-tokens) não terminando em 15+ minutos na Oracle — a ADR-013 (`proposed`,
-2026-09-11) investigou e confirmou por medição real que a causa é `steal`
-75% sustentado na shape Always-Free da Oracle (não "prompt grande" isolado),
-e por isso **muda o alvo de produção para a VM `demetrius`** (Google
-`e2-micro`, `steal` 0 medido). Na `demetrius`, uma primeira medição real (G0,
-ver `.claude/team/research/g0-medicao-real.md`) encontrou uma causa
-**diferente e nova**: sob créditos de burst exauridos, o piso cai para
-~1,1–2,0 tok/s (vs 5,1/7,3 tok/s em burst, medido pelo André antes desta
-sessão) — throttling de cota de CPU, não `steal` (não aparece na coluna `st`
-do `vmstat`) e não threads (2 vs 4 testados e descartados como causa via
-`llama-bench`). `S39` continua `tbd` em `spec-coverage.yaml` com essa nota;
-as duas linhas de tok/s/RSS na Oracle em S40 continuam vazias (com nota
-explicando o porquê, herdada da rodada 1). **Ainda falta**: remedir o piso
-"burst pleno" numa VM `demetrius` fria (não logo após uma sessão de testes
-pesados, que pode ter subestimado o platô real) antes de fechar S39 com um
-número definitivo — não inventar esse número.
+**Status**: `S39` passou de `tbd` para `confirmed`
+(`06-infrastructure/39-baseline-benchmarks.md`) após o deploy dos Trilhos
+A/B/C na `demetrius` e uma rodada de benchmark quantitativo com valores
+reais (não estimados). Achados principais: cache de prefixo do KV
+confirmado dentro do turno (98,3% hit, ~40× de aceleração do prefill) e
+**entre turnos de heartbeat** (88,0% hit, ~11×, achado novo não previsto
+no plano original); `n_threads=4` trava a VM com zero conclusões em 14+
+min (valida a correção `NThreads=min(NumCPU,4)` do ADR-015); regressão
+`PICOCLAW_*`→`KUROMATSU_*` confirmada em produção; memória dentro da meta
+(NFR-001/008) com folga. **Dois itens abertos ficaram para decisão do
+André** (não corrigidos nesta sessão):
+
+1. **Shutdown gracioso não cancela inferência em voo** — `systemctl stop`
+   com um turno em andamento deixa o processo vivo até o timeout de 90s
+   do systemd, que então manda `SIGKILL`; depois disso, `systemctl start`
+   exige `reset-failed` explícito antes de funcionar. Precisa de um
+   ADR/tarefa nova para propagar o cancelamento do contexto de shutdown
+   até o turno em execução (ou aceitar o comportamento e documentar).
+2. **Overhead de framework da janela `heartbeat` pode estar acima da meta**
+   (NFR-007, ≤300 tokens) — medição de campo mostrou 2603 tokens totais
+   (system+user, sem histórico), bem mais do que os ~1,0-1,2k tokens de
+   workspace do usuário explicariam. Precisa do teste isolado
+   `prompt_size_test`/A9 para confirmar se é o modo `compact` não tão
+   compacto quanto o desenho pretendia, ou outra causa.
+
+**Ainda não medido** (mantém a recomendação do G0): piso "burst pleno" numa
+VM `demetrius` fria (sem atividade prévia na sessão) — o benchmark de
+2026-09-13 mostrou uma *recuperação parcial* dos créditos ao longo de
+~30-40 min (do piso mais severo de ~0,44 tok/s para ~1,2-1,7 tok/s), mas
+não isolou o platô "totalmente frio". Ver S39 para os números completos e
+a metodologia.
 
 ---
 
