@@ -2929,6 +2929,38 @@ func TestDefaultConfig_MinimaxExtraBody(t *testing.T) {
 	}
 }
 
+// TestDefaultConfig_BonsaiLocalMirrorsRealDeployTuning guards against the
+// seeded native entry drifting from what the real demetrius deploy actually
+// runs with (S39/BACKLOG): a fresh install must not silently regress to
+// uncompacted tool schemas or an idle-unloading model between periodic
+// heartbeat/cron ticks.
+func TestDefaultConfig_BonsaiLocalMirrorsRealDeployTuning(t *testing.T) {
+	cfg := DefaultConfig()
+
+	var bonsai *ModelConfig
+	for i := range cfg.ModelList {
+		if cfg.ModelList[i].ModelName == "bonsai-local" {
+			bonsai = cfg.ModelList[i]
+			break
+		}
+	}
+	if bonsai == nil {
+		t.Fatal("bonsai-local model not found in ModelList")
+	}
+	if bonsai.ToolSchemaTransform != "compact" {
+		t.Fatalf("bonsai-local ToolSchemaTransform = %q, want %q", bonsai.ToolSchemaTransform, "compact")
+	}
+	if bonsai.ExtraBody == nil {
+		t.Fatal("bonsai-local ExtraBody should not be nil")
+	}
+	if got := bonsai.ExtraBody["max_predict"]; got != 512 {
+		t.Fatalf("bonsai-local ExtraBody[max_predict] = %v, want 512", got)
+	}
+	if got := bonsai.ExtraBody["keep_alive_secs"]; got != -1 {
+		t.Fatalf("bonsai-local ExtraBody[keep_alive_secs] = %v, want -1 (never idle-unload; memguard/C3 handles real memory pressure)", got)
+	}
+}
+
 func TestFilterSensitiveData(t *testing.T) {
 	// Test with nil security config
 	cfg := &Config{}

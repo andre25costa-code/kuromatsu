@@ -76,7 +76,23 @@ func DefaultConfig() *Config {
 				ModelName: "bonsai-local",
 				Provider:  "native",
 				Model:     "Bonsai-1.7B-Q1_0",
-				ExtraBody: map[string]any{"n_ctx": 2048, "kv_cache_type": "q8_0"},
+				// tool_schema_transform/max_predict/keep_alive_secs mirror
+				// what the real demetrius deploy already runs with by hand
+				// (S39/BACKLOG): a fresh install without these would
+				// silently regress -- full (uncompacted) tool schemas, no
+				// proactive MaxTokens clamp, and (keep_alive_secs) the
+				// model cold-reloading on every periodic heartbeat/cron
+				// tick instead of staying resident between them. -1 means
+				// never auto-unload (ADR-015 point 4); safe here because
+				// memguard (C3) already watches real memory pressure and
+				// unloads under PSI regardless of this setting.
+				ToolSchemaTransform: "compact",
+				ExtraBody: map[string]any{
+					"n_ctx":           2048,
+					"kv_cache_type":   "q8_0",
+					"max_predict":     512,
+					"keep_alive_secs": -1,
+				},
 			},
 
 			// Zhipu AI (智谱) - https://open.bigmodel.cn/usercenter/apikeys
