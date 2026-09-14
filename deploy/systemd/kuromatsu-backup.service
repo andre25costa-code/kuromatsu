@@ -1,8 +1,9 @@
 [Unit]
 Description=Kuromatsu — backup noturno para a VM Oracle (kuro), cross-cloud
-# TODO(runstate/C1): condicionar a execucao ao runstate == Idle (ADR-016) antes
-# de habilitar o timer em producao — por ora, roda no horario e aceita colidir
-# com uma inferencia em andamento (raro na janela 04:30, mas nao gated ainda).
+# Gated by runstate == Idle (ADR-016) inside backup-to-kuro.sh itself (reads
+# run/state directly) rather than here: a oneshot unit has no clean way to
+# retry-on-busy, and the script already treats "not idle" as "skip this run,
+# log it, exit 0" rather than a unit failure.
 After=network-online.target
 
 [Service]
