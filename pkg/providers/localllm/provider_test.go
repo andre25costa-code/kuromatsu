@@ -18,13 +18,15 @@ type fakeEngine struct {
 	err         error
 	calls       int
 	lastPrompt  string
+	lastCoreEnd int
 	lastOpts    Options
 	unloadCalls int
 }
 
-func (f *fakeEngine) completion(_ context.Context, prompt string, opts Options) (CompletionResult, error) {
+func (f *fakeEngine) completion(_ context.Context, prompt string, coreEnd int, opts Options) (CompletionResult, error) {
 	f.calls++
 	f.lastPrompt = prompt
+	f.lastCoreEnd = coreEnd
 	f.lastOpts = opts
 	return f.result, f.err
 }

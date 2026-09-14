@@ -36,6 +36,20 @@ type Options struct {
 	KeepAliveSecs int
 	MaxPredict    int
 
+	// CoreCacheParking enables B2 (window-core KV parking, ADR-015 point 8):
+	// when true, the engine keeps up to coreCacheSlots (2, see engine_cgo.go
+	// -- fixed, not configurable: the chat+heartbeat pair is the only one
+	// that alternates with guaranteed frequency, per the architecture plan's
+	// measured rationale) focus-window "cores" (system prompt + tool
+	// schemas) resident in the KV cache as extra llama.cpp sequences, so
+	// switching between them reuses the already-decoded core instead of
+	// paying its prefill again. false (default) preserves pre-B2 behavior
+	// exactly: a single sequence, no extra n_seq_max/kv_unified cost.
+	// Changing this requires a context reload (it affects how the context
+	// itself is created), hence its place in loadKey below rather than
+	// being treated like a sampler setting.
+	CoreCacheParking bool
+
 	Temperature float32
 	TopK        int32
 	TopP        float32
@@ -88,22 +102,24 @@ func (o Options) WithDefaults() Options {
 // summarization call, which runs with a lower temperature than normal
 // chat turns.
 type loadKey struct {
-	ModelPath   string
-	NCtx        int
-	NThreads    int
-	NBatch      int
-	KVCacheType string
+	ModelPath        string
+	NCtx             int
+	NThreads         int
+	NBatch           int
+	KVCacheType      string
+	CoreCacheParking bool
 }
 
 // loadKey extracts the load-affecting fields of o. See the loadKey type
 // doc for why sampler/output fields are deliberately excluded.
 func (o Options) loadKey() loadKey {
 	return loadKey{
-		ModelPath:   o.ModelPath,
-		NCtx:        o.NCtx,
-		NThreads:    o.NThreads,
-		NBatch:      o.NBatch,
-		KVCacheType: o.KVCacheType,
+		ModelPath:        o.ModelPath,
+		NCtx:             o.NCtx,
+		NThreads:         o.NThreads,
+		NBatch:           o.NBatch,
+		KVCacheType:      o.KVCacheType,
+		CoreCacheParking: o.CoreCacheParking,
 	}
 }
 
@@ -134,7 +150,11 @@ type CompletionResult struct {
 // ErrNotBuilt (engine_stub.go, the complementary tag). Exactly one of the
 // two files compiles for any given build.
 type engine interface {
-	completion(ctx context.Context, prompt string, opts Options) (CompletionResult, error)
+	// coreEnd is the byte offset in prompt right after the system block
+	// (identity + tool schemas), or 0 if there is none -- see
+	// RenderPromptParts. Only meaningful when opts.CoreCacheParking is true
+	// (B2); ignored otherwise.
+	completion(ctx context.Context, prompt string, coreEnd int, opts Options) (CompletionResult, error)
 	unload()
 }
 

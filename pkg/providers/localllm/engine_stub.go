@@ -19,7 +19,7 @@ func newEngine() engine {
 	return stubEngine{}
 }
 
-func (stubEngine) completion(ctx context.Context, prompt string, opts Options) (CompletionResult, error) {
+func (stubEngine) completion(ctx context.Context, prompt string, coreEnd int, opts Options) (CompletionResult, error) {
 	return CompletionResult{}, ErrNotBuilt
 }
 

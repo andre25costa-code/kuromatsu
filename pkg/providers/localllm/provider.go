@@ -93,9 +93,9 @@ func (p *Provider) Chat(
 		enableThinking = true
 	}
 
-	prompt := RenderPrompt(messages, tools, enableThinking)
+	prompt, coreEnd := RenderPromptParts(messages, tools, enableThinking)
 
-	result, err := p.eng.completion(ctx, prompt, opts)
+	result, err := p.eng.completion(ctx, prompt, coreEnd, opts)
 	if err != nil {
 		return nil, err
 	}

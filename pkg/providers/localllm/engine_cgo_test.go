@@ -234,3 +234,76 @@ func TestCgoEngine_PrefixCache_Integration(t *testing.T) {
 			resp3.Usage.CachedTokens, want)
 	}
 }
+
+// TestCgoEngine_CoreParking_Integration is B2/ADR-015 point 8: two focus
+// windows (same identity, different tool catalogs -- mimicking chat vs.
+// heartbeat) alternate A,B,A. Without core-cache parking, switching to B
+// destroys A's whole KV cache (they share nothing beyond a few generic
+// ChatML markup tokens), so returning to A is a full cold miss again. With
+// parking, A's core (system prompt + tool schemas) survives the trip
+// through B and gets restored, so the second A call recovers a large,
+// deterministic chunk of its prompt from cache -- a token-count comparison
+// (not a timing one) sidesteps this hardware's own burst-credit throttling
+// noise (S39) entirely.
+func TestCgoEngine_CoreParking_Integration(t *testing.T) {
+	modelPath := integrationModelPath(t)
+
+	// Deliberately distinct system content too (not just tools): sharing
+	// boilerplate text between the two windows would let a plain, non-
+	// parking commonPrefixLen match a chunk of it by accident, muddying
+	// the "without parking, switching windows shares ~nothing" baseline
+	// this test relies on.
+	windowACore := []protocoltypes.Message{{Role: "system", Content: "Você é o Kuromatsu no modo chat. Responda em português, de forma direta."}}
+	windowBCore := []protocoltypes.Message{{Role: "system", Content: "Modo heartbeat: monitore o sistema silenciosamente."}}
+	toolsA := []protocoltypes.ToolDefinition{
+		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "read_file", Description: "Lê um arquivo do workspace."}},
+		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "write_file", Description: "Escreve um arquivo no workspace."}},
+	}
+	toolsB := []protocoltypes.ToolDefinition{
+		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "message", Description: "Envia uma mensagem pelo Telegram."}},
+		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "sysmon", Description: "Reporta o estado do sistema."}},
+	}
+	turnA := append(windowACore, protocoltypes.Message{Role: "user", Content: "Liste os arquivos do workspace."})
+	turnB := append(windowBCore, protocoltypes.Message{Role: "user", Content: "Qual o estado do sistema agora?"})
+
+	run := func(t *testing.T, parking bool) (respA1, respB, respA2 *protocoltypes.LLMResponse) {
+		t.Helper()
+		provider := &Provider{
+			opts: Options{ModelPath: modelPath, NCtx: 1024, MaxPredict: 8, CoreCacheParking: parking}.WithDefaults(),
+			eng:  newEngine(),
+		}
+		var err error
+		respA1, err = provider.Chat(context.Background(), turnA, toolsA, provider.GetDefaultModel(), nil)
+		if err != nil {
+			t.Fatalf("A(1) Chat() error = %v", err)
+		}
+		respB, err = provider.Chat(context.Background(), turnB, toolsB, provider.GetDefaultModel(), nil)
+		if err != nil {
+			t.Fatalf("B Chat() error = %v", err)
+		}
+		respA2, err = provider.Chat(context.Background(), turnA, toolsA, provider.GetDefaultModel(), nil)
+		if err != nil {
+			t.Fatalf("A(2) Chat() error = %v", err)
+		}
+		return respA1, respB, respA2
+	}
+
+	_, _, a2WithoutParking := run(t, false)
+	_, _, a2WithParking := run(t, true)
+
+	t.Logf("A(2) CachedTokens: without parking = %d, with parking = %d (PromptTokens = %d)",
+		a2WithoutParking.Usage.CachedTokens, a2WithParking.Usage.CachedTokens, a2WithParking.Usage.PromptTokens)
+
+	if a2WithoutParking.Usage.CachedTokens >= 5 {
+		t.Fatalf("without parking, A(2) CachedTokens = %d, want < 5 (window B in between should destroy A's whole KV cache)",
+			a2WithoutParking.Usage.CachedTokens)
+	}
+	if a2WithParking.Usage.CachedTokens <= a2WithoutParking.Usage.CachedTokens {
+		t.Fatalf("with parking, A(2) CachedTokens = %d, want > without-parking's %d (B2's whole point)",
+			a2WithParking.Usage.CachedTokens, a2WithoutParking.Usage.CachedTokens)
+	}
+	if a2WithParking.Usage.CachedTokens < a2WithParking.Usage.PromptTokens/2 {
+		t.Fatalf("with parking, A(2) CachedTokens = %d out of PromptTokens = %d, want at least half recovered from the parked core",
+			a2WithParking.Usage.CachedTokens, a2WithParking.Usage.PromptTokens)
+	}
+}
