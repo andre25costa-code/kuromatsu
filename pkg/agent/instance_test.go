@@ -1535,3 +1535,49 @@ func TestNewAgentInstance_ExplicitEmptyToolsFieldBlocksAllTools(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveAgentFallbacks_ExplicitEmptyFallbacksExcludesNativeFallback is
+// Trilho G C.4: ApplyNativeFallback only ever appends the native model name
+// to cfg.Agents.Defaults.ModelFallbacks (the global chain), never to a
+// per-agent agents.list[].model.fallbacks override. An agent that sets its
+// own (even short) fallback list must not silently inherit the global
+// native fallback -- that's what makes "ollama+ollama, local completamente
+// desativado para este agente" already reachable today with zero new code.
+func TestResolveAgentFallbacks_ExplicitEmptyFallbacksExcludesNativeFallback(t *testing.T) {
+	defaults := &config.AgentDefaults{
+		ModelFallbacks: []string{"bonsai-local"}, // what ApplyNativeFallback appends globally
+	}
+	agentCfg := &config.AgentConfig{
+		ID: "estudos",
+		Model: &config.AgentModelConfig{
+			Primary:   "ollama-cloud-a",
+			Fallbacks: []string{"ollama-cloud-b"},
+		},
+	}
+
+	got := resolveAgentFallbacks(agentCfg, defaults)
+
+	if len(got) != 1 || got[0] != "ollama-cloud-b" {
+		t.Fatalf(`resolveAgentFallbacks() = %v, want ["ollama-cloud-b"]`, got)
+	}
+	for _, name := range got {
+		if name == "bonsai-local" {
+			t.Fatalf("resolveAgentFallbacks() = %v, want the global native fallback excluded entirely", got)
+		}
+	}
+}
+
+// TestResolveAgentFallbacks_NilAgentModelFallsBackToGlobalDefaults is the
+// control case for the test above: an agent with no model override at all
+// (the "sensores" shape) still inherits the global chain, native fallback
+// included -- the exclusion above is specific to an explicit per-agent
+// override, not a general regression.
+func TestResolveAgentFallbacks_NilAgentModelFallsBackToGlobalDefaults(t *testing.T) {
+	defaults := &config.AgentDefaults{ModelFallbacks: []string{"bonsai-local"}}
+	agentCfg := &config.AgentConfig{ID: "sensores"}
+
+	got := resolveAgentFallbacks(agentCfg, defaults)
+	if len(got) != 1 || got[0] != "bonsai-local" {
+		t.Fatalf(`resolveAgentFallbacks() = %v, want ["bonsai-local"] from the global defaults`, got)
+	}
+}

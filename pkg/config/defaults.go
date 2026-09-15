@@ -76,22 +76,28 @@ func DefaultConfig() *Config {
 				ModelName: "bonsai-local",
 				Provider:  "native",
 				Model:     "Bonsai-1.7B-Q1_0",
-				// tool_schema_transform/max_predict/keep_alive_secs mirror
-				// what the real demetrius deploy already runs with by hand
-				// (S39/BACKLOG): a fresh install without these would
-				// silently regress -- full (uncompacted) tool schemas, no
-				// proactive MaxTokens clamp, and (keep_alive_secs) the
-				// model cold-reloading on every periodic heartbeat/cron
-				// tick instead of staying resident between them. -1 means
-				// never auto-unload (ADR-015 point 4); safe here because
-				// memguard (C3) already watches real memory pressure and
-				// unloads under PSI regardless of this setting.
+				// tool_schema_transform/max_predict/keep_alive_secs/
+				// core_cache_parking mirror what the real demetrius deploy
+				// already runs with by hand (S39/BACKLOG, Trilho F Fix 6):
+				// a fresh install without these would silently regress --
+				// full (uncompacted) tool schemas, no proactive MaxTokens
+				// clamp, the model cold-reloading on every periodic
+				// heartbeat/cron tick instead of staying resident between
+				// them (keep_alive_secs), and every focus-window switch
+				// paying a full prefill instead of restoring a parked core
+				// in milliseconds (core_cache_parking, B2/ADR-015 point 8 --
+				// measured on demetrius 2026-09-14: prefill ratio ~9.8%
+				// with parking vs. without, see KR3.1). -1 means never
+				// auto-unload (ADR-015 point 4); safe here because memguard
+				// (C3) already watches real memory pressure and unloads
+				// under PSI regardless of this setting.
 				ToolSchemaTransform: "compact",
 				ExtraBody: map[string]any{
-					"n_ctx":           2048,
-					"kv_cache_type":   "q8_0",
-					"max_predict":     512,
-					"keep_alive_secs": -1,
+					"n_ctx":              2048,
+					"kv_cache_type":      "q8_0",
+					"max_predict":        512,
+					"keep_alive_secs":    -1,
+					"core_cache_parking": true,
 				},
 			},
 

@@ -182,6 +182,49 @@ func TestNativeLimits_PartialKeysStillOK(t *testing.T) {
 	}
 }
 
+// TestDefaultConfig_SeededNativeEntryMatchesProductionExtraBody is Trilho F
+// Fix 6's own gate: the seeded "bonsai-local" entry in DefaultConfig's
+// ModelList must carry the same ExtraBody fields the real demetrius deploy
+// runs with by hand (S39/BACKLOG), or a fresh install silently regresses --
+// full tool schemas, no MaxTokens clamp, cold-reload on every heartbeat
+// tick, and no window-core KV parking (B2). Golden on values, not presence
+// alone, so a value drifting (e.g. keep_alive_secs flipping back to a
+// positive number) fails loudly instead of passing an "ok" check.
+func TestDefaultConfig_SeededNativeEntryMatchesProductionExtraBody(t *testing.T) {
+	cfg := DefaultConfig()
+
+	var native *ModelConfig
+	for _, m := range cfg.ModelList {
+		if m.ModelName == nativeModelName {
+			native = m
+			break
+		}
+	}
+	if native == nil {
+		t.Fatalf("DefaultConfig().ModelList has no %q entry", nativeModelName)
+	}
+
+	if native.ToolSchemaTransform != "compact" {
+		t.Errorf("ToolSchemaTransform = %q, want %q", native.ToolSchemaTransform, "compact")
+	}
+
+	want := map[string]any{
+		"max_predict":        512,
+		"keep_alive_secs":    -1,
+		"core_cache_parking": true,
+	}
+	for key, wantVal := range want {
+		gotVal, ok := native.ExtraBody[key]
+		if !ok {
+			t.Errorf("ExtraBody[%q] missing, want %v", key, wantVal)
+			continue
+		}
+		if gotVal != wantVal {
+			t.Errorf("ExtraBody[%q] = %v, want %v", key, gotVal, wantVal)
+		}
+	}
+}
+
 func TestApplyNativeFallback_IdempotentOnRepeatedCalls(t *testing.T) {
 	withNativeBuilt(t, true)
 	home := withHome(t)
