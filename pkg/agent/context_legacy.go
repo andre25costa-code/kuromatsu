@@ -10,6 +10,7 @@ import (
 	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 )
 
 // legacyContextManager wraps the existing summarization/compression logic
@@ -296,21 +297,29 @@ func (m *legacyContextManager) retryLLMCall(
 	var err error
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		m.al.activeRequestsInc()
-		resp, err = func() (*providers.LLMResponse, error) {
-			defer m.al.activeRequestsDec()
-			return agent.Provider.Chat(
-				ctx,
-				[]providers.Message{{Role: "user", Content: prompt}},
-				nil,
-				agent.Model,
-				map[string]any{
-					"max_tokens":       agent.MaxTokens,
-					"temperature":      llmTemperature,
-					"prompt_cache_key": agent.ID,
-				},
-			)
-		}()
+		// S09/ADR-016 point 6: a Suspended refusal here is treated just
+		// like any other failed attempt -- skip the actual Chat call (and
+		// the paired activeRequestsDec, since nothing was incremented) and
+		// let this loop's own backoff-and-retry below try again.
+		if !m.al.activeRequestsInc() {
+			err = runstate.ErrBusy
+			resp = nil
+		} else {
+			resp, err = func() (*providers.LLMResponse, error) {
+				defer m.al.activeRequestsDec()
+				return agent.Provider.Chat(
+					ctx,
+					[]providers.Message{{Role: "user", Content: prompt}},
+					nil,
+					agent.Model,
+					map[string]any{
+						"max_tokens":       agent.MaxTokens,
+						"temperature":      llmTemperature,
+						"prompt_cache_key": agent.ID,
+					},
+				)
+			}()
+		}
 
 		if err == nil && resp != nil && resp.Content != "" {
 			return resp, nil

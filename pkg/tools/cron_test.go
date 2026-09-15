@@ -22,6 +22,7 @@ type stubJobExecutor struct {
 	lastKey         string
 	lastChan        string
 	lastChatID      string
+	lastAgentID     string
 	publishedResp   string
 	publishedChan   string
 	publishedChatID string
@@ -32,6 +33,18 @@ func (s *stubJobExecutor) ProcessDirectWithChannel(
 	_ context.Context,
 	content, sessionKey, channel, chatID string,
 ) (string, error) {
+	s.lastPrompt = content
+	s.lastKey = sessionKey
+	s.lastChan = channel
+	s.lastChatID = chatID
+	return s.response, s.err
+}
+
+func (s *stubJobExecutor) ProcessDirectForAgent(
+	_ context.Context,
+	agentID, content, sessionKey, channel, chatID string,
+) (string, error) {
+	s.lastAgentID = agentID
 	s.lastPrompt = content
 	s.lastKey = sessionKey
 	s.lastChan = channel
@@ -1196,6 +1209,52 @@ func TestCronTool_ExecuteJobPublishesAgentResponse(t *testing.T) {
 	}
 	if executor.publishedChan != "telegram" || executor.publishedChatID != "chat-1" {
 		t.Fatalf("published target = %s/%s, want telegram/chat-1", executor.publishedChan, executor.publishedChatID)
+	}
+}
+
+// TestCronTool_ExecuteJobAgentIDOverride_BypassesDispatchRules is Trilho G
+// B.2's optional override: a job with Payload.AgentID set calls
+// ProcessDirectForAgent instead of ProcessDirectWithChannel, regardless of
+// what Channel/To would otherwise resolve to via agents.dispatch.rules.
+func TestCronTool_ExecuteJobAgentIDOverride_BypassesDispatchRules(t *testing.T) {
+	executor := &stubJobExecutor{response: "generated reply"}
+	tool := newTestCronToolWithExecutorAndConfig(t, executor, config.DefaultConfig())
+
+	job := &cron.CronJob{ID: "job-agent-override"}
+	job.Payload.Channel = "telegram"
+	job.Payload.To = "chat-1"
+	job.Payload.Message = "check the sensors"
+	job.Payload.AgentID = "sensores"
+
+	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
+		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	}
+	if executor.lastAgentID != "sensores" {
+		t.Fatalf("lastAgentID = %q, want %q (ProcessDirectForAgent must have been called)", executor.lastAgentID, "sensores")
+	}
+	if executor.lastPrompt != "check the sensors" {
+		t.Fatalf("prompt = %q, want original message", executor.lastPrompt)
+	}
+}
+
+// TestCronTool_ExecuteJobWithoutAgentIDUsesChannelRouting is the
+// complementary case: no Payload.AgentID means the plain
+// ProcessDirectWithChannel path runs, exactly as before this override
+// existed -- lastAgentID stays empty (only ProcessDirectForAgent sets it).
+func TestCronTool_ExecuteJobWithoutAgentIDUsesChannelRouting(t *testing.T) {
+	executor := &stubJobExecutor{response: "generated reply"}
+	tool := newTestCronToolWithExecutorAndConfig(t, executor, config.DefaultConfig())
+
+	job := &cron.CronJob{ID: "job-no-override"}
+	job.Payload.Channel = "telegram"
+	job.Payload.To = "chat-1"
+	job.Payload.Message = "send me a poem"
+
+	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
+		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	}
+	if executor.lastAgentID != "" {
+		t.Fatalf("lastAgentID = %q, want empty (ProcessDirectWithChannel path, not ProcessDirectForAgent)", executor.lastAgentID)
 	}
 }
 

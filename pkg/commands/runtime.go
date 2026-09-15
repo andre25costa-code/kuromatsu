@@ -64,4 +64,24 @@ type Runtime struct {
 	ClearHistory       func() error
 	ReloadConfig       func() error
 	StopActiveTurn     func() (StopResult, error)
+
+	// ListFocusWindows and GetFocusState back /foco's informational,
+	// no-args form (ADR-014/FR-014). The actual window-changing forms
+	// ("/foco <window>", "/foco <window> <message>", "/foco auto|off")
+	// are special-cased in pkg/agent/agent_command.go's
+	// applyExplicitFocusCommand (mirroring /use) since they need to
+	// mutate the in-flight processOptions, which a Runtime handler can't
+	// do — these two fields exist for introspection/testability and any
+	// future generic listing.
+	ListFocusWindows func() []string
+	GetFocusState    func() (current string, sticky bool)
+
+	// QueryStats backs /stats [window] [hours] (ADR-017/FR-019, Trilho C
+	// C4): a pre-formatted report string, or an error whose message is
+	// itself safe to show the user (e.g. "telemetry is disabled") rather
+	// than a raw internal error. Always non-nil in production wiring
+	// (pkg/agent/agent_command.go) -- the nil-vs-disabled distinction is
+	// handled inside the closure, not by this field being absent, so
+	// cmd_stats.go's Handler can call it unconditionally.
+	QueryStats func(ctx context.Context, window string, hours int) (string, error)
 }

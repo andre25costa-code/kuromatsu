@@ -1,0 +1,20 @@
+[Unit]
+Description=Kuromatsu — backup noturno para a VM Oracle (kuro), cross-cloud
+# Gated by runstate == Idle (ADR-016) inside backup-to-kuro.sh itself (reads
+# run/state directly) rather than here: a oneshot unit has no clean way to
+# retry-on-busy, and the script already treats "not idle" as "skip this run,
+# log it, exit 0" rather than a unit failure.
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=kuromatsu
+Group=kuromatsu
+WorkingDirectory=/var/lib/kuromatsu
+ExecStart=/opt/kuromatsu/bin/backup-to-kuro.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+[Install]
+WantedBy=multi-user.target

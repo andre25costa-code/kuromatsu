@@ -284,6 +284,84 @@ func TestTurnProfileConfig_ValidationRejectsUnsupportedModes(t *testing.T) {
 	}
 }
 
+// TestTurnProfileConfig_SystemPromptCompactAllowedOnlyForSystemPrompt covers
+// the A6 addition of TurnProfileModeCompact (ADR-014 point 3 / FR-015
+// AC-015-1): "compact" is a valid system_prompt.mode, but every other block
+// (history/skills/tools) still rejects it exactly like any other unknown mode.
+func TestTurnProfileConfig_SystemPromptCompactAllowedOnlyForSystemPrompt(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Agents.Defaults.TurnProfile = TurnProfileConfig{
+		Enabled:      true,
+		SystemPrompt: TurnProfileBlock{Mode: TurnProfileModeCompact},
+	}
+	if err := cfg.ValidateTurnProfile(); err != nil {
+		t.Fatalf("ValidateTurnProfile() error = %v, want nil for system_prompt.mode=compact", err)
+	}
+	profile, ok, err := cfg.Agents.Defaults.ResolveTurnProfile()
+	if err != nil {
+		t.Fatalf("ResolveTurnProfile() error = %v", err)
+	}
+	if !ok || profile.SystemPromptMode != TurnProfileModeCompact {
+		t.Fatalf("resolved profile = %+v, want SystemPromptMode=compact", profile)
+	}
+
+	for _, tt := range []struct {
+		field string
+		block *TurnProfileBlock
+	}{
+		{"history", &cfg.Agents.Defaults.TurnProfile.History},
+		{"skills", &cfg.Agents.Defaults.TurnProfile.Skills},
+		{"tools", &cfg.Agents.Defaults.TurnProfile.Tools},
+	} {
+		cfg.Agents.Defaults.TurnProfile = TurnProfileConfig{Enabled: true}
+		*fieldBlock(&cfg.Agents.Defaults.TurnProfile, tt.field) = TurnProfileBlock{Mode: TurnProfileModeCompact}
+		err := cfg.ValidateTurnProfile()
+		if err == nil {
+			t.Fatalf("ValidateTurnProfile() error = nil for %s.mode=compact, want error", tt.field)
+		}
+		if !strings.Contains(err.Error(), "compact is not supported") {
+			t.Fatalf("ValidateTurnProfile() error = %v, want mentioning compact not supported", err)
+		}
+	}
+}
+
+func fieldBlock(profile *TurnProfileConfig, field string) *TurnProfileBlock {
+	switch field {
+	case "history":
+		return &profile.History
+	case "skills":
+		return &profile.Skills
+	case "tools":
+		return &profile.Tools
+	default:
+		return &profile.SystemPrompt
+	}
+}
+
+// TestEffectiveTurnProfile_FocusFieldsDefaultToZeroValue documents the
+// compatibility invariant A2/A3/A4 rely on: a profile resolved from the
+// plain, static AgentDefaults.TurnProfile (never touched by focus routing)
+// always leaves Window/MemoryMode/NeedsTime/EscalateTo at the zero value, so
+// nothing added for the focus feature can change behavior when
+// focus.enabled=false (AC-014-9).
+func TestEffectiveTurnProfile_FocusFieldsDefaultToZeroValue(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Agents.Defaults.TurnProfile = TurnProfileConfig{
+		Enabled: true,
+		Tools:   TurnProfileBlock{Mode: TurnProfileModeCustom, Allow: []string{"echo_text"}},
+	}
+	profile, ok, err := cfg.Agents.Defaults.ResolveTurnProfile()
+	if err != nil {
+		t.Fatalf("ResolveTurnProfile() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("ResolveTurnProfile() ok = false, want true")
+	}
+	if profile.Window != "" || profile.MemoryMode != "" || profile.NeedsTime || profile.EscalateTo != "" {
+		t.Fatalf("plain turn profile leaked focus fields: %+v", profile)
+	}
+}
+
 func TestDefaultConfig_MCPMaxInlineTextChars(t *testing.T) {
 	cfg := DefaultConfig()
 	if cfg.Tools.MCP.GetMaxInlineTextChars() != DefaultMCPMaxInlineTextChars {
@@ -895,6 +973,42 @@ func TestDefaultConfig_HeartbeatEnabled(t *testing.T) {
 
 	if !cfg.Heartbeat.Enabled {
 		t.Error("Heartbeat should be enabled by default")
+	}
+}
+
+// Trilho G B.1: per-agent heartbeat overrides.
+
+func TestEffectiveHeartbeat_EmptyAgentsListMatchesGlobal(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Heartbeat = HeartbeatConfig{Enabled: true, Interval: 60}
+
+	got := cfg.EffectiveHeartbeat("main")
+	if got != cfg.Heartbeat {
+		t.Fatalf("EffectiveHeartbeat() = %+v, want exactly cfg.Heartbeat %+v (agents.list empty)", got, cfg.Heartbeat)
+	}
+}
+
+func TestEffectiveHeartbeat_PerAgentOverrideWinsOverGlobal(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Heartbeat = HeartbeatConfig{Enabled: true, Interval: 60}
+	disabled := false
+	cfg.Agents.List = []AgentConfig{
+		{ID: "sensores", Heartbeat: &AgentHeartbeatConfig{Enabled: &disabled}},
+		{ID: "estudos", Heartbeat: &AgentHeartbeatConfig{Interval: 15}},
+		{ID: "no-override"},
+	}
+
+	if got := cfg.EffectiveHeartbeat("sensores"); got.Enabled {
+		t.Fatalf("EffectiveHeartbeat(sensores).Enabled = true, want false (explicit override)")
+	}
+	if got := cfg.EffectiveHeartbeat("estudos"); got.Interval != 15 || !got.Enabled {
+		t.Fatalf("EffectiveHeartbeat(estudos) = %+v, want Interval=15, Enabled=true (inherited)", got)
+	}
+	if got := cfg.EffectiveHeartbeat("no-override"); got != cfg.Heartbeat {
+		t.Fatalf("EffectiveHeartbeat(no-override) = %+v, want exactly the global block %+v", got, cfg.Heartbeat)
+	}
+	if got := cfg.EffectiveHeartbeat("unregistered-id"); got != cfg.Heartbeat {
+		t.Fatalf("EffectiveHeartbeat(unregistered-id) = %+v, want exactly the global block %+v (no matching AgentConfig)", got, cfg.Heartbeat)
 	}
 }
 
@@ -2848,6 +2962,38 @@ func TestDefaultConfig_MinimaxExtraBody(t *testing.T) {
 	}
 	if got, ok := minimaxCfg.ExtraBody["reasoning_split"]; !ok || got != true {
 		t.Fatalf("Minimax ExtraBody[reasoning_split] = %v, want true", got)
+	}
+}
+
+// TestDefaultConfig_BonsaiLocalMirrorsRealDeployTuning guards against the
+// seeded native entry drifting from what the real demetrius deploy actually
+// runs with (S39/BACKLOG): a fresh install must not silently regress to
+// uncompacted tool schemas or an idle-unloading model between periodic
+// heartbeat/cron ticks.
+func TestDefaultConfig_BonsaiLocalMirrorsRealDeployTuning(t *testing.T) {
+	cfg := DefaultConfig()
+
+	var bonsai *ModelConfig
+	for i := range cfg.ModelList {
+		if cfg.ModelList[i].ModelName == "bonsai-local" {
+			bonsai = cfg.ModelList[i]
+			break
+		}
+	}
+	if bonsai == nil {
+		t.Fatal("bonsai-local model not found in ModelList")
+	}
+	if bonsai.ToolSchemaTransform != "compact" {
+		t.Fatalf("bonsai-local ToolSchemaTransform = %q, want %q", bonsai.ToolSchemaTransform, "compact")
+	}
+	if bonsai.ExtraBody == nil {
+		t.Fatal("bonsai-local ExtraBody should not be nil")
+	}
+	if got := bonsai.ExtraBody["max_predict"]; got != 512 {
+		t.Fatalf("bonsai-local ExtraBody[max_predict] = %v, want 512", got)
+	}
+	if got := bonsai.ExtraBody["keep_alive_secs"]; got != -1 {
+		t.Fatalf("bonsai-local ExtraBody[keep_alive_secs] = %v, want -1 (never idle-unload; memguard/C3 handles real memory pressure)", got)
 	}
 }
 

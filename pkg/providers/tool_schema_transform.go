@@ -7,8 +7,9 @@ import (
 )
 
 type toolSchemaTransformProvider struct {
-	delegate  LLMProvider
-	transform string
+	delegate    LLMProvider
+	transform   string
+	compactOpts common.CompactSchemaOptions
 }
 
 type toolSchemaStreamingProvider struct {
@@ -16,6 +17,19 @@ type toolSchemaStreamingProvider struct {
 }
 
 func wrapProviderWithToolSchemaTransform(delegate LLMProvider, transform string) (LLMProvider, error) {
+	return wrapProviderWithToolSchemaTransformOptions(delegate, transform, common.CompactSchemaOptions{})
+}
+
+// wrapProviderWithToolSchemaTransformOptions is
+// wrapProviderWithToolSchemaTransform with explicit CompactSchemaOptions
+// (used by the "compact" transform; ignored by every other transform). Kept
+// as a separate function so every existing call/test of the 2-arg form
+// (default options) is untouched.
+func wrapProviderWithToolSchemaTransformOptions(
+	delegate LLMProvider,
+	transform string,
+	compactOpts common.CompactSchemaOptions,
+) (LLMProvider, error) {
 	transform, err := common.NormalizeToolSchemaTransform(transform)
 	if err != nil {
 		return nil, err
@@ -24,8 +38,9 @@ func wrapProviderWithToolSchemaTransform(delegate LLMProvider, transform string)
 		return delegate, nil
 	}
 	base := &toolSchemaTransformProvider{
-		delegate:  delegate,
-		transform: transform,
+		delegate:    delegate,
+		transform:   transform,
+		compactOpts: compactOpts,
 	}
 	if _, ok := delegate.(StreamingProvider); ok {
 		return &toolSchemaStreamingProvider{toolSchemaTransformProvider: base}, nil
@@ -40,7 +55,7 @@ func (p *toolSchemaTransformProvider) Chat(
 	model string,
 	options map[string]any,
 ) (*LLMResponse, error) {
-	transformed, err := common.TransformToolDefinitions(tools, p.transform)
+	transformed, err := common.TransformToolDefinitionsWithOptions(tools, p.transform, p.compactOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +75,7 @@ func (p *toolSchemaStreamingProvider) ChatStream(
 	onChunk func(accumulated string),
 ) (*LLMResponse, error) {
 	streaming := p.delegate.(StreamingProvider)
-	transformed, err := common.TransformToolDefinitions(tools, p.transform)
+	transformed, err := common.TransformToolDefinitionsWithOptions(tools, p.transform, p.compactOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +98,7 @@ func (p *toolSchemaStreamingProvider) ChatStreamEvents(
 			}
 		})
 	}
-	transformed, err := common.TransformToolDefinitions(tools, p.transform)
+	transformed, err := common.TransformToolDefinitionsWithOptions(tools, p.transform, p.compactOpts)
 	if err != nil {
 		return nil, err
 	}

@@ -27,6 +27,11 @@ items:
     id_prefix: BR
     tags: [rules, invariants]
     roles: [dev]
+  - id: S09
+    title: Máquina de estados — runstate
+    file: 02-business-design/09-state-machines.md
+    tags: [runstate, state-machine, memguard]
+    roles: [dev]
   - id: S10
     title: Escopo (in/out)
     file: 02-business-design/10-scope.md
@@ -48,10 +53,35 @@ items:
     file: 03-system-design/14-modules.md
     tags: [modules]
     roles: [dev]
+  - id: S16
+    title: Fluxo do sistema — reflexo → roteador de foco → janela → escalonamento
+    file: 03-system-design/16-system-flow.md
+    tags: [flow, focus-windows, reflexes, routing]
+    roles: [dev]
+  - id: S17
+    title: Semântica de falhas e estratégia de consistência
+    file: 03-system-design/17-failure-semantics.md
+    tags: [failure-semantics, retry, degradation]
+    roles: [dev]
   - id: S18
     title: Componente de IA (Bonsai-1.7B-Q1_0)
     file: 03-system-design/18-ai-component.md
     tags: [ai, llm, inference, chatml]
+    roles: [dev]
+  - id: S21
+    title: Cache de prefixo do KV — estratégia e consistência
+    file: 04-data-design/21-cache-strategy.md
+    tags: [cache, kv-cache, prefix-cache]
+    roles: [dev]
+  - id: S22
+    title: Migração e transformação de dados
+    file: 04-data-design/22-data-migration.md
+    tags: [migration, rebrand, env]
+    roles: [dev]
+  - id: S27
+    title: Segurança — superfície nova do runstate/sysmon e trim do SO
+    file: 06-infrastructure/27-security.md
+    tags: [security, runstate, sysmon, nftables, systemd-hardening]
     roles: [dev]
   - id: S29
     title: Requisitos não funcionais
@@ -59,16 +89,36 @@ items:
     id_prefix: NFR
     tags: [nfr, ram, performance]
     roles: [dev]
+  - id: S30
+    title: Agendamento — heartbeat, cron e janelas por origem
+    file: 06-infrastructure/30-scheduling.md
+    tags: [scheduling, heartbeat, cron, focus-windows]
+    roles: [dev]
   - id: S32
     title: Arquitetura de deploy
     file: 06-infrastructure/32-deployment.md
-    tags: [deploy, docker, oracle, amd64]
+    tags: [deploy, docker, oracle, amd64, systemd, demetrius]
+    roles: [dev]
+  - id: S33
+    title: Backup — timer noturno cross-cloud para o kuro (Oracle)
+    file: 06-infrastructure/33-backup.md
+    tags: [backup, cross-cloud, rsync, systemd]
+    roles: [dev]
+  - id: S34
+    title: Observabilidade — estado, telemetria e sd_notify
+    file: 06-infrastructure/34-observability.md
+    tags: [observability, telemetry, sd_notify, health]
     roles: [dev]
   - id: S35
     title: Registros de decisão de arquitetura
     file: 07-engineering/adr/
     id_prefix: ADR
     tags: [adr, decisions]
+    roles: [dev]
+  - id: S39
+    title: Baseline de desempenho — benchmark quantitativo na demetrius
+    file: 06-infrastructure/39-baseline-benchmarks.md
+    tags: [benchmark, performance, kv-cache, demetrius, nfr]
     roles: [dev]
   - id: S40
     title: Referências

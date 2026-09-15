@@ -50,7 +50,28 @@ func promptBuildRequestForTurn(
 	if ts.profile.Enabled && ts.profile.ToolsMode == config.TurnProfileModeCustom {
 		req.AllowedTools = append([]string(nil), ts.profile.AllowedTools...)
 	}
+	applyFocusPromptFields(&req, ts.profile)
 	return req
+}
+
+// applyFocusPromptFields propagates the compact-prompt fields (ADR-014
+// point 3 / FR-015) from an EffectiveTurnProfile onto a PromptBuildRequest.
+// Every field it sets defaults to the zero value on a profile that was
+// resolved from the plain, static AgentDefaults.TurnProfile (or from no
+// profile at all) — see EffectiveTurnProfile's own doc comment — so this is
+// a no-op unless system_prompt.mode is "compact" (settable directly, or via
+// a resolved focus window) or a focus window set MemoryMode/NeedsTime.
+func applyFocusPromptFields(req *PromptBuildRequest, profile config.EffectiveTurnProfile) {
+	if turnProfileSystemPromptCompact(profile) {
+		req.CompactSystemPrompt = true
+		req.DynamicContext = "date"
+	}
+	if profile.Enabled && profile.MemoryMode != "" {
+		req.MemoryMode = profile.MemoryMode
+	}
+	if profile.Enabled && profile.NeedsTime {
+		req.NeedsTime = true
+	}
 }
 
 func turnProfileNativeSearchCallable(
@@ -113,6 +134,7 @@ func promptBuildRequestForProcessOptions(
 	if profile.Enabled && profile.ToolsMode == config.TurnProfileModeCustom {
 		req.AllowedTools = append([]string(nil), profile.AllowedTools...)
 	}
+	applyFocusPromptFields(&req, profile)
 	return req
 }
 

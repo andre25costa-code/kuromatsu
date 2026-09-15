@@ -79,6 +79,51 @@ func TestSysmonTool_InvalidNiceness(t *testing.T) {
 	}
 }
 
+// FR-017/ADR-016 point 5: action=state reports "not available" when no
+// reader has been injected (runstate.enabled=false, the default).
+func TestSysmonTool_StateWithoutReader(t *testing.T) {
+	tool := NewSysmonTool(false)
+	res := tool.Execute(context.Background(), map[string]any{"action": "state"})
+	if res.IsError {
+		t.Fatalf("expected a non-error result, got %+v", res)
+	}
+	if !strings.Contains(res.ForLLM, "not enabled") {
+		t.Fatalf("expected a not-enabled message, got: %s", res.ForLLM)
+	}
+}
+
+func TestSysmonTool_StateWithReader(t *testing.T) {
+	tool := NewSysmonTool(false).WithStateReader(func() (uint32, []string) {
+		return 3, []string{"inference", "toolexec"}
+	})
+	res := tool.Execute(context.Background(), map[string]any{"action": "state"})
+	if res.IsError {
+		t.Fatalf("expected a non-error result, got %+v", res)
+	}
+	if !strings.Contains(res.ForLLM, "bits=3") || !strings.Contains(res.ForLLM, "inference,toolexec") {
+		t.Fatalf("expected the injected state in the result, got: %s", res.ForLLM)
+	}
+}
+
+func TestSysmonTool_StateWithReaderIdle(t *testing.T) {
+	tool := NewSysmonTool(false).WithStateReader(func() (uint32, []string) {
+		return 0, nil
+	})
+	res := tool.Execute(context.Background(), map[string]any{"action": "state"})
+	if !strings.Contains(res.ForLLM, "idle") {
+		t.Fatalf("expected an idle label for an empty names slice, got: %s", res.ForLLM)
+	}
+}
+
+// WithStateReader returns the receiver so it chains onto NewSysmonTool.
+func TestSysmonTool_WithStateReaderReturnsReceiver(t *testing.T) {
+	tool := NewSysmonTool(false)
+	got := tool.WithStateReader(func() (uint32, []string) { return 0, nil })
+	if got != tool {
+		t.Fatal("WithStateReader did not return the same *SysmonTool")
+	}
+}
+
 func TestFormatBytes(t *testing.T) {
 	cases := map[uint64]string{
 		0:                 "0 B",

@@ -46,6 +46,19 @@ type toolFunctionJSON struct {
 // empty <think></think> block, which suppresses the 1.7B model's thinking
 // spend (S18).
 func RenderPrompt(messages []protocoltypes.Message, tools []protocoltypes.ToolDefinition, enableThinking bool) string {
+	prompt, _ := RenderPromptParts(messages, tools, enableThinking)
+	return prompt
+}
+
+// RenderPromptParts renders the same prompt as RenderPrompt, additionally
+// reporting coreEnd: the byte offset immediately after the system block
+// (identity + tool schemas), or 0 if there is none (no system message and
+// no tools). B2 (window-core KV parking, ADR-015 point 8) uses coreEnd to
+// tokenize and park exactly that "core" -- everything a focus window's
+// prompt shares regardless of conversation history -- as its own llama.cpp
+// sequence, so switching focus windows can restore it instead of
+// re-decoding it.
+func RenderPromptParts(messages []protocoltypes.Message, tools []protocoltypes.ToolDefinition, enableThinking bool) (prompt string, coreEnd int) {
 	var b strings.Builder
 
 	systemContent := ""
@@ -80,6 +93,7 @@ func RenderPrompt(messages []protocoltypes.Message, tools []protocoltypes.ToolDe
 			b.WriteString(toolsFooter)
 		}
 		b.WriteString(imEnd + "\n")
+		coreEnd = b.Len()
 	}
 
 	i := 0
@@ -128,7 +142,7 @@ func RenderPrompt(messages []protocoltypes.Message, tools []protocoltypes.ToolDe
 		b.WriteString("<think>\n\n</think>\n\n")
 	}
 
-	return b.String()
+	return b.String(), coreEnd
 }
 
 // ParseOutput extracts reasoning (<think>...</think>) and tool calls

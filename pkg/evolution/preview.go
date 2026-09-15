@@ -1,8 +1,6 @@
 package evolution
 
 import (
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -11,36 +9,6 @@ type DraftPreview struct {
 	CurrentBody  string
 	RenderedBody string
 	DiffPreview  string
-}
-
-func BuildDraftPreview(workspace string, draft SkillDraft) (DraftPreview, error) {
-	currentBody, hadOriginal, err := loadCurrentSkillBody(workspace, draft.TargetSkillName)
-	if err != nil {
-		return DraftPreview{}, err
-	}
-
-	renderedBody, err := renderAppliedBody(draft, currentBody, hadOriginal)
-	if err != nil {
-		return DraftPreview{}, err
-	}
-
-	return DraftPreview{
-		CurrentBody:  currentBody,
-		RenderedBody: renderedBody,
-		DiffPreview:  buildLineDiffPreview(currentBody, renderedBody),
-	}, nil
-}
-
-func loadCurrentSkillBody(workspace, skillName string) (string, bool, error) {
-	skillPath := filepath.Join(workspace, "skills", skillName, "SKILL.md")
-	data, err := os.ReadFile(skillPath)
-	if os.IsNotExist(err) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	return string(data), true, nil
 }
 
 func buildLineDiffPreview(currentBody, renderedBody string) string {

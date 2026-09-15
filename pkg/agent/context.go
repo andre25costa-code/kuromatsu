@@ -46,6 +46,13 @@ type ContextBuilder struct {
 	// build time. This catches nested file creations/deletions/mtime changes
 	// that may not update the top-level skill root directory mtime.
 	skillFilesAtCache map[string]time.Time
+
+	// cachedVariants holds non-default system prompt builds (compact
+	// identity, custom memory mode, allow-listed skills/tools — see
+	// buildSystemPromptForRequest), keyed by systemPromptVariantKey. It
+	// shares cachedAt/existedAtCache/skillFilesAtCache as its staleness
+	// baseline, and is invalidated alongside cachedSystemPrompt.
+	cachedVariants map[string]cachedVariantEntry
 }
 
 func (cb *ContextBuilder) WithToolDiscovery(useBM25, useRegex bool) *ContextBuilder {
@@ -197,6 +204,37 @@ Your workspace is at: %s
 	)
 }
 
+// getIdentityCompact is the ADR-014 point 3 / FR-015 AC-015-1 compact
+// identity: ≤~150 tokens of framework overhead instead of getIdentity's
+// full identity block (workspace paths, memory/skills pointers, tool
+// discovery rule, etc). It intentionally does not touch the workspace's own
+// AGENT.md/SOUL.md/USER.md content (LoadBootstrapFiles) — that's the
+// user's own prompt budget, not framework overhead (see the code-analyst
+// note in .claude/team/research/enxugar.md), and trimming it is out of
+// scope here.
+func (cb *ContextBuilder) getIdentityCompact(includeToolUseRule bool) string {
+	workspacePath, _ := filepath.Abs(filepath.Join(cb.workspace))
+
+	rules := []string{}
+	if includeToolUseRule {
+		rules = append(rules, "**Use tools** - call the tool instead of saying you will.")
+	}
+	rules = append(rules, "**Be accurate** - be concise and correct.")
+	rules = append(
+		rules,
+		fmt.Sprintf("**Memory** - note memorable facts in %s/memory/MEMORY.md.", workspacePath),
+	)
+	for i, rule := range rules {
+		rules[i] = fmt.Sprintf("%d. %s", i+1, rule)
+	}
+
+	return fmt.Sprintf(
+		"# kuromatsu\nWorkspace: %s\n\n%s\n",
+		workspacePath,
+		strings.Join(rules, "\n"),
+	)
+}
+
 func formatToolDiscoveryRule(useBM25, useRegex bool) string {
 	if !useBM25 && !useRegex {
 		return ""
@@ -232,6 +270,12 @@ type systemPromptBuildOptions struct {
 	IncludeToolUseRule  bool
 	AllowedSkills       []string
 	AllowedTools        []string
+	// Compact selects getIdentityCompact over getIdentity (ADR-014 point 3).
+	Compact bool
+	// MemoryMode is "", config.FocusMemoryDefault, FocusMemoryCore, or
+	// FocusMemoryOff; "" behaves exactly like FocusMemoryDefault (today's
+	// MEMORY.md + recent daily notes).
+	MemoryMode string
 }
 
 func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) []PromptPart {
@@ -249,13 +293,17 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 	}
 
 	// Core identity section
+	identity := cb.getIdentity(opts.IncludeToolUseRule)
+	if opts.Compact {
+		identity = cb.getIdentityCompact(opts.IncludeToolUseRule)
+	}
 	add(PromptPart{
 		ID:      "kernel.identity",
 		Layer:   PromptLayerKernel,
 		Slot:    PromptSlotIdentity,
 		Source:  PromptSource{ID: PromptSourceKernel, Name: "identity"},
 		Title:   "kuromatsu identity",
-		Content: cb.getIdentity(opts.IncludeToolUseRule),
+		Content: identity,
 		Stable:  true,
 		Cache:   PromptCacheEphemeral,
 	})
@@ -305,8 +353,17 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 		})
 	}
 
-	// Memory context
-	memoryContext := cb.memory.GetMemoryContext()
+	// Memory context (ADR-014 point 3: "core" = MEMORY.md only, "off" =
+	// none; "" / "default" is today's MEMORY.md + recent daily notes).
+	var memoryContext string
+	switch strings.ToLower(strings.TrimSpace(opts.MemoryMode)) {
+	case config.FocusMemoryOff:
+		memoryContext = ""
+	case config.FocusMemoryCore:
+		memoryContext = cb.memory.ReadLongTerm()
+	default:
+		memoryContext = cb.memory.GetMemoryContext()
+	}
 	if memoryContext != "" {
 		add(PromptPart{
 			ID:      "context.memory",
@@ -375,6 +432,9 @@ func (cb *ContextBuilder) BuildSystemPromptWithCache() string {
 	cb.cachedAt = baseline.maxMtime
 	cb.existedAtCache = baseline.existed
 	cb.skillFilesAtCache = baseline.skillFiles
+	// The baseline moved (or is being set for the first time); any variant
+	// cached against the old one can no longer be trusted.
+	cb.cachedVariants = nil
 
 	logger.DebugCF("agent", "System prompt cached",
 		map[string]any{
@@ -394,7 +454,9 @@ func (cb *ContextBuilder) buildSystemPromptForRequest(
 	useDefaultCache := !req.SuppressSkillContext &&
 		!req.SuppressToolUseRule &&
 		len(req.AllowedSkills) == 0 &&
-		len(req.AllowedTools) == 0
+		len(req.AllowedTools) == 0 &&
+		!req.CompactSystemPrompt &&
+		strings.TrimSpace(req.MemoryMode) == ""
 	if useDefaultCache {
 		staticPrompt := cb.BuildSystemPromptWithCache()
 		return staticPrompt, []providers.ContentBlock{
@@ -408,11 +470,23 @@ func (cb *ContextBuilder) buildSystemPromptForRequest(
 		}
 	}
 
+	// Non-default request shapes (compact/custom-memory/allow-listed
+	// builds) still get reused across calls, keyed by the exact request
+	// shape — this is what makes the compact prefix byte-identical across
+	// turns in the same focus window (AC-015-3), not just within a single
+	// call.
+	variantKey := systemPromptVariantKey(req)
+	if entry, ok := cb.cachedVariantLocked(variantKey); ok {
+		return entry.prompt, entry.blocks
+	}
+
 	parts := cb.buildSystemPromptParts(systemPromptBuildOptions{
 		IncludeSkillCatalog: !req.SuppressSkillContext,
 		IncludeToolUseRule:  !req.SuppressToolUseRule,
 		AllowedSkills:       req.AllowedSkills,
 		AllowedTools:        req.AllowedTools,
+		Compact:             req.CompactSystemPrompt,
+		MemoryMode:          req.MemoryMode,
 	})
 	staticPrompt := renderPromptPartsLegacy(parts)
 	blocks := make([]providers.ContentBlock, 0, len(parts))
@@ -422,7 +496,66 @@ func (cb *ContextBuilder) buildSystemPromptForRequest(
 		}
 		blocks = append(blocks, promptContentBlock(part, cacheControlForPromptPart(part)))
 	}
+	cb.storeCachedVariantLocked(variantKey, staticPrompt, blocks)
 	return staticPrompt, blocks
+}
+
+// cachedVariantEntry is one non-default system prompt build (see
+// buildSystemPromptForRequest's variant cache).
+type cachedVariantEntry struct {
+	prompt string
+	blocks []providers.ContentBlock
+}
+
+// systemPromptVariantKey identifies the exact request shape that produced a
+// cached variant, so two different focus windows (or one window with a
+// different AllowedSkills/AllowedTools set) never collide in the cache.
+func systemPromptVariantKey(req PromptBuildRequest) string {
+	allowedSkills := append([]string(nil), req.AllowedSkills...)
+	allowedTools := append([]string(nil), req.AllowedTools...)
+	slices.Sort(allowedSkills)
+	slices.Sort(allowedTools)
+	return fmt.Sprintf(
+		"compact=%v|skillctx=%v|toolrule=%v|memory=%s|skills=%s|tools=%s",
+		req.CompactSystemPrompt,
+		!req.SuppressSkillContext,
+		!req.SuppressToolUseRule,
+		strings.ToLower(strings.TrimSpace(req.MemoryMode)),
+		strings.Join(allowedSkills, ","),
+		strings.Join(allowedTools, ","),
+	)
+}
+
+// cachedVariantLocked returns a cached variant for key if source files
+// haven't changed since it was cached (same staleness check as
+// BuildSystemPromptWithCache's default cache).
+func (cb *ContextBuilder) cachedVariantLocked(key string) (cachedVariantEntry, bool) {
+	cb.systemPromptMutex.RLock()
+	defer cb.systemPromptMutex.RUnlock()
+	if cb.cachedVariants == nil || cb.sourceFilesChangedLocked() {
+		return cachedVariantEntry{}, false
+	}
+	entry, ok := cb.cachedVariants[key]
+	return entry, ok
+}
+
+func (cb *ContextBuilder) storeCachedVariantLocked(key, prompt string, blocks []providers.ContentBlock) {
+	cb.systemPromptMutex.Lock()
+	defer cb.systemPromptMutex.Unlock()
+	if cb.cachedAt.IsZero() {
+		// No default-cache build has established a baseline yet (e.g. every
+		// call so far used a focus window) — establish one now so this
+		// variant (and BuildSystemPromptWithCache, later) can be validated
+		// against it.
+		baseline := cb.buildCacheBaseline()
+		cb.cachedAt = baseline.maxMtime
+		cb.existedAtCache = baseline.existed
+		cb.skillFilesAtCache = baseline.skillFiles
+	}
+	if cb.cachedVariants == nil {
+		cb.cachedVariants = make(map[string]cachedVariantEntry)
+	}
+	cb.cachedVariants[key] = cachedVariantEntry{prompt: prompt, blocks: blocks}
 }
 
 func (cb *ContextBuilder) buildSkillsSummary(allowed []string) string {
@@ -528,6 +661,7 @@ func (cb *ContextBuilder) InvalidateCache() {
 	cb.cachedAt = time.Time{}
 	cb.existedAtCache = nil
 	cb.skillFilesAtCache = nil
+	cb.cachedVariants = nil
 
 	logger.DebugCF("agent", "System prompt cache invalidated", nil)
 }
@@ -818,6 +952,17 @@ func (cb *ContextBuilder) buildDynamicContext(
 	return sb.String()
 }
 
+// buildDynamicContextDateOnly is the ADR-014 point 3 "date" DynamicContext
+// mode: only the calendar date, no per-minute timestamp and no
+// Runtime/Session/Sender block. This is what keeps the prefix
+// (identity+tools+history) byte-identical across turns on the same day, so
+// the KV prefix cache (ADR-015/S21) actually reuses it — a per-minute
+// timestamp in the middle of the system prompt would otherwise invalidate
+// the cached prefix on every single call.
+func buildDynamicContextDateOnly() string {
+	return fmt.Sprintf("## Current Date\n%s", time.Now().Format("2006-01-02 (Monday)"))
+}
+
 func (cb *ContextBuilder) BuildMessages(
 	history []providers.Message,
 	summary string,
@@ -909,13 +1054,21 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 
 	dynamicChars := 0
 	if !req.SuppressDefaultSystemPrompt {
-		// Build short dynamic context (time, runtime, session) — changes per request
-		dynamicCtx := cb.buildDynamicContext(
-			req.Channel,
-			req.ChatID,
-			req.SenderID,
-			req.SenderDisplayName,
-		)
+		// Build short dynamic context (time, runtime, session) — changes per
+		// request. "date" mode (ADR-014 point 3) emits only the calendar
+		// date so this block stays byte-identical across every call on the
+		// same day, instead of changing every minute.
+		var dynamicCtx string
+		if strings.EqualFold(strings.TrimSpace(req.DynamicContext), "date") {
+			dynamicCtx = buildDynamicContextDateOnly()
+		} else {
+			dynamicCtx = cb.buildDynamicContext(
+				req.Channel,
+				req.ChatID,
+				req.SenderID,
+				req.SenderDisplayName,
+			)
+		}
 		dynamicChars = len(dynamicCtx)
 		runtimePart := PromptPart{
 			ID:      "context.runtime",
@@ -1011,7 +1164,22 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 	// multimodal providers receive the uploaded image even when the user sends
 	// no accompanying text.
 	if strings.TrimSpace(req.CurrentMessage) != "" || len(req.Media) > 0 {
-		messages = append(messages, userPromptMessage(req.CurrentMessage, req.Media))
+		currentMessage := req.CurrentMessage
+		if req.NeedsTime {
+			// ADR-014 point 3: time-sensitive windows (schedule/heartbeat/
+			// cron) get "[now: HH:MM]" appended to the assembled message
+			// for THIS call only — never to the system prompt (which would
+			// defeat prefix caching) and never to what gets persisted to
+			// session history (that's req.CurrentMessage / ts.userMessage,
+			// untouched by this local variable).
+			stamp := "[now: " + time.Now().Format("15:04") + "]"
+			if strings.TrimSpace(currentMessage) == "" {
+				currentMessage = stamp
+			} else {
+				currentMessage = currentMessage + "\n\n" + stamp
+			}
+		}
+		messages = append(messages, userPromptMessage(currentMessage, req.Media))
 	}
 	if len(messages) == 0 {
 		messages = append(messages, userPromptMessage("", nil))
@@ -1198,32 +1366,6 @@ func sanitizeHistoryForProvider(history []providers.Message) []providers.Message
 	}
 
 	return final
-}
-
-func (cb *ContextBuilder) AddToolResult(
-	messages []providers.Message,
-	toolCallID, toolName, result string,
-) []providers.Message {
-	messages = append(messages, providers.Message{
-		Role:       "tool",
-		Content:    result,
-		ToolCallID: toolCallID,
-	})
-	return messages
-}
-
-func (cb *ContextBuilder) AddAssistantMessage(
-	messages []providers.Message,
-	content string,
-	toolCalls []map[string]any,
-) []providers.Message {
-	msg := providers.Message{
-		Role:    "assistant",
-		Content: content,
-	}
-	// Always add assistant message, whether or not it has tool calls
-	messages = append(messages, msg)
-	return messages
 }
 
 func (cb *ContextBuilder) buildActiveSkillsContext(skillNames []string) string {

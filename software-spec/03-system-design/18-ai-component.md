@@ -2,10 +2,10 @@
 id: S18
 title: Componente de IA — Bonsai-1.7B-Q1_0 embutido
 status: confirmed
-version: 3
+version: 4
 owner: André
 last_updated: 2026-09-11
-depends_on: [S06, S13]
+depends_on: [S06, S13, S21]
 ---
 
 # S18 — Componente de IA
@@ -49,6 +49,45 @@ o "humano" é o próprio usuário conversando.
 - Modo dormir com teto rígido de tokens (BR-006) e nunca concorrente com turns (BR-001).
 - Privacidade: dados só saem da máquina se o usuário configurar um modelo externo
   (chaves) — o fluxo nativo é 100% local.
+
+## Runtime v2 (2026-09-11, ADR-015 `proposed`, plano `demetrius`)
+
+Quatro mudanças no runtime do provider nativo (`pkg/providers/localllm`), motivadas
+pelo bloqueio de usabilidade medido no plano `demetrius`: o prompt-base do agente
+(~2.790 tokens) era reprocessado do zero em toda chamada, inclusive heartbeat/cron.
+
+- **Cache de prefixo do KV entre chamadas**: em vez de `llama_memory_clear` a cada
+  `completion`, o engine calcula o maior prefixo comum entre o que já está
+  decodificado (`kvTokens`) e o prompt novo, e reprocessa só o delta. Estratégia,
+  chave e invalidação completas: **S21** (capítulo dedicado, item do checklist que
+  passou a se aplicar ao KV cache do llama.cpp). Mecanismo/API C: ADR-015.
+- **Render de prompt e schema de tools compactos**: `chatml.go` ganha um modo
+  compacto de identidade (~150 tokens de overhead de framework) e o
+  `tool_schema_transform: compact` reduz a descrição/parâmetros de cada tool
+  (mantendo todas as propriedades, só com `type`) — desenho completo em ADR-014
+  (janelas de foco), que é quem decide *quando* usar o modo compacto por janela.
+  Sem isso, o cache de prefixo do item anterior teria muito menos prefixo estável
+  para reaproveitar (o carimbo de minuto no meio do system prompt e o schema
+  verboso mudavam o prefixo a cada chamada).
+- **`n_threads = min(runtime.NumCPU(), 4)` em vez do default fixo em 4** — correção
+  de um bug real: `WithDefaults` hoje fixa `NThreads=4` independentemente da
+  máquina. Numa VM de 1 core físico/2 threads (HT) como a `demetrius`, isso
+  oversubscreve (4 threads de software em 2 threads de hardware). **Achado real
+  medido nesta sessão** (`.claude/team/research/g0-medicao-real.md`,
+  `llama-bench` isolado do nosso engine): comparando `-t 2` e `-t 4` (KV q8_0 e
+  f16), os quatro resultados ficaram no mesmo intervalo (~1,1–2,0 tok/s) — **a
+  contagem de threads não foi a causa dominante da lentidão medida naquela
+  sessão** (o dominante foi o esgotamento dos créditos de burst do e2-micro, ver
+  S06/R7). Isso não invalida a correção: rodar 4 threads de software num
+  hardware de 2 é objetivamente incorreto e continua sendo consertado por
+  princípio (evita contenção de scheduler), só não deve ser vendido como "a"
+  explicação do prefill lento — essa é o throttling de CPU.
+- **Núcleos de janela guardados no KV cache, na RAM** (não em disco no caminho
+  quente): com `kv_unified=true` e `n_seq_max = 1 + N`, o bloco system+tools+
+  histórico-antigo de uma janela de foco (S16) vira uma sequência própria no KV
+  unificado (`llama_memory_seq_cp`, custo zero de cópia) — troca de janela restaura
+  o núcleo em milissegundos em vez de reprocessar tudo. Granularidade, chave e
+  gate de persistência opcional em disco: **S21**.
 
 ## Avaliação
 

@@ -147,6 +147,84 @@ func TestApplyNativeFallback_RespectsExplicitDefault(t *testing.T) {
 	}
 }
 
+// TestNativeLimits_ReadsExtraBodyKeys covers A8/FR-015 AC-015-6: NativeLimits
+// must read exactly the ExtraBody keys nativeOptionsFromModelConfig reads,
+// so ContextWindow/MaxTokens can't silently drift from the engine's real
+// n_ctx/max_predict.
+func TestNativeLimits_ReadsExtraBodyKeys(t *testing.T) {
+	nCtx, maxPredict, ok := NativeLimits(&ModelConfig{
+		ExtraBody: map[string]any{"n_ctx": 2048, "max_predict": 512, "kv_cache_type": "q8_0"},
+	})
+	if !ok {
+		t.Fatal("NativeLimits() ok = false, want true")
+	}
+	if nCtx != 2048 || maxPredict != 512 {
+		t.Fatalf("NativeLimits() = (%d, %d), want (2048, 512)", nCtx, maxPredict)
+	}
+}
+
+func TestNativeLimits_NilOrEmptyExtraBodyIsNotOK(t *testing.T) {
+	if _, _, ok := NativeLimits(nil); ok {
+		t.Fatal("NativeLimits(nil) ok = true, want false")
+	}
+	if _, _, ok := NativeLimits(&ModelConfig{}); ok {
+		t.Fatal("NativeLimits(no ExtraBody) ok = true, want false")
+	}
+	if _, _, ok := NativeLimits(&ModelConfig{ExtraBody: map[string]any{"kv_cache_type": "q8_0"}}); ok {
+		t.Fatal("NativeLimits(unrelated ExtraBody keys) ok = true, want false")
+	}
+}
+
+func TestNativeLimits_PartialKeysStillOK(t *testing.T) {
+	nCtx, maxPredict, ok := NativeLimits(&ModelConfig{ExtraBody: map[string]any{"n_ctx": 4096}})
+	if !ok || nCtx != 4096 || maxPredict != 0 {
+		t.Fatalf("NativeLimits(n_ctx only) = (%d, %d, %v), want (4096, 0, true)", nCtx, maxPredict, ok)
+	}
+}
+
+// TestDefaultConfig_SeededNativeEntryMatchesProductionExtraBody is Trilho F
+// Fix 6's own gate: the seeded "bonsai-local" entry in DefaultConfig's
+// ModelList must carry the same ExtraBody fields the real demetrius deploy
+// runs with by hand (S39/BACKLOG), or a fresh install silently regresses --
+// full tool schemas, no MaxTokens clamp, cold-reload on every heartbeat
+// tick, and no window-core KV parking (B2). Golden on values, not presence
+// alone, so a value drifting (e.g. keep_alive_secs flipping back to a
+// positive number) fails loudly instead of passing an "ok" check.
+func TestDefaultConfig_SeededNativeEntryMatchesProductionExtraBody(t *testing.T) {
+	cfg := DefaultConfig()
+
+	var native *ModelConfig
+	for _, m := range cfg.ModelList {
+		if m.ModelName == nativeModelName {
+			native = m
+			break
+		}
+	}
+	if native == nil {
+		t.Fatalf("DefaultConfig().ModelList has no %q entry", nativeModelName)
+	}
+
+	if native.ToolSchemaTransform != "compact" {
+		t.Errorf("ToolSchemaTransform = %q, want %q", native.ToolSchemaTransform, "compact")
+	}
+
+	want := map[string]any{
+		"max_predict":        512,
+		"keep_alive_secs":    -1,
+		"core_cache_parking": true,
+	}
+	for key, wantVal := range want {
+		gotVal, ok := native.ExtraBody[key]
+		if !ok {
+			t.Errorf("ExtraBody[%q] missing, want %v", key, wantVal)
+			continue
+		}
+		if gotVal != wantVal {
+			t.Errorf("ExtraBody[%q] = %v, want %v", key, gotVal, wantVal)
+		}
+	}
+}
+
 func TestApplyNativeFallback_IdempotentOnRepeatedCalls(t *testing.T) {
 	withNativeBuilt(t, true)
 	home := withHome(t)

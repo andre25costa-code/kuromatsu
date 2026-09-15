@@ -53,6 +53,26 @@ type TurnEndPayload struct {
 	SkillContextSnapshots []SkillContextSnapshot
 	ToolKinds             []string
 	ToolExecutions        []ToolExecutionRecord
+	// FocusWindow and FocusEscalations are the Trilho A "janelas de foco"
+	// additions (ADR-014/FR-014). FocusWindow is empty whenever
+	// focus.enabled=false.
+	FocusWindow      string
+	FocusEscalations int
+
+	// Origin, UnknownToolCalls, PromptTokens, CachedTokens, OutputTokens,
+	// PrefillMs, GenMs and StealPct are the Trilho C telemetry additions
+	// (FR-019/C4, ADR-017) telemetry_bridge.go consumes to build one
+	// turns.db row per turn (AC-019-1). All zero-value when the turn never
+	// called an LLM (a reflex short-circuit never reaches runTurn at all
+	// and is recorded directly by reflex.go instead, AC-013-6/AC-019-3).
+	Origin           string
+	UnknownToolCalls int
+	PromptTokens     int
+	CachedTokens     int
+	OutputTokens     int
+	PrefillMs        int64
+	GenMs            int64
+	StealPct         float64
 }
 
 // LLMRequestPayload describes an outbound LLM request.

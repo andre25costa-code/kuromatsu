@@ -1,0 +1,57 @@
+[Unit]
+Description=Kuromatsu — agente pessoal com inferencia local (Bonsai-1.7B-Q1_0)
+Documentation=https://github.com/andre25costa-code/kuromatsu
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+# Systemd sets WATCHDOG_USEC from this and RunSdWatchdogPinger (pkg/runstate)
+# pings at half the interval -- a plain liveness ping on its own ticker,
+# independent of runstate transitions, so a genuinely idle agent (heartbeat
+# up to an hour apart) is never killed just for having nothing to do; it
+# only catches the Go runtime itself getting stuck.
+WatchdogSec=120
+User=kuromatsu
+Group=kuromatsu
+WorkingDirectory=/var/lib/kuromatsu
+Environment=KUROMATSU_HOME=/var/lib/kuromatsu
+Environment=KUROMATSU_MODELS_DIR=/var/lib/kuromatsu/models
+Environment=GOMEMLIMIT=450MiB
+Environment=GOGC=50
+ExecStart=/opt/kuromatsu/bin/kuromatsu gateway
+Restart=on-failure
+RestartSec=10
+
+# Recursos — orcamento de 1GB (S29/NFR-001), ver ADR-013/017. 900M/850M
+# replica o mem_limit/memswap_limit provados no deploy Docker da Oracle (E7);
+# com n_ctx=4096 (necessario ate a Trilha A/B reduzirem o prompt-base) o KV
+# q8_0 sobe para ~238MB -- 850M seria arriscado.
+MemoryMax=900M
+MemoryHigh=850M
+MemorySwapMax=512M
+CPUWeight=1000
+Nice=-5
+OOMScoreAdjust=-500
+LimitMEMLOCK=infinity
+TasksMax=256
+
+# Enrijecimento — ajustar ReadWritePaths se o hub pessoal escrever em outro lugar
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/kuromatsu
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kuromatsu
+
+[Install]
+WantedBy=multi-user.target

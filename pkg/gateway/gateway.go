@@ -34,6 +34,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/netbind"
 	"github.com/andre25costa-code/kuromatsu/pkg/pid"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 	"github.com/andre25costa-code/kuromatsu/pkg/state"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
@@ -49,15 +50,33 @@ const (
 )
 
 type services struct {
-	CronService      *cron.CronService
-	HeartbeatService *heartbeat.HeartbeatService
-	MediaStore       media.MediaStore
+	CronService *cron.CronService
+	// HeartbeatServices is one HeartbeatService per registered agent that
+	// has heartbeat enabled (Trilho G B.1; agents.list empty -> at most
+	// one entry, keyed by the implicit "main" agent's ID, same behavior
+	// as the pre-multi-agent single HeartbeatService field this replaced).
+	HeartbeatServices map[string]*heartbeat.HeartbeatService
+	MediaStore        media.MediaStore
 	ChannelManager   *channels.Manager
 	DeviceService    *devices.Service
 	HealthServer     *health.Server
 	VoiceAgentCancel context.CancelFunc
 	manualReloadChan chan struct{}
 	reloading        atomic.Bool
+
+	// runstatePublishersStop cancels the file/log/sd_notify publisher
+	// goroutines installRunstateIntegration started (Trilho C, C2). nil
+	// when runstate.enabled=false, or before the first
+	// installRunstateIntegration call. Re-set on every reload so a
+	// previous reload's goroutines never leak past the new ones.
+	runstatePublishersStop func()
+
+	// memguardStop cancels the memguard PSI watchdog goroutine
+	// installMemguardIntegration started (Trilho C, C3). nil when
+	// memguard.enabled=false, or before the first
+	// installMemguardIntegration call. Re-set on every reload, same
+	// reasoning as runstatePublishersStop.
+	memguardStop func()
 	authToken        string
 }
 
@@ -196,7 +215,19 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 
 	logger.InfoCF("agent", "Agent initialized", startupStatus.logFields)
 
-	runningServices, err := setupAndStartServices(cfg, agentLoop, msgBus, pidData.Token, listenResult)
+	// Created here (not further down, where it used to live) because
+	// setupAndStartServices below wires it into the heartbeat/cron handlers
+	// via createHeartbeatHandler/setupCronTool -- without this, those
+	// closures fell back to context.Background(), and a heartbeat- or
+	// cron-originated turn in flight during shutdown never saw cancel() at
+	// all, defeating Fix 2's abort_callback wiring for exactly the origins
+	// most likely to be running during a scheduled restart (confirmed for
+	// real on demetrius: two SIGKILLs on heartbeat turns during this
+	// deploy, before this fix).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	runningServices, err := setupAndStartServices(ctx, cfg, agentLoop, msgBus, pidData.Token, listenResult)
 	if err != nil {
 		return err
 	}
@@ -206,6 +237,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	// otherwise set this) is never called — we flip the flag explicitly here.
 	runningServices.HealthServer.SetReady(true)
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayReady, startedAt, nil)
+	sdReadyOnStartup()
 	closeListeners = false
 
 	// Setup manual reload channel for /reload endpoint
@@ -232,8 +264,14 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	}
 	fmt.Println("Press Ctrl+C to stop")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// Unconditional (no runstate/config gate), same reasoning as
+	// sdReadyOnStartup: the deploy unit's Type=notify+WatchdogSec makes
+	// this a systemd contract regardless of the optional runstate feature.
+	// RunSdWatchdogPinger itself is a no-op without WATCHDOG_USEC (not
+	// running under a unit with WatchdogSec configured), and lives for the
+	// whole process (ctx here, not a per-reload one), since liveness
+	// pinging has nothing to do with runstate/config reload cycles.
+	go runstate.RunSdWatchdogPinger(ctx)
 
 	go agentLoop.Run(ctx)
 
@@ -252,7 +290,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		select {
 		case <-sigChan:
 			logger.Info("Shutting down...")
-			shutdownGateway(runningServices, agentLoop, provider, msgBus, true)
+			initiateShutdown(cancel, runningServices, agentLoop, provider, msgBus)
 			return nil
 		case newCfg := <-configReloadChan:
 			if !runningServices.reloading.CompareAndSwap(false, true) {
@@ -388,6 +426,7 @@ func createStartupProvider(
 }
 
 func setupAndStartServices(
+	ctx context.Context,
 	cfg *config.Config,
 	agentLoop *agent.AgentLoop,
 	msgBus *bus.MessageBus,
@@ -399,6 +438,7 @@ func setupAndStartServices(
 	execTimeout := time.Duration(cfg.Tools.Cron.ExecTimeoutMinutes) * time.Minute
 	var err error
 	runningServices.CronService, err = setupCronTool(
+		ctx,
 		agentLoop,
 		msgBus,
 		cfg.WorkspacePath(),
@@ -414,17 +454,9 @@ func setupAndStartServices(
 	}
 	fmt.Println("✓ Cron service started")
 
-	runningServices.HeartbeatService = heartbeat.NewHeartbeatService(
-		cfg.WorkspacePath(),
-		cfg.Heartbeat.Interval,
-		cfg.Heartbeat.Enabled,
-	)
-	runningServices.HeartbeatService.SetBus(msgBus)
-	runningServices.HeartbeatService.SetHandler(createHeartbeatHandler(agentLoop))
-	if err = runningServices.HeartbeatService.Start(); err != nil {
-		return nil, fmt.Errorf("error starting heartbeat service: %w", err)
+	if err := startHeartbeatServices(ctx, cfg, agentLoop, msgBus, runningServices); err != nil {
+		return nil, err
 	}
-	fmt.Println("✓ Heartbeat service started")
 
 	runningServices.MediaStore = media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
 		Enabled:  cfg.Tools.MediaCleanup.Enabled,
@@ -513,12 +545,24 @@ func setupAndStartServices(
 		fmt.Println("✓ Device event service started")
 	}
 
+	installRunstateIntegration(cfg, agentLoop, runningServices)
+	installMemguardIntegration(cfg, agentLoop, runningServices)
+
 	return runningServices, nil
 }
 
 func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Duration, isReload bool) {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
+
+	if runningServices.runstatePublishersStop != nil {
+		runningServices.runstatePublishersStop()
+		runningServices.runstatePublishersStop = nil
+	}
+	if runningServices.memguardStop != nil {
+		runningServices.memguardStop()
+		runningServices.memguardStop = nil
+	}
 
 	// reload should not stop channel manager
 	if !isReload && runningServices.ChannelManager != nil {
@@ -530,8 +574,8 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 	if runningServices.DeviceService != nil {
 		runningServices.DeviceService.Stop()
 	}
-	if runningServices.HeartbeatService != nil {
-		runningServices.HeartbeatService.Stop()
+	for _, svc := range runningServices.HeartbeatServices {
+		svc.Stop()
 	}
 	if runningServices.CronService != nil {
 		runningServices.CronService.Stop()
@@ -543,6 +587,26 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 	}
 }
 
+// initiateShutdown cancels ctx BEFORE running the full shutdown sequence --
+// not only via a deferred cancel() in Run, which would otherwise fire only
+// after shutdownGateway itself already returned. ctx is the same context
+// every in-flight turn's completion() call received (agentLoop.Run(ctx) ->
+// runTurnWithSteering(ctx, ...), never rerooted along the way), and
+// completion() already arms context.AfterFunc(ctx, ...) to flip
+// llama.cpp's abort_callback on cancellation (ADR-015 point 5). Cancelling
+// first lets an in-flight decode unwind immediately instead of blocking
+// shutdown up to systemd's 90s TimeoutStopSec and getting SIGKILLed.
+func initiateShutdown(
+	cancel context.CancelFunc,
+	runningServices *services,
+	agentLoop *agent.AgentLoop,
+	provider providers.LLMProvider,
+	msgBus *bus.MessageBus,
+) {
+	cancel()
+	shutdownGateway(runningServices, agentLoop, provider, msgBus, true)
+}
+
 func shutdownGateway(
 	runningServices *services,
 	agentLoop *agent.AgentLoop,
@@ -551,6 +615,9 @@ func shutdownGateway(
 	fullShutdown bool,
 ) {
 	publishGatewayEvent(agentLoop, runtimeevents.KindGatewayShutdown, time.Time{}, nil)
+	if fullShutdown {
+		sdStoppingOnShutdown()
+	}
 
 	if cp, ok := provider.(providers.StatefulProvider); ok && fullShutdown {
 		cp.Close()
@@ -591,7 +658,7 @@ func handleConfigReload(
 	if err != nil {
 		logger.Errorf("  ⚠ Error creating new provider: %v", err)
 		logger.Warn("  Attempting to restart services with old provider and config...")
-		if restartErr := restartServices(al, runningServices, msgBus); restartErr != nil {
+		if restartErr := restartServices(ctx, al, runningServices, msgBus); restartErr != nil {
 			logger.Errorf("  ⚠ Failed to restart services: %v", restartErr)
 		}
 		return fmt.Errorf("error creating new provider: %w", err)
@@ -610,7 +677,7 @@ func handleConfigReload(
 			cp.Close()
 		}
 		logger.Warn("  Attempting to restart services with old provider and config...")
-		if restartErr := restartServices(al, runningServices, msgBus); restartErr != nil {
+		if restartErr := restartServices(ctx, al, runningServices, msgBus); restartErr != nil {
 			logger.Errorf("  ⚠ Failed to restart services: %v", restartErr)
 		}
 		return fmt.Errorf("error reloading agent loop: %w", err)
@@ -619,7 +686,7 @@ func handleConfigReload(
 	*providerRef = newProvider
 
 	logger.Info("  Restarting all services with new configuration...")
-	if err := restartServices(al, runningServices, msgBus); err != nil {
+	if err := restartServices(ctx, al, runningServices, msgBus); err != nil {
 		logger.Errorf("  ⚠ Error restarting services: %v", err)
 		return fmt.Errorf("error restarting services: %w", err)
 	}
@@ -638,6 +705,7 @@ func handleConfigReload(
 }
 
 func restartServices(
+	ctx context.Context,
 	al *agent.AgentLoop,
 	runningServices *services,
 	msgBus *bus.MessageBus,
@@ -647,6 +715,7 @@ func restartServices(
 	execTimeout := time.Duration(cfg.Tools.Cron.ExecTimeoutMinutes) * time.Minute
 	var err error
 	runningServices.CronService, err = setupCronTool(
+		ctx,
 		al,
 		msgBus,
 		cfg.WorkspacePath(),
@@ -662,17 +731,9 @@ func restartServices(
 	}
 	fmt.Println("  ✓ Cron service restarted")
 
-	runningServices.HeartbeatService = heartbeat.NewHeartbeatService(
-		cfg.WorkspacePath(),
-		cfg.Heartbeat.Interval,
-		cfg.Heartbeat.Enabled,
-	)
-	runningServices.HeartbeatService.SetBus(msgBus)
-	runningServices.HeartbeatService.SetHandler(createHeartbeatHandler(al))
-	if err = runningServices.HeartbeatService.Start(); err != nil {
+	if err := startHeartbeatServices(ctx, cfg, al, msgBus, runningServices); err != nil {
 		return fmt.Errorf("error restarting heartbeat service: %w", err)
 	}
-	fmt.Println("  ✓ Heartbeat service restarted")
 
 	runningServices.MediaStore = media.NewFileMediaStoreWithCleanup(media.MediaCleanerConfig{
 		Enabled:  cfg.Tools.MediaCleanup.Enabled,
@@ -731,6 +792,9 @@ func restartServices(
 	logChannelVoiceCapabilities(runningServices.ChannelManager, transcriber != nil, ttsAvailable)
 	// NOTE: PID file is written once at startup and not updated on reload.
 	// Changing the gateway listen address requires a full restart.
+
+	installRunstateIntegration(cfg, al, runningServices)
+	installMemguardIntegration(cfg, al, runningServices)
 
 	return nil
 }
@@ -818,6 +882,7 @@ func getFileSize(path string) int64 {
 }
 
 func setupCronTool(
+	ctx context.Context,
 	agentLoop *agent.AgentLoop,
 	msgBus *bus.MessageBus,
 	workspace string,
@@ -842,7 +907,10 @@ func setupCronTool(
 
 	if cronTool != nil {
 		cronService.SetOnJob(func(job *cron.CronJob) (string, error) {
-			result := cronTool.ExecuteJob(context.Background(), job)
+			// ctx here is the long-lived gateway ctx (Run's own, or the same
+			// one threaded through a config reload) -- NOT context.Background()
+			// (see createHeartbeatHandler's comment for why that was a bug).
+			result := cronTool.ExecuteJob(ctx, job)
 			return result, nil
 		})
 	}
@@ -850,15 +918,96 @@ func setupCronTool(
 	return cronService, nil
 }
 
-func createHeartbeatHandler(agentLoop *agent.AgentLoop) func(prompt, channel, chatID string) *tools.ToolResult {
+// heartbeatStartStagger is the delay between starting each additional
+// agent's HeartbeatService, beyond the first (Trilho G B.1, per an
+// agy-bridge adversarial_review finding): HeartbeatService fires an
+// initial heartbeat ~1s after Start() (service.go), so N agents all
+// starting at once would fire N near-simultaneous local-model turns on
+// boot -- combined with A.3's runstate_resume_wait_secs (which can make a
+// contested runstate.Engine lock wait far longer than the old fixed
+// backoff), that pile-up is a real queuing problem on constrained
+// hardware (Raspberry Pi), not just a theoretical one.
+const heartbeatStartStagger = 2 * time.Second
+
+// startHeartbeatServices creates and starts one HeartbeatService per
+// registered agent that has heartbeat enabled (cfg.EffectiveHeartbeat),
+// used by both the initial startup and every config reload. The first
+// service starts synchronously (a real startup failure there still fails
+// gateway startup, matching the pre-multi-agent behavior); every
+// additional agent's service starts heartbeatStartStagger later than the
+// previous one, logged rather than returned if it fails, since by then
+// gateway startup has already succeeded.
+func startHeartbeatServices(
+	ctx context.Context,
+	cfg *config.Config,
+	agentLoop *agent.AgentLoop,
+	msgBus *bus.MessageBus,
+	runningServices *services,
+) error {
+	runningServices.HeartbeatServices = make(map[string]*heartbeat.HeartbeatService)
+
+	agentIDs := agentLoop.GetRegistry().ListAgentIDs()
+	sort.Strings(agentIDs)
+
+	started := 0
+	for _, agentID := range agentIDs {
+		agentInst, ok := agentLoop.GetRegistry().GetAgent(agentID)
+		if !ok {
+			continue
+		}
+		hbCfg := cfg.EffectiveHeartbeat(agentID)
+		if !hbCfg.Enabled {
+			continue
+		}
+
+		svc := heartbeat.NewHeartbeatService(agentInst.Workspace, hbCfg.Interval, true)
+		svc.SetBus(msgBus)
+		svc.SetHandler(createHeartbeatHandlerForAgent(ctx, agentLoop, agentID))
+		runningServices.HeartbeatServices[agentID] = svc
+
+		delay := time.Duration(started) * heartbeatStartStagger
+		started++
+		if delay <= 0 {
+			if err := svc.Start(); err != nil {
+				return fmt.Errorf("error starting heartbeat service for agent %q: %w", agentID, err)
+			}
+			continue
+		}
+		time.AfterFunc(delay, func() {
+			if err := svc.Start(); err != nil {
+				logger.WarnCF("gateway", "staggered heartbeat service failed to start", map[string]any{
+					"agent_id": agentID,
+					"error":    err.Error(),
+				})
+			}
+		})
+	}
+
+	fmt.Printf("✓ Heartbeat service(s) started (%d agent(s))\n", len(runningServices.HeartbeatServices))
+	return nil
+}
+
+// createHeartbeatHandlerForAgent is createHeartbeatHandler's per-agent form
+// (Trilho G B.1): agentID is baked into the closure so each agent's
+// HeartbeatService always dispatches to that same agent, never the
+// registry default.
+func createHeartbeatHandlerForAgent(
+	ctx context.Context, agentLoop *agent.AgentLoop, agentID string,
+) func(prompt, channel, chatID string) *tools.ToolResult {
 	return func(prompt, channel, chatID string) *tools.ToolResult {
 		if channel == "" || chatID == "" {
 			channel, chatID = "cli", "direct"
 		}
 
-		response, err := agentLoop.ProcessHeartbeat(context.Background(), prompt, channel, chatID)
+		// ctx is the long-lived gateway ctx, the same one agentLoop.Run(ctx)
+		// gets for user-originated turns -- previously this was
+		// context.Background(), so a heartbeat turn in flight never saw
+		// cancel() during shutdown at all, and Fix 2's abort_callback wiring
+		// (B0) never fired for it. Confirmed for real: two SIGKILLs on
+		// heartbeat turns during the deploy that found this, before the fix.
+		response, err := agentLoop.ProcessHeartbeatForAgent(ctx, agentID, prompt, channel, chatID)
 		if err != nil {
-			return tools.ErrorResult(fmt.Sprintf("Heartbeat error: %v", err))
+			return tools.ErrorResult(fmt.Sprintf("Heartbeat error (agent=%s): %v", agentID, err))
 		}
 		if response == "HEARTBEAT_OK" {
 			return tools.SilentResult("Heartbeat OK")

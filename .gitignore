@@ -77,3 +77,6 @@ llama.cpp/build-native/
 llama.cpp/build-native-arm64/
 llama.cpp/build-native-x86-64/
 .kuromatsu/
+
+# Self-improving-agent skill logs (per-developer, not shared knowledge)
+.learnings/

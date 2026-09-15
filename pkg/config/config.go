@@ -48,6 +48,15 @@ type Config struct {
 	Heartbeat HeartbeatConfig `json:"heartbeat"           yaml:"-"`
 	Devices   DevicesConfig   `json:"devices"             yaml:"-"`
 	Voice     VoiceConfig     `json:"voice"               yaml:"-"`
+	// Runstate, Memguard and Telemetry are the Trilho C additions
+	// (ADR-016/017, FR-017/018/019). All default to their zero value
+	// (disabled), which is a strict no-op -- see each config type's doc.
+	Runstate  RunstateConfig  `json:"runstate,omitempty"  yaml:"-"`
+	Memguard  MemguardConfig  `json:"memguard,omitempty"  yaml:"-"`
+	Telemetry TelemetryConfig `json:"telemetry,omitempty" yaml:"-"`
+	// Sleep is the modo dormir bridge config (FR-010/ADR-006/018, Trilho C
+	// C5/E9 parte 2). Zero value keeps sleep disabled (BR-005).
+	Sleep SleepConfig `json:"sleep,omitempty" yaml:"-"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 
@@ -63,6 +72,19 @@ type EvolutionConfig struct {
 	MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
 	ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 	ColdPathTimes   []string `json:"cold_path_times,omitempty"`
+	// Model is a model_list ref the evolution cold path (LLM pattern
+	// clustering, draft generation, success judging) must use instead of
+	// the agent's default chain -- ADR-018 point 5: like sleep, evolution
+	// is not allowed to run its LLM calls against the native Bonsai model
+	// (same three reasons: e2-micro CPU budget, MEMORY.md/skill integrity,
+	// RAM). Empty, or resolving to the native provider (the default), does
+	// NOT turn evolution off entirely -- FinalizeTurn's non-LLM hot-path
+	// case collection keeps running either way (Enabled alone controls
+	// that); only the cold path itself stays disabled until this is set to
+	// a valid external model_list entry. See HasValidExternalModel
+	// (pkg/config/sleep.go) and AC-010-9; the gate itself lives in
+	// evolution_bridge.go's newEvolutionBridge, mirroring newSleepBridge.
+	Model string `json:"model,omitempty"`
 	// Deprecated: use MinTaskCount.
 	MinCaseCount int `json:"min_case_count,omitempty"`
 	// Deprecated: use MinSuccessRatio.
@@ -78,6 +100,7 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
 		ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 		ColdPathTimes   []string `json:"cold_path_times,omitempty"`
+		Model           string   `json:"model,omitempty"`
 	}{
 		Enabled:         c.Enabled,
 		Mode:            c.Mode,
@@ -86,6 +109,7 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		MinSuccessRatio: c.EffectiveMinSuccessRatio(),
 		ColdPathTrigger: strings.TrimSpace(c.ColdPathTrigger),
 		ColdPathTimes:   c.EffectiveColdPathTimes(),
+		Model:           strings.TrimSpace(c.Model),
 	}
 	if !out.Enabled {
 		out.Mode = ""
@@ -312,13 +336,27 @@ func (m AgentModelConfig) MarshalJSON() ([]byte, error) {
 }
 
 type AgentConfig struct {
-	ID        string            `json:"id"`
-	Default   bool              `json:"default,omitempty"`
-	Name      string            `json:"name,omitempty"`
-	Workspace string            `json:"workspace,omitempty"`
-	Model     *AgentModelConfig `json:"model,omitempty"`
-	Skills    []string          `json:"skills,omitempty"`
-	Subagents *SubagentsConfig  `json:"subagents,omitempty"`
+	ID        string                `json:"id"`
+	Default   bool                  `json:"default,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	Workspace string                `json:"workspace,omitempty"`
+	Model     *AgentModelConfig     `json:"model,omitempty"`
+	Skills    []string              `json:"skills,omitempty"`
+	Subagents *SubagentsConfig      `json:"subagents,omitempty"`
+	Heartbeat *AgentHeartbeatConfig `json:"heartbeat,omitempty"`
+}
+
+// AgentHeartbeatConfig is a per-agent heartbeat override
+// (agents.list[].heartbeat, Trilho G B.1). nil (the default) means this
+// agent inherits the global heartbeat block entirely. Unlike
+// HeartbeatConfig it has no env bindings on purpose -- env vars only ever
+// apply to the one global block (mirrors AgentModelConfig, which also
+// only takes JSON), so an override here can never be silently clobbered
+// by a process-wide KUROMATSU_HEARTBEAT_* env var meant for a different
+// agent.
+type AgentHeartbeatConfig struct {
+	Enabled  *bool `json:"enabled,omitempty"`
+	Interval int   `json:"interval,omitempty"`
 }
 
 type SubagentsConfig struct {
@@ -447,6 +485,20 @@ type AgentDefaults struct {
 	TurnProfile               TurnProfileConfig  `json:"turn_profile,omitempty"`
 	MaxLLMRetries             int                `json:"max_llm_retries,omitempty"        env:"KUROMATSU_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
 	LLMRetryBackoffSecs       int                `json:"llm_retry_backoff_secs,omitempty" env:"KUROMATSU_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
+	// RunstateResumeWaitSecs, when > 0, gives a runstate.ErrBusy suspension
+	// (the memguard vetoing a new inference entry, ADR-017) its own wait
+	// budget instead of the generic MaxLLMRetries/LLMRetryBackoffSecs
+	// budget -- that one is sized for provider rate limits (a few seconds),
+	// which is incompatible with memguard's resume window (PSISustainSecs,
+	// typically tens of seconds). 0 (default) is a strict no-op: identical
+	// to today's behavior, matching every other Trilho C knob's "off by
+	// default".
+	RunstateResumeWaitSecs int `json:"runstate_resume_wait_secs,omitempty" env:"KUROMATSU_AGENTS_DEFAULTS_RUNSTATE_RESUME_WAIT_SECS"`
+	// Focus and Reflexes are the Trilho A "janelas de foco" additions
+	// (ADR-014/FR-013/FR-014). Both default to their zero value (disabled /
+	// empty), which is a strict no-op — see FocusConfig and ReflexConfig.
+	Focus    FocusConfig    `json:"focus,omitempty"`
+	Reflexes []ReflexConfig `json:"reflexes,omitempty"`
 }
 
 const DefaultMaxMediaSize = 20 * 1024 * 1024 // 20 MB
@@ -577,6 +629,35 @@ type PicoClientSettings struct {
 type HeartbeatConfig struct {
 	Enabled  bool `json:"enabled"  env:"KUROMATSU_HEARTBEAT_ENABLED"`
 	Interval int  `json:"interval" env:"KUROMATSU_HEARTBEAT_INTERVAL"` // minutes, min 5
+}
+
+// EffectiveHeartbeat resolves the heartbeat settings for agentID: its own
+// agents.list[].heartbeat override where set, falling back field-by-field
+// to the global c.Heartbeat (Trilho G B.1). With agents.list empty (the
+// implicit "main" agent) there is never a matching AgentConfig, so this is
+// always exactly c.Heartbeat -- byte-identical to before per-agent
+// heartbeat existed.
+//
+// Deliberately does not import pkg/routing to normalize agentID (routing
+// already imports pkg/config, so that would be a cycle) -- agentID here is
+// expected to already be normalized, since callers get it from
+// AgentRegistry.ListAgentIDs()/AgentInstance.ID, which are normalized once
+// when the registry is built.
+func (c *Config) EffectiveHeartbeat(agentID string) HeartbeatConfig {
+	eff := c.Heartbeat
+	for _, ac := range c.Agents.List {
+		if !strings.EqualFold(strings.TrimSpace(ac.ID), strings.TrimSpace(agentID)) || ac.Heartbeat == nil {
+			continue
+		}
+		if ac.Heartbeat.Enabled != nil {
+			eff.Enabled = *ac.Heartbeat.Enabled
+		}
+		if ac.Heartbeat.Interval > 0 {
+			eff.Interval = ac.Heartbeat.Interval
+		}
+		break
+	}
+	return eff
 }
 
 type DevicesConfig struct {
@@ -1359,6 +1440,15 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	if err = cfg.ValidateTurnProfile(); err != nil {
+		return nil, err
+	}
+	if err = cfg.ValidateFocus(); err != nil {
+		return nil, err
+	}
+	if err = cfg.ValidateReflexes(); err != nil {
+		return nil, err
+	}
+	if err = cfg.ValidateSleep(); err != nil {
 		return nil, err
 	}
 	cfg.Gateway.Host, err = resolveGatewayHostFromEnv(gatewayHostBeforeEnv)

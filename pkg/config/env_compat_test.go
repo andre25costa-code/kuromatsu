@@ -10,24 +10,25 @@ import (
 // the function itself keeps each test's env setup independent.
 
 func TestApplyLegacyEnvCompat_CopiesUnsetVar(t *testing.T) {
-	t.Setenv("KUROMATSU_TEST_ENV_COMPAT_A", "old-value")
+	t.Setenv("PICOCLAW_TEST_ENV_COMPAT_A", "old-value")
+	t.Setenv("KUROMATSU_TEST_ENV_COMPAT_A", "")
 	os.Unsetenv("KUROMATSU_TEST_ENV_COMPAT_A")
 
 	applyLegacyEnvCompat()
 
 	if got := os.Getenv("KUROMATSU_TEST_ENV_COMPAT_A"); got != "old-value" {
-		t.Fatalf("KUROMATSU_TEST_ENV_COMPAT_A = %q, want %q", got, "old-value")
+		t.Fatalf("KUROMATSU_TEST_ENV_COMPAT_A = %q, want %q (copied from PICOCLAW_TEST_ENV_COMPAT_A)", got, "old-value")
 	}
 }
 
 func TestApplyLegacyEnvCompat_NewNameWins(t *testing.T) {
-	t.Setenv("KUROMATSU_TEST_ENV_COMPAT_B", "old-value")
+	t.Setenv("PICOCLAW_TEST_ENV_COMPAT_B", "old-value")
 	t.Setenv("KUROMATSU_TEST_ENV_COMPAT_B", "new-value")
 
 	applyLegacyEnvCompat()
 
 	if got := os.Getenv("KUROMATSU_TEST_ENV_COMPAT_B"); got != "new-value" {
-		t.Fatalf("KUROMATSU_TEST_ENV_COMPAT_B = %q, want unchanged %q", got, "new-value")
+		t.Fatalf("KUROMATSU_TEST_ENV_COMPAT_B = %q, want unchanged %q (new name must win over legacy PICOCLAW_TEST_ENV_COMPAT_B)", got, "new-value")
 	}
 }
 

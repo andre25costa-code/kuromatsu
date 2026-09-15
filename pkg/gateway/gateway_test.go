@@ -16,6 +16,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/bus"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 )
 
 func TestRun_StartupFailuresReturnErrorAndEmitStructuredLog(t *testing.T) {
@@ -250,6 +251,144 @@ func TestPublishGatewayEvent(t *testing.T) {
 	}
 	if evt.Attrs["duration_ms"] == nil {
 		t.Fatalf("gateway event attrs missing duration_ms: %#v", evt.Attrs)
+	}
+}
+
+type ctxProbeKey struct{}
+
+// ctxCapturingChatProvider records the ctx it receives in Chat(), so a test
+// can check which ctx object actually reached the LLM call.
+type ctxCapturingChatProvider struct {
+	called      bool
+	capturedCtx context.Context
+}
+
+func (p *ctxCapturingChatProvider) Chat(
+	ctx context.Context,
+	_ []providers.Message,
+	_ []providers.ToolDefinition,
+	_ string,
+	_ map[string]any,
+) (*providers.LLMResponse, error) {
+	p.called = true
+	p.capturedCtx = ctx
+	return &providers.LLMResponse{Content: "HEARTBEAT_OK"}, nil
+}
+
+func (p *ctxCapturingChatProvider) GetDefaultModel() string { return "" }
+
+// TestCreateHeartbeatHandlerForAgent_PropagatesGatewayContext is a real
+// production bug this deploy found: the heartbeat handler used to call
+// agentLoop.ProcessHeartbeat(context.Background(), ...) instead of
+// forwarding the ctx it (now) receives -- so a heartbeat-originated turn in
+// flight during shutdown never saw cancel() at all, and Fix 2's
+// abort_callback wiring never fired for it. Confirmed for real on
+// demetrius: two SIGKILLs on heartbeat turns during this same deploy,
+// before this fix. A value stashed on the outer ctx (rather than checking
+// Err()) proves the exact ctx object reaches Chat(), regardless of whether
+// some earlier step in ProcessHeartbeat might otherwise short-circuit on a
+// canceled context before ever calling it.
+func TestCreateHeartbeatHandlerForAgent_PropagatesGatewayContext(t *testing.T) {
+	fake := &ctxCapturingChatProvider{}
+	al := agent.NewAgentLoop(config.DefaultConfig(), bus.NewMessageBus(), fake)
+	t.Cleanup(al.Close)
+
+	ctx := context.WithValue(context.Background(), ctxProbeKey{}, "gateway-ctx-marker")
+
+	handler := createHeartbeatHandlerForAgent(ctx, al, "main")
+	handler("check heartbeat tasks", "telegram", "chat-1")
+
+	if !fake.called {
+		t.Fatal("provider.Chat was never called")
+	}
+	if got, _ := fake.capturedCtx.Value(ctxProbeKey{}).(string); got != "gateway-ctx-marker" {
+		t.Fatalf("ctx observed by provider.Chat carries marker %q, want %q -- createHeartbeatHandlerForAgent must propagate the gateway's own ctx, not context.Background()", got, "gateway-ctx-marker")
+	}
+}
+
+// ctxCapturingProvider is a StatefulProvider whose Close() (invoked from
+// inside shutdownGateway, see gateway.go's "cp.Close()" call) snapshots
+// ctx.Err() at the moment it runs -- this is what actually distinguishes
+// "cancel() ran before the shutdown sequence's internals" from "cancel()
+// ran before initiateShutdown returned", which is true either way since
+// initiateShutdown's two statements are sequential regardless of ordering.
+type ctxCapturingProvider struct {
+	startupBlockedProvider
+	ctx        context.Context
+	closedWith error
+	closed     bool
+}
+
+func (p *ctxCapturingProvider) Close() {
+	p.closed = true
+	p.closedWith = p.ctx.Err()
+}
+
+// TestInitiateShutdown_CancelsContextBeforeShutdownSequence is Fix 2 (the
+// graceful-shutdown gap the S39 benchmark found: an in-flight decode used
+// to block shutdown up to systemd's 90s TimeoutStopSec and get SIGKILLed).
+// ctx must already be Done by the time shutdownGateway's internals run
+// (specifically, by the time the provider's Close() fires), not only
+// afterward via Run's own deferred cancel().
+func TestInitiateShutdown_CancelsContextBeforeShutdownSequence(t *testing.T) {
+	msgBus := bus.NewMessageBus()
+	al := agent.NewAgentLoop(config.DefaultConfig(), msgBus, &startupBlockedProvider{reason: "not used"})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if ctx.Err() != nil {
+		t.Fatal("ctx already Done before initiateShutdown ran")
+	}
+
+	spy := &ctxCapturingProvider{startupBlockedProvider: startupBlockedProvider{reason: "not used"}, ctx: ctx}
+	initiateShutdown(cancel, &services{}, al, spy, msgBus)
+
+	if !spy.closed {
+		t.Fatal("provider.Close() was never called -- shutdownGateway's fullShutdown path did not run")
+	}
+	if !errors.Is(spy.closedWith, context.Canceled) {
+		t.Fatalf("ctx.Err() at provider.Close() time = %v, want context.Canceled (cancel() must run before shutdownGateway's internals, not just before initiateShutdown returns)", spy.closedWith)
+	}
+}
+
+// TestGateway_CreatesOneHeartbeatServicePerEnabledAgent is Trilho G B.1:
+// startHeartbeatServices creates exactly one HeartbeatService per
+// registered agent that resolves EffectiveHeartbeat().Enabled, keyed by
+// agent ID, and none for an agent whose override disables it.
+func TestGateway_CreatesOneHeartbeatServicePerEnabledAgent(t *testing.T) {
+	disabled := false
+	cfg := config.DefaultConfig()
+	cfg.Heartbeat = config.HeartbeatConfig{Enabled: true, Interval: 60}
+	cfg.Agents.Defaults.Workspace = t.TempDir()
+	cfg.Agents.List = []config.AgentConfig{
+		{ID: "sensores", Default: true, Workspace: t.TempDir()},
+		{ID: "estudos", Workspace: t.TempDir(), Heartbeat: &config.AgentHeartbeatConfig{Enabled: &disabled}},
+	}
+
+	msgBus := bus.NewMessageBus()
+	al := agent.NewAgentLoop(cfg, msgBus, &startupBlockedProvider{reason: "not used"})
+	t.Cleanup(al.Close)
+
+	runningServices := &services{}
+	if err := startHeartbeatServices(context.Background(), cfg, al, msgBus, runningServices); err != nil {
+		t.Fatalf("startHeartbeatServices() error = %v", err)
+	}
+	t.Cleanup(func() {
+		for _, svc := range runningServices.HeartbeatServices {
+			svc.Stop()
+		}
+	})
+
+	if len(runningServices.HeartbeatServices) != 1 {
+		t.Fatalf("len(HeartbeatServices) = %d, want 1 (sensores enabled, estudos overridden off): %v",
+			len(runningServices.HeartbeatServices), runningServices.HeartbeatServices)
+	}
+	if _, ok := runningServices.HeartbeatServices["sensores"]; !ok {
+		t.Fatalf("HeartbeatServices missing key %q, got %v", "sensores", runningServices.HeartbeatServices)
+	}
+	if _, ok := runningServices.HeartbeatServices["estudos"]; ok {
+		t.Fatal("HeartbeatServices has an entry for estudos, which has heartbeat.enabled=false")
 	}
 }
 

@@ -1,14 +1,26 @@
 ---
 id: ADR-003
 title: Runtime do modelo — single-flight, KV q8_0, ctx 2048, keep-alive com unload
-status: accepted
-version: 1
+status: superseded
+superseded_by: ADR-015
+version: 2
 owner: André
-last_updated: 2026-09-10
+last_updated: 2026-09-11
 depends_on: [ADR-001]
 ---
 
 # ADR-003 — Runtime: single-flight, KV q8_0, ctx 2048, keep-alive
+
+> **Superseded por [ADR-015](ADR-015-runtime-v2-cache-prefixo-kv.md) em 2026-09-11**
+> (`proposed`, aguardando confirmação do André). As decisões 1 e 2 abaixo
+> (single-flight; KV `q8_0` como default) **continuam valendo sem mudança** — a
+> ADR-015 as reafirma. O que muda: a v1 aqui limpa a memória KV inteira a cada
+> chamada (decisão 3, "recarga sob demanda", implicava reprocessar o prompt completo
+> todo turno); a ADR-015 introduz cache de prefixo entre chamadas + núcleos de janela
+> em RAM, keep-alive contado do fim da chamada (`-1` = nunca), `abort_callback`
+> interrompendo o prefill, e uma guarda de reload por `loadKey` que não recarrega o
+> modelo a cada `max_tokens`/`temperature` diferente. Mantida como registro histórico
+> da decisão original — não implementar contra esta versão.
 
 ## Contexto
 1 GB de RAM total (C1). O KV cache do qwen3-1.7B custa ~112 KB/token em f16; o modelo

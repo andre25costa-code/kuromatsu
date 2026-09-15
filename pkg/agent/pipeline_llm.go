@@ -14,6 +14,7 @@ import (
 	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 )
 
 // CallLLM performs an LLM call with fallback support, hook invocation, and retry logic.
@@ -184,7 +185,9 @@ func (p *Pipeline) CallLLM(
 			ts.clearProviderCancel(providerCancel)
 		}()
 
-		al.activeRequestsInc()
+		if !al.activeRequestsInc() {
+			return nil, errRuntimeSuspendedOverloaded
+		}
 		defer al.activeRequestsDec()
 
 		if response, handled, streamErr := p.tryConfiguredStreamingLLM(
@@ -321,6 +324,23 @@ func (p *Pipeline) CallLLM(
 				exec.llmModelName,
 				len(ts.agent.ImageCandidates) > 0,
 			)
+		}
+
+		// runstate.ErrBusy (memguard suspension, see errRuntimeSuspendedOverloaded)
+		// is deliberately classified below as the same "overloaded" family as a
+		// provider rate limit -- but its real recovery signal is a runstate
+		// transition, not a fixed few-second backoff (memguard's resume window,
+		// PSISustainSecs, typically runs tens of seconds). Wait on that signal
+		// with its own budget before falling into the generic classification;
+		// still consumes a retry slot either way (retry++ is the for-loop's own
+		// post-statement), it just doesn't burn it on a doomed short sleep.
+		if errors.Is(err, runstate.ErrBusy) && retry < maxRetries {
+			waitSecs := p.Cfg.Agents.Defaults.RunstateResumeWaitSecs
+			if waitForRunstateResume(turnCtx, al.rsSnapshot(), time.Duration(waitSecs)*time.Second) {
+				logger.InfoCF("agent", "Runstate resumed after suspension; retrying LLM call",
+					map[string]any{"retry": retry})
+				continue
+			}
 		}
 
 		errMsg := strings.ToLower(err.Error())
@@ -542,6 +562,11 @@ func (p *Pipeline) CallLLM(
 		ts.SetLastFinishReason(exec.response.FinishReason)
 		if exec.response.Usage != nil {
 			ts.SetLastUsage(exec.response.Usage)
+			// FR-019/C4: accumulate across every call in the turn, not
+			// just the most recent one (a multi-iteration tool-calling
+			// turn would otherwise undercount prompt/cached/output tokens
+			// in telemetry).
+			ts.AccumulateUsage(exec.response.Usage)
 		}
 	}
 
@@ -604,22 +629,29 @@ func (p *Pipeline) CallLLM(
 	}
 	logger.DebugCF("agent", "LLM response", llmResponseFields)
 
-	// No-tool-call path: steering check and direct response
+	// No-tool-call path: always finalize the direct response immediately.
+	//
+	// This used to check al.dequeueSteeringMessagesForScope here and, if a
+	// steering message had already arrived, discard responseContent (never
+	// persisted, never logged beyond a char count) and return ControlContinue
+	// to process the steering first. That meant a fully-generated answer was
+	// silently lost whenever a user's follow-up landed in the narrow window
+	// before this check -- confirmed in production 2026-09-14: a 683-char
+	// answer was generated, a "ainda esta ai" steering message arrived ~36min
+	// later while the turn was still open, and the whole turn ended in error
+	// (memguard suspension on the steering continuation) with nothing ever
+	// delivered or persisted, not even the original answer.
+	//
+	// Finalize (via ControlBreak below) now always runs first, which
+	// persists+delivers this response through the normal path. Any steering
+	// message already queued is drained AFTERWARD by
+	// drainQueuedSteeringContinuations (agent_steering.go), which already
+	// exists for exactly this "turn ended, steering still pending" case and
+	// already preserves the original response if the continuation fails.
 	if len(exec.response.ToolCalls) == 0 || exec.gracefulTerminal {
 		responseContent := exec.response.Content
 		if responseContent == "" && exec.response.ReasoningContent != "" && ts.channel != "pico" {
 			responseContent = exec.response.ReasoningContent
-		}
-		if steerMsgs := al.dequeueSteeringMessagesForScope(ts.sessionKey); len(steerMsgs) > 0 {
-			cancelConfiguredStreamingLLM(turnCtx, exec)
-			logger.InfoCF("agent", "Steering arrived after direct LLM response; continuing turn",
-				map[string]any{
-					"agent_id":       ts.agent.ID,
-					"iteration":      iteration,
-					"steering_count": len(steerMsgs),
-				})
-			exec.pendingMessages = append(exec.pendingMessages, steerMsgs...)
-			return ControlContinue, nil
 		}
 
 		exec.finalContent = responseContent
@@ -650,6 +682,15 @@ func (p *Pipeline) CallLLM(
 			"count":     len(exec.normalizedToolCalls),
 			"iteration": iteration,
 		})
+
+	// ADR-014 point 5 / FR-014 AC-014-6: bounded focus-window escalation.
+	// Must run before the assistant message below is built/persisted — an
+	// escalation discards this response entirely (nothing from this
+	// iteration is ever added to exec.messages or session history) and
+	// retries the LLM call with the wider window instead.
+	if p.maybeEscalateFocus(ts, exec) {
+		return ControlContinue, nil
+	}
 
 	exec.allResponsesHandled = len(exec.normalizedToolCalls) > 0
 	assistantMsg := providers.Message{
@@ -707,6 +748,92 @@ func (p *Pipeline) CallLLM(
 	}
 
 	return ControlToolLoop, nil
+}
+
+// maybeEscalateFocus implements ADR-014 point 5 / FR-014 AC-014-6: when one
+// of the tool calls the model just requested exists in the agent's global
+// tool registry (ts.agent.Tools.Get) but is outside the active focus
+// window, escalate to ts.profile.EscalateTo (bounded to
+// FocusConfig.MaxEscalationsPerTurn, default 1x/turn) and report true so
+// the caller retries the LLM call instead of persisting this response.
+//
+// A tool name that doesn't exist in the global registry at all (an
+// invented/hallucinated name — the 1.7B model errs on this often) is
+// deliberately left alone here: ADR-014's own "comentário do André"
+// clarifies the global-registry check was already implicit ("tool
+// registered but outside the window"); an unknown name isn't that case at
+// all, and gets its rejection (with a similar-name hint, tool_hint.go) from
+// the ordinary "tool not found" path in ExecuteTools, without ever
+// escalating the window or touching the KV.
+func (p *Pipeline) maybeEscalateFocus(ts *turnState, exec *turnExecution) bool {
+	if ts == nil || exec == nil || !ts.profile.Enabled {
+		return false
+	}
+	target := strings.TrimSpace(ts.profile.EscalateTo)
+	if target == "" {
+		return false
+	}
+	fr := p.al.focusRuntimeSnapshot()
+	if fr == nil || !fr.cfg.EscalationEnabled() {
+		return false
+	}
+	if ts.focusEscalationsSnapshot() >= fr.cfg.MaxEscalationsPerTurn() {
+		return false
+	}
+
+	for _, tc := range exec.normalizedToolCalls {
+		if turnProfileToolAllowed(ts.profile, tc.Name) {
+			continue // already inside the active window — nothing to escalate for this call
+		}
+		if _, existsGlobally := ts.agent.Tools.Get(tc.Name); !existsGlobally {
+			continue // unknown tool: handled by the "tool not found" path instead
+		}
+
+		newProfile, ok := fr.ResolveWindow(target)
+		if !ok {
+			logger.WarnCF("agent", "Focus escalation target is not a resolvable window", map[string]any{
+				"escalate_to": target,
+				"tool":        tc.Name,
+			})
+			return false
+		}
+
+		count := ts.escalateFocusWindow(newProfile.Window)
+		ts.profile = newProfile
+		p.rebuildSystemMessageForEscalatedProfile(ts, exec)
+
+		p.al.emitEvent(
+			runtimeevents.KindAgentLLMRetry,
+			ts.eventMeta("runTurn", "turn.llm.retry"),
+			LLMRetryPayload{Reason: "focus_escalation"},
+		)
+		logger.InfoCF("agent", "Focus window escalated", map[string]any{
+			"agent_id":     ts.agent.ID,
+			"tool":         tc.Name,
+			"escalated_to": newProfile.Window,
+			"count":        count,
+		})
+		return true
+	}
+
+	return false
+}
+
+// rebuildSystemMessageForEscalatedProfile replaces exec.messages[0] (the
+// turn's system message) with one built from the just-escalated ts.profile
+// — "reconstrói só a mensagem de sistema" (ADR-014 point 5). History,
+// tool-call/result messages, and the current turn's own messages are left
+// exactly as they are; only the system prompt reflects the wider window.
+func (p *Pipeline) rebuildSystemMessageForEscalatedProfile(ts *turnState, exec *turnExecution) {
+	if len(exec.messages) == 0 || exec.messages[0].Role != "system" {
+		return
+	}
+	rebuildReq := promptBuildRequestForTurn(ts, exec.history, exec.summary, "", nil, p.Cfg)
+	rebuilt := ts.agent.ContextBuilder.BuildMessagesFromPrompt(rebuildReq)
+	if len(rebuilt) == 0 || rebuilt[0].Role != "system" {
+		return
+	}
+	exec.messages[0] = rebuilt[0]
 }
 
 func restoreToolDefinition(

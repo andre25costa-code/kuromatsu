@@ -1,14 +1,26 @@
 ---
 id: ADR-006
 title: Modo dormir sobre evolution.ColdPathRunner; "inconsciente" via fallback chain
-status: accepted
-version: 2
+status: superseded
+superseded_by: ADR-018
+version: 3
 owner: André
-last_updated: 2026-09-10
+last_updated: 2026-09-11
 depends_on: [ADR-002, ADR-008]
 ---
 
 # ADR-006 — Modo dormir sobre o ColdPathRunner
+
+> **Superseded parcialmente por [ADR-018](ADR-018-sono-evolucao-modelo-externo-obrigatorio.md)
+> em 2026-09-11** (`proposed`, aguardando confirmação do André) — **apenas a cláusula 2
+> da Decisão abaixo** ("`sleep.unconscious_model`… qualquer provider serve, inclusive o
+> próprio `bonsai-local`. Vazio ⇒ chain padrão do agente") deixa de valer: no alvo
+> `demetrius`, `unconscious_model` passa a ser **obrigatório** e não pode resolver para
+> `provider: native`. As cláusulas 1, 3 e 4 (agendador espelhando `evolution_bridge`,
+> pipeline coleta→triagem→aplicação, guardrails BR-001/BR-005/BR-006) **continuam em
+> vigor sem mudança** e são a base sobre a qual a ADR-018 constrói (C5 do plano de
+> refatoração `demetrius`) — não reimplementar o agendador nem o pipeline a partir da
+> ADR-018, só a validação do modelo.
 
 ## Contexto
 O "modo dormir" é uma rodada noturna de consolidação de memória (poda + reforço),

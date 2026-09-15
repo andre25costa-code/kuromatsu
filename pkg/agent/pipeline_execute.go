@@ -16,6 +16,7 @@ import (
 	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 	"github.com/andre25costa-code/kuromatsu/pkg/utils"
 )
@@ -118,6 +119,26 @@ func (p *Pipeline) ExecuteTools(
 	al := p.al
 	normalizedToolCalls := exec.normalizedToolCalls
 
+	// Trilho C ToolExec hook (ADR-016 point 7): the whole tool loop below
+	// (every call in normalizedToolCalls) counts as one ToolExec
+	// occupancy, concurrent with the Inference bit the surrounding turn
+	// may also hold. A nil al.runstate (the default) makes this a no-op.
+	//
+	// rsTryEnter (not rsEnter): S09/ADR-016 point 6 vetoes a new ToolExec
+	// entry while Suspended (the memguard, ADR-017, has already decided the
+	// process is critically low on memory) -- refuse the whole batch up
+	// front rather than let any tool run right when the guard is trying to
+	// keep the process from OOMing. Every pending tool call still gets a
+	// tool-result message (refuseToolsSuspended, same shape
+	// denyByTurnProfile/unknownToolResultMessage below already use) so the
+	// provider's one-result-per-tool_call_id contract stays satisfied and
+	// the model can simply retry the call on its own next iteration.
+	release, ok := al.rsTryEnter(runstate.ToolExec)
+	if !ok {
+		return al.refuseToolsSuspended(ts, exec, normalizedToolCalls)
+	}
+	defer release()
+
 	ts.setPhase(TurnPhaseTools)
 	messages := exec.messages
 	handledAttachments := make([]providers.Attachment, 0)
@@ -156,6 +177,34 @@ toolLoop:
 				ts.recordPersistedMessage(deniedMsg)
 			}
 			return true
+		}
+
+		// ADR-014 point 5.1 / FR-014 AC-014-5: a tool name that doesn't
+		// exist anywhere in the global registry is rejected immediately —
+		// before denyByTurnProfile, which would otherwise report the same
+		// generic "not allowed by the active turn profile" it gives a
+		// real, in-registry tool that's merely outside the window. This
+		// check runs only when focus routed this turn
+		// (focusWindowSnapshot() != ""); with focus disabled the legacy
+		// denyByTurnProfile / ExecuteWithContext "tool not found" paths
+		// are untouched (AC-014-9).
+		if ts.focusWindowSnapshot() != "" {
+			if _, existsGlobally := ts.agent.Tools.Get(toolName); !existsGlobally {
+				exec.allResponsesHandled = false
+				ts.recordUnknownToolCall() // FR-019/C4 telemetry column
+				hintMsg := unknownToolResultMessage(ts, toolName, tc.ID)
+				al.emitEvent(
+					runtimeevents.KindAgentToolExecSkipped,
+					ts.eventMeta("runTurn", "turn.tool.skipped"),
+					ToolExecSkippedPayload{Tool: toolName, Reason: hintMsg.Content},
+				)
+				messages = append(messages, hintMsg)
+				if !ts.opts.NoHistory {
+					ts.agent.Sessions.AddFullMessage(ts.sessionKey, hintMsg)
+					ts.recordPersistedMessage(hintMsg)
+				}
+				continue
+			}
 		}
 
 		if denyByTurnProfile() {
@@ -860,5 +909,51 @@ toolLoop:
 	logger.DebugCF("agent", "TTL tick after tool execution", map[string]any{
 		"agent_id": ts.agent.ID, "iteration": iteration,
 	})
+	return ToolControlContinue
+}
+
+// suspendedToolSkipReason is the tool-result content every pending tool
+// call gets when refuseToolsSuspended fires -- worded for the model, not
+// the end user (it becomes the content of a role="tool" message the model
+// reads on its next iteration, same as unknownToolHint/denyContent above).
+const suspendedToolSkipReason = "sistema sob pressão de memória (runstate: suspended); ferramenta não executada, tente novamente em breve"
+
+// refuseToolsSuspended answers every pending tool call with a tool-result
+// message instead of executing any of them (S09/ADR-016 point 6: Suspended
+// vetoes a new ToolExec entry). Mirrors denyByTurnProfile's per-call shape
+// (a role="tool" message keyed to the call's ToolCallID) so the provider's
+// one-result-per-tool_call_id contract stays satisfied; exec.
+// allResponsesHandled is left false so the coordinator makes another LLM
+// call with these results in context -- the model sees a normal tool
+// response and can simply retry, no turn-ending error surfaced to the end
+// user.
+func (al *AgentLoop) refuseToolsSuspended(
+	ts *turnState,
+	exec *turnExecution,
+	calls []providers.ToolCall,
+) ToolControl {
+	messages := exec.messages
+	for _, tc := range calls {
+		al.emitEvent(
+			runtimeevents.KindAgentToolExecSkipped,
+			ts.eventMeta("runTurn", "turn.tool.skipped"),
+			ToolExecSkippedPayload{
+				Tool:   tc.Name,
+				Reason: suspendedToolSkipReason,
+			},
+		)
+		msg := providers.Message{
+			Role:       "tool",
+			Content:    suspendedToolSkipReason,
+			ToolCallID: tc.ID,
+		}
+		messages = append(messages, msg)
+		if !ts.opts.NoHistory {
+			ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
+			ts.recordPersistedMessage(msg)
+		}
+	}
+	exec.messages = messages
+	exec.allResponsesHandled = false
 	return ToolControlContinue
 }
