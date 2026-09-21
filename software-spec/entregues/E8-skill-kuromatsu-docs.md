@@ -4,7 +4,7 @@ title: Skill kuromatsu-docs — documentação canônica em PT-BR, um arquivo po
 status: done
 frs: [FR-009]
 adrs: [ADR-010]
-commits: [PENDENTE]
+commits: [c2c1c765]
 last_updated: 2026-09-21
 ---
 
@@ -43,9 +43,13 @@ os métodos de interface opcional que cada canal de fato implementa).
 
 ## Commits
 
-Pendente — este entregável faz parte do mesmo commit que S36/S37/S38 e a
-config de sono por agente (ver `BACKLOG.md` para a lista completa desta
-rodada).
+| Commit | Mensagem |
+|---|---|
+| `c2c1c765` | feat(docs,config,agent): kuromatsu-docs skill (E8), S36-38, per-agent sleep (ADR-019) |
+
+Commit único, compartilhado com S36/S37/S38 e a config de sono por agente
+(ver `BACKLOG.md` para o registro completo desta rodada, incluindo o
+incidente ao vivo encontrado durante a investigação).
 
 ## Arquivos-chave
 
