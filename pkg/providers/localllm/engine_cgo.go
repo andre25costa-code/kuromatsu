@@ -372,8 +372,14 @@ func (e *cgoEngine) parkCore(mem C.llama_memory_t, hash [sha256.Size]byte, nCore
 }
 
 func (e *cgoEngine) completion(ctx context.Context, prompt string, coreEnd int, opts Options) (CompletionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return CompletionResult{}, err
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return CompletionResult{}, err
+	}
 
 	// Keep-alive is armed from the END of this call (deferred below), not
 	// the start (ADR-015 point 4): the idle-unload countdown should
@@ -397,6 +403,9 @@ func (e *cgoEngine) completion(ctx context.Context, prompt string, coreEnd int, 
 	}()
 
 	if err := e.ensureLoaded(opts); err != nil {
+		return CompletionResult{}, err
+	}
+	if err := ctx.Err(); err != nil {
 		return CompletionResult{}, err
 	}
 
@@ -567,6 +576,33 @@ func (e *cgoEngine) completion(ctx context.Context, prompt string, coreEnd int, 
 				if e.parked[i].valid && !(e.activeCoreValid && e.parked[i].hash == e.activeCoreHash) {
 					nCtxUsed += e.parked[i].nCore
 				}
+			}
+		}
+		if nCtxUsed+int(batch.n_tokens) > opts.NCtx {
+			// Parked cores are an optional cache, not reserved context. Evict
+			// inactive cores in LRU order before rejecting an otherwise valid
+			// prompt. This also handles a date change in the system prompt:
+			// the previous day's core must not permanently block the new one.
+			for nCtxUsed+int(batch.n_tokens) > opts.NCtx && opts.CoreCacheParking {
+				slot := -1
+				for i := range e.parked {
+					candidate := e.parked[i]
+					if !candidate.valid || (e.activeCoreValid && candidate.hash == e.activeCoreHash) {
+						continue
+					}
+					if slot < 0 || candidate.gen < e.parked[slot].gen {
+						slot = i
+					}
+				}
+				if slot < 0 {
+					break
+				}
+				parked := e.parked[slot]
+				if !C.llama_memory_seq_rm(mem, parked.seqID, C.llama_pos(0), C.llama_pos(-1)) {
+					break
+				}
+				nCtxUsed -= parked.nCore
+				e.parked[slot] = parkedCore{}
 			}
 		}
 		if nCtxUsed+int(batch.n_tokens) > opts.NCtx {

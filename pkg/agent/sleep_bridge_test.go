@@ -126,6 +126,9 @@ func TestAgentSessionSource_TracksMessageCountCursor(t *testing.T) {
 		t.Fatalf("digests = %d, want 1 on first call", len(digests))
 	}
 
+	if err = src.Acknowledge(context.Background(), workspace, digests); err != nil {
+		t.Fatal(err)
+	}
 	digests2, err := src.RecentDigests(context.Background(), workspace, time.Time{}, false)
 	if err != nil {
 		t.Fatalf("RecentDigests: %v", err)

@@ -1,5 +1,17 @@
 # BACKLOG — o que falta
 
+> **Reconciliação 2026-09-16** — As seções históricas abaixo não representam
+> integralmente o estado atual. Integração do sono, validação, publicação dos
+> binários, `scripts/deploy-demetrius.sh`, guarda de atividade do backup,
+> retenção e propagação do contexto de shutdown já têm código. `hardware` e
+> `picoclaw-agent` também já foram retiradas das skills do workspace.
+> A rodada atual corrige isolamento de memória/shell, confirmação do sono,
+> orçamento/deadline, aliases/horários, origem de configuração e concorrência.
+> Ver [dossiê e validação](../docs/internal-audit-2026-09-16.md).
+> Pendências preservadas: `kuromatsu-docs`, políticas de sono por agente,
+> S36–S38, ensaio de restore e medições no hardware-alvo.
+> `depends_on`: S11, S17, S27, S30, S32, S33, S38.
+
 Só o que **não** está entregue. Para o que já foi entregue e auditado, ver
 `entregues/E0..E7,E10-*.md`. IDs (`FR-`, `ADR-`, `S`) nunca mudam de lugar por
 estarem citados aqui — este arquivo só indexa, não é dono de nenhum capítulo.

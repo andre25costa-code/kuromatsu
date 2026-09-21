@@ -2,14 +2,19 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/fileutil"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
@@ -150,12 +155,17 @@ func (b *sleepBridge) start(window sleep.Window) {
 // scheduled window tries again from scratch (S17: "sem estado parcial
 // persistido entre tentativas").
 func (b *sleepBridge) runWindow(window sleep.Window) {
-	deadline := window.Deadline(time.Now())
+	b.runWindowUntil(window.Deadline(time.Now()))
+}
+
+func (b *sleepBridge) runWindowUntil(deadline time.Time) {
+	ctx, cancel := context.WithDeadline(b.bgCtx, deadline)
+	defer cancel()
 	for {
-		if b.bgCtx.Err() != nil {
+		if ctx.Err() != nil {
 			return
 		}
-		err := b.runOnce()
+		err := b.runOnceContext(ctx)
 		if err == nil {
 			return
 		}
@@ -174,7 +184,7 @@ func (b *sleepBridge) runWindow(window sleep.Window) {
 		}
 		select {
 		case <-time.After(wait):
-		case <-b.bgCtx.Done():
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -185,9 +195,13 @@ func (b *sleepBridge) runWindow(window sleep.Window) {
 // retry re-attempts the whole set together, rather than interleaving
 // partial per-workspace progress with retries.
 func (b *sleepBridge) runOnce() error {
+	return b.runOnceContext(b.bgCtx)
+}
+
+func (b *sleepBridge) runOnceContext(ctx context.Context) error {
 	gate := &dreamGate{inner: b.runtime, rs: b.rs}
 	for _, workspace := range b.workspaces {
-		if err := gate.RunColdPathOnce(b.bgCtx, workspace); err != nil {
+		if err := gate.RunColdPathOnce(ctx, workspace); err != nil {
 			return err
 		}
 	}
@@ -212,14 +226,26 @@ func newSleepChatFunc(
 	fallback := providers.NewFallbackChain(providers.NewCooldownTracker(), providers.NewRateLimiterRegistry())
 
 	return func(ctx context.Context, systemPrompt, userPrompt string) (sleep.ChatResult, error) {
+		maxTokens, err := sleep.OutputTokenLimit(ctx, systemPrompt, userPrompt)
+		if err != nil {
+			return sleep.ChatResult{}, err
+		}
 		modelCfg, err := resolvedRuntimeModelConfig(cfg, cfg.Sleep.UnconsciousModel, cfg.Agents.Defaults.Workspace)
 		if err != nil {
-			return sleep.ChatResult{}, fmt.Errorf("sleep: resolving unconscious_model %q: %w", cfg.Sleep.UnconsciousModel, err)
+			return sleep.ChatResult{}, fmt.Errorf(
+				"sleep: resolving unconscious_model %q: %w",
+				cfg.Sleep.UnconsciousModel,
+				err,
+			)
 		}
 
 		provider, modelID, err := providerFactory(modelCfg)
 		if err != nil {
-			return sleep.ChatResult{}, fmt.Errorf("sleep: creating provider for unconscious_model %q: %w", cfg.Sleep.UnconsciousModel, err)
+			return sleep.ChatResult{}, fmt.Errorf(
+				"sleep: creating provider for unconscious_model %q: %w",
+				cfg.Sleep.UnconsciousModel,
+				err,
+			)
 		}
 		defer closeProviderIfStateful(provider)
 
@@ -237,7 +263,7 @@ func newSleepChatFunc(
 			ctx,
 			[]providers.FallbackCandidate{candidate}, // AC-010-8: exactly this one candidate, no chain
 			func(ctx context.Context, c providers.FallbackCandidate) (*providers.LLMResponse, error) {
-				return provider.Chat(ctx, messages, nil, modelID, map[string]any{})
+				return provider.Chat(ctx, messages, nil, modelID, map[string]any{"max_tokens": maxTokens})
 			},
 		)
 		if err != nil {
@@ -255,33 +281,16 @@ func newSleepChatFunc(
 	}
 }
 
-// agentSessionSource adapts the live AgentRegistry to sleep.SessionSource
-// (collects real session digests instead of the fakes pkg/sleep's own
-// tests use). Per-session "already consolidated" state is an in-memory
-// message count, not the since timestamp SessionSource.RecentDigests
-// receives: SessionStore exposes no per-session last-modified time to
-// filter on, so a message-count high-water-mark is the closest
-// alternative that stays real (not a fake always-return-everything). Like
-// Runtime's own lastRun map, this resets on process restart -- consistent
-// with the rest of pkg/sleep's fidelity, not a new gap.
-//
-// Known limitation (documented, not fixed here): the high-water-mark
-// advances during collection, before runTriage actually consolidates
-// anything -- if the chat call then fails partway through a run, the
-// sessions already counted as "seen" are not retried on the next window.
-// Accepted for this rodada: sleep is a best-effort, retry-from-scratch
-// design end-to-end (S17), and building per-session success tracking
-// would mean changing pkg/sleep's own interfaces, which this rodada's
-// scope deliberately does not touch.
+// agentSessionSource tracks persisted content revisions, acknowledged only after memory is saved.
 type agentSessionSource struct {
 	registry *AgentRegistry
 
 	mu   sync.Mutex
-	seen map[string]map[string]int // workspace -> sessionKey -> last-seen message count
+	seen map[string]map[string]string // workspace -> sessionKey -> committed content hash
 }
 
 func newAgentSessionSource(registry *AgentRegistry) *agentSessionSource {
-	return &agentSessionSource{registry: registry, seen: make(map[string]map[string]int)}
+	return &agentSessionSource{registry: registry, seen: make(map[string]map[string]string)}
 }
 
 func (s *agentSessionSource) RecentDigests(
@@ -298,7 +307,20 @@ func (s *agentSessionSource) RecentDigests(
 	s.mu.Lock()
 	seenForWorkspace := s.seen[workspace]
 	if seenForWorkspace == nil {
-		seenForWorkspace = make(map[string]int)
+		seenForWorkspace = make(map[string]string)
+		data, err := os.ReadFile(filepath.Join(workspace, "state", "sleep-cursors.json"))
+		if err == nil {
+			if err = json.Unmarshal(data, &seenForWorkspace); err != nil {
+				s.mu.Unlock()
+				return nil, fmt.Errorf("sleep cursor: %w", err)
+			}
+		} else if !os.IsNotExist(err) {
+			s.mu.Unlock()
+			return nil, err
+		}
+		if seenForWorkspace == nil {
+			seenForWorkspace = make(map[string]string)
+		}
 		s.seen[workspace] = seenForWorkspace
 	}
 	s.mu.Unlock()
@@ -320,30 +342,64 @@ func (s *agentSessionSource) RecentDigests(
 				continue
 			}
 
-			s.mu.Lock()
-			lastCount := seenForWorkspace[key]
-			s.mu.Unlock()
-			if !weeklyDeep && len(history) <= lastCount {
-				continue // nothing new since the last consolidation
-			}
-
 			summary := strings.TrimSpace(agentInst.Sessions.GetSummary(key))
-			if summary == "" {
-				summary = renderHistoryTail(history, sleepDigestTailMessages)
+			tail := renderHistoryTail(history, sleepDigestTailMessages)
+			if summary != "" {
+				summary += "\n\nRecent messages:\n"
+			}
+			summary += tail
+			snapshot, err := json.Marshal(history)
+			if err != nil {
+				return nil, err
+			}
+			revision := fmt.Sprintf("%x", sha256.Sum256(append(snapshot, []byte(summary)...)))
+			s.mu.Lock()
+			previous := seenForWorkspace[key]
+			s.mu.Unlock()
+			if !weeklyDeep && revision == previous {
+				continue
 			}
 			if summary == "" {
 				continue
 			}
-			digests = append(digests, sleep.SessionDigest{SessionID: key, Summary: summary})
+			digests = append(digests, sleep.SessionDigest{SessionID: key, Summary: summary, Revision: revision})
 
-			s.mu.Lock()
-			seenForWorkspace[key] = len(history)
-			s.mu.Unlock()
 		}
 	}
 
 	sort.Slice(digests, func(i, j int) bool { return digests[i].SessionID < digests[j].SessionID })
 	return digests, nil
+}
+
+func (s *agentSessionSource) Acknowledge(ctx context.Context, workspace string, digests []sleep.SessionDigest) error {
+	if len(digests) == 0 {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := make(map[string]string)
+	for key, revision := range s.seen[workspace] {
+		next[key] = revision
+	}
+	for _, digest := range digests {
+		next[digest.SessionID] = digest.Revision
+	}
+	data, err := json.Marshal(next)
+	if err != nil {
+		return err
+	}
+	if err := fileutil.WriteFileAtomic(
+		filepath.Join(workspace, "state", "sleep-cursors.json"),
+		data,
+		0o600,
+	); err != nil {
+		return err
+	}
+	s.seen[workspace] = next
+	return nil
 }
 
 func (s *agentSessionSource) agentsForWorkspace(workspace string) []*AgentInstance {

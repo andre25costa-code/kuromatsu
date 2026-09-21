@@ -361,16 +361,23 @@ func registerSharedTools(
 				// 4. Resolve Model
 				modelToUse := agent.Model
 				if targetAgentID != "" {
-					if targetAgent, ok := al.GetRegistry().GetAgent(targetAgentID); ok {
-						modelToUse = targetAgent.Model
+					if !registry.CanSpawnSubagent(agent.ID, targetAgentID) {
+						return nil, fmt.Errorf("not allowed to spawn agent %q", targetAgentID)
 					}
+					targetAgent, ok := registry.GetAgent(targetAgentID)
+					if !ok {
+						return nil, fmt.Errorf("target agent %q not found", targetAgentID)
+					}
+					modelToUse = targetAgent.Model
+					tlSlice = nil // The target agent owns its tool registry.
 				}
 
 				// 5. Build SubTurnConfig
 				cfg := SubTurnConfig{
-					Model:        modelToUse,
-					Tools:        tlSlice,
-					SystemPrompt: systemPrompt,
+					TargetAgentID: targetAgentID,
+					Model:         modelToUse,
+					Tools:         tlSlice,
+					SystemPrompt:  systemPrompt,
 				}
 				if hasMaxTokens {
 					cfg.MaxTokens = maxTokens

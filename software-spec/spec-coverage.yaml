@@ -3,7 +3,9 @@
 # Regras: itens mudam de estado, nunca são removidos; atualização incremental.
 
 project: kuromatsu
-updated: 2026-09-12
+updated: 2026-09-16
+# Reconciliação de implementação e correções: ../docs/internal-audit-2026-09-16.md
+# depends_on: [S11, S17, S27, S30, S32, S33, S38]
 spec_version: 0.1.0
 
 items:
@@ -187,9 +189,10 @@ items:
     note: 'Corrigido 2026-09-11: estava missing (Q2 em S06 sem decisão).
       Resolvida com a mudança de papel da Oracle (deixa de rodar inferência,
       ADR-013, vira alvo de backup cross-cloud da `demetrius` via timer
-      systemd noturno + rsync). Gaps abertos e explícitos no capítulo:
-      gating por runstate ainda não implementado (TODO na própria unit),
-      retenção e procedimento de restore tbd. ADR-013 (accepted).'
+      systemd noturno + rsync). Reconciliação 2026-09-16: a guarda por
+      runstate e retenção de 14 arquivos já estão implementadas em
+      deploy/systemd/backup-to-kuro.sh. Procedimento/ensaio de restore
+      continua pendente de validação. ADR-013 (accepted).'
   S34:
     status: confirmed
     file: 06-infrastructure/34-observability.md

@@ -257,8 +257,8 @@ func (r *ToolRegistry) ExecuteWithContext(
 ) *ToolResult {
 	logger.InfoCF("tool", "Tool execution started",
 		map[string]any{
-			"tool": name,
-			"args": args,
+			"tool":           name,
+			"argument_count": len(args),
 		})
 
 	tool, ok := r.Get(name)
@@ -341,7 +341,7 @@ func (r *ToolRegistry) ExecuteWithContext(
 			map[string]any{
 				"tool":     name,
 				"duration": duration.Milliseconds(),
-				"error":    result.ForLLM,
+				"error":    "tool returned an error; details available to the caller",
 			})
 	} else if result.Async {
 		logger.InfoCF("tool", "Tool started (async)",

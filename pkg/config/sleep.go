@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/common"
+	"github.com/andre25costa-code/kuromatsu/pkg/sleep"
 )
 
 // SleepConfig is the top-level "sleep" block (FR-010, ADR-006/018, Trilho C
@@ -103,7 +105,7 @@ func hasValidExternalModel(name string, models SecureModelList) bool {
 	if mc == nil {
 		return false
 	}
-	if strings.EqualFold(strings.TrimSpace(mc.Provider), "native") {
+	if common.IsNativeModel(mc.Provider, mc.Model) {
 		return false
 	}
 	if mc.ModelName == nativeModelName {
@@ -112,36 +114,9 @@ func hasValidExternalModel(name string, models SecureModelList) bool {
 	return true
 }
 
-// parseHHMMWindow validates "HH:MM-HH:MM" without importing pkg/sleep
-// (which would create config -> sleep -> ... -> config-shaped risk; sleep
-// stays config-agnostic per its own doc comment). Kept intentionally
-// minimal: sleep_bridge.go re-parses with sleep.ParseWindow, the actual
-// implementation this mirrors.
+// Configuration and scheduling share the same parser. pkg/sleep does not
+// depend on configuration, so this dependency does not form a cycle.
 func parseHHMMWindow(s string) error {
-	start, end, ok := strings.Cut(s, "-")
-	if !ok {
-		return fmt.Errorf("invalid window %q, want \"HH:MM-HH:MM\"", s)
-	}
-	for _, part := range []string{start, end} {
-		h, m, ok := strings.Cut(strings.TrimSpace(part), ":")
-		if !ok {
-			return fmt.Errorf("invalid time %q in window %q, want \"HH:MM\"", part, s)
-		}
-		if !isDigits(h) || !isDigits(m) {
-			return fmt.Errorf("invalid time %q in window %q, want \"HH:MM\"", part, s)
-		}
-	}
-	return nil
-}
-
-func isDigits(s string) bool {
-	if s == "" {
-		return false
-	}
-	for _, r := range s {
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return true
+	_, err := sleep.ParseWindow(s)
+	return err
 }

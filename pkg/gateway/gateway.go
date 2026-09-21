@@ -57,12 +57,12 @@ type services struct {
 	// as the pre-multi-agent single HeartbeatService field this replaced).
 	HeartbeatServices map[string]*heartbeat.HeartbeatService
 	MediaStore        media.MediaStore
-	ChannelManager   *channels.Manager
-	DeviceService    *devices.Service
-	HealthServer     *health.Server
-	VoiceAgentCancel context.CancelFunc
-	manualReloadChan chan struct{}
-	reloading        atomic.Bool
+	ChannelManager    *channels.Manager
+	DeviceService     *devices.Service
+	HealthServer      *health.Server
+	VoiceAgentCancel  context.CancelFunc
+	manualReloadChan  chan struct{}
+	reloading         atomic.Bool
 
 	// runstatePublishersStop cancels the file/log/sd_notify publisher
 	// goroutines installRunstateIntegration started (Trilho C, C2). nil
@@ -77,7 +77,7 @@ type services struct {
 	// installMemguardIntegration call. Re-set on every reload, same
 	// reasoning as runstatePublishersStop.
 	memguardStop func()
-	authToken        string
+	authToken    string
 }
 
 type startupBlockedProvider struct {
@@ -159,6 +159,19 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	if err = preCheckConfig(cfg); err != nil {
 		return fmt.Errorf("config pre-check failed: %w", err)
 	}
+	logger.InfoCF("gateway", "Active configuration", map[string]any{
+		"config_path": cfg.SourcePath, "workspace": cfg.Agents.Defaults.Workspace,
+	})
+	shadow := filepath.Join(cfg.Agents.Defaults.Workspace, "config.json")
+	if absShadow, pathErr := filepath.Abs(shadow); pathErr == nil && absShadow != cfg.SourcePath {
+		if _, statErr := os.Stat(shadow); statErr == nil {
+			logger.WarnCF(
+				"gateway",
+				"Workspace config.json is not the active configuration",
+				map[string]any{"ignored_path": absShadow, "active_path": cfg.SourcePath},
+			)
+		}
+	}
 
 	// Debug mode permanently overrides the config log level to DEBUG.
 	if debug {
@@ -194,14 +207,12 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		}
 	}()
 
-	provider, modelID, err := createStartupProvider(cfg, allowEmptyStartup)
+	provider, _, err := createStartupProvider(cfg, allowEmptyStartup)
 	if err != nil {
 		return fmt.Errorf("error creating provider: %w", err)
 	}
 
-	if modelID != "" {
-		cfg.Agents.Defaults.ModelName = modelID
-	}
+	// Keep the configured alias: the physical model ID alone loses its provider.
 
 	msgBus := bus.NewMessageBus()
 	agentLoop := agent.NewAgentLoop(cfg, msgBus, provider)
@@ -654,7 +665,7 @@ func handleConfigReload(
 	logger.Info("  Stopping all services...")
 	stopAndCleanupServices(runningServices, serviceShutdownTimeout, true)
 
-	newProvider, newModelID, err := createStartupProvider(newCfg, allowEmptyStartup)
+	newProvider, _, err := createStartupProvider(newCfg, allowEmptyStartup)
 	if err != nil {
 		logger.Errorf("  ⚠ Error creating new provider: %v", err)
 		logger.Warn("  Attempting to restart services with old provider and config...")
@@ -662,10 +673,6 @@ func handleConfigReload(
 			logger.Errorf("  ⚠ Failed to restart services: %v", restartErr)
 		}
 		return fmt.Errorf("error creating new provider: %w", err)
-	}
-
-	if newModelID != "" {
-		newCfg.Agents.Defaults.ModelName = newModelID
 	}
 
 	reloadCtx, reloadCancel := context.WithTimeout(context.Background(), providerReloadTimeout)

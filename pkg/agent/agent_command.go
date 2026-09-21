@@ -488,7 +488,13 @@ func (al *AgentLoop) buildCommandsRuntime(
 			modelMu := agent.modelStateMutex()
 			modelMu.RLock()
 			defer modelMu.RUnlock()
-			return agent.Model, resolvedCandidateProvider(agent.Candidates, cfg.Agents.Defaults.Provider)
+			return resolvedCandidateModel(
+					agent.Candidates,
+					agent.Model,
+				), resolvedCandidateProvider(
+					agent.Candidates,
+					cfg.Agents.Defaults.Provider,
+				)
 		}
 		rt.SwitchModel = func(value string) (string, error) {
 			value = strings.TrimSpace(value)

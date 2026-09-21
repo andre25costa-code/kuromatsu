@@ -35,6 +35,7 @@ var (
 
 type ProcessSession struct {
 	mu              sync.Mutex
+	owner           string // Immutable trusted agent/session scope, set before Add.
 	ID              string
 	PID             int
 	Command         string

@@ -302,9 +302,11 @@ func (e *Engine) Ingest(ctx context.Context, sessionKey string, messages []Messa
 // Close releases resources.
 func (e *Engine) Close() error {
 	// Signal compaction goroutines to stop
+	e.compactionMu.Lock()
 	if e.compaction != nil {
 		e.compaction.Close()
 	}
+	e.compactionMu.Unlock()
 	if e.store != nil && e.store.db != nil {
 		return e.store.db.Close()
 	}
@@ -364,30 +366,26 @@ func (e *Engine) CompactUntilUnder(ctx context.Context, sessionKey string, budge
 
 // initCompactionOnce lazily initializes the compaction engine.
 func (e *Engine) initCompactionOnce() {
+	e.compactionMu.Lock()
+	defer e.compactionMu.Unlock()
 	if e.compaction == nil {
-		e.compactionMu.Lock()
-		defer e.compactionMu.Unlock()
-		if e.compaction == nil {
-			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-			e.compaction = &CompactionEngine{
-				store:          e.store,
-				config:         e.config,
-				complete:       e.complete,
-				shutdownCtx:    shutdownCtx,
-				shutdownCancel: shutdownCancel,
-			}
+		shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+		e.compaction = &CompactionEngine{
+			store:          e.store,
+			config:         e.config,
+			complete:       e.complete,
+			shutdownCtx:    shutdownCtx,
+			shutdownCancel: shutdownCancel,
 		}
 	}
 }
 
 // initAssemblerOnce lazily initializes the assembler.
 func (e *Engine) initAssemblerOnce() {
+	e.assemblerMu.Lock()
+	defer e.assemblerMu.Unlock()
 	if e.assembler == nil {
-		e.assemblerMu.Lock()
-		defer e.assemblerMu.Unlock()
-		if e.assembler == nil {
-			e.assembler = &Assembler{store: e.store, config: e.config}
-		}
+		e.assembler = &Assembler{store: e.store, config: e.config}
 	}
 }
 

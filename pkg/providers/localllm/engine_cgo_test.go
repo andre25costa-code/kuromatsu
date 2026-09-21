@@ -12,6 +12,36 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/providers/protocoltypes"
 )
 
+func TestCgoEngine_CanceledBeforeLoad(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := newEngine().completion(ctx, "hello", 0, Options{ModelPath: "/missing/model.gguf"}.WithDefaults())
+	if err != context.Canceled {
+		t.Fatalf("completion error = %v, want context.Canceled before loading", err)
+	}
+}
+
+func TestCgoEngine_CoreParkingEvictsUnderPressure_Integration(t *testing.T) {
+	modelPath := integrationModelPath(t)
+	eng := newEngine()
+	defer eng.unload()
+	opts := Options{ModelPath: modelPath, NCtx: 512, MaxPredict: 1, CoreCacheParking: true}.WithDefaults()
+	provider := &Provider{opts: opts, eng: eng}
+	for _, day := range []string{"Monday", "Tuesday", "Wednesday", "Monday"} {
+		messages := []protocoltypes.Message{
+			{Role: "system", Content: day + "\n" + strings.Repeat("alpha ", 290)},
+			{Role: "user", Content: "Say OK."},
+		}
+		response, err := provider.Chat(context.Background(), messages, nil, provider.GetDefaultModel(), nil)
+		if err != nil {
+			t.Fatalf("core %s: %v", day, err)
+		}
+		if response.Usage.PromptTokens < opts.NCtx/2 {
+			t.Fatalf("fixture must pressure parked cores: prompt_tokens=%d", response.Usage.PromptTokens)
+		}
+	}
+}
+
 // integrationModelPath resolves the GGUF path shared by every opt-in
 // integration test below, honoring KUROMATSU_TEST_MODEL like the existing
 // tests in this file. Returns "" (with the test already skipped) if the
@@ -160,6 +190,13 @@ func TestCgoEngine_AbortMidPrefill_Integration(t *testing.T) {
 	// ignore this NCtx if another integration test already resolved it first): this
 	// test needs its own *cgoEngine so the 4096 below is the real, effective n_ctx.
 	provider := &Provider{opts: Options{ModelPath: modelPath, NCtx: 4096, MaxPredict: 64}.WithDefaults(), eng: newEngine()}
+	// Measure cancellation during prefill, excluding synchronous model loading.
+	// A cold load on slow storage may itself take longer than the decode budget.
+	if _, err := provider.Chat(context.Background(), []protocoltypes.Message{
+		{Role: "user", Content: "Oi"},
+	}, nil, provider.GetDefaultModel(), map[string]any{"max_tokens": 1}); err != nil {
+		t.Fatalf("warmup: %v", err)
+	}
 
 	// ~1500+ tokens once tokenized -- long enough that, on hardware
 	// without the AVX-512-VNNI Q1_0 repack kernel (S18/ADR-015: neither

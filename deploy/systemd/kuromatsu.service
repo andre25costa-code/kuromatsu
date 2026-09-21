@@ -17,6 +17,7 @@ User=kuromatsu
 Group=kuromatsu
 WorkingDirectory=/var/lib/kuromatsu
 Environment=KUROMATSU_HOME=/var/lib/kuromatsu
+Environment=KUROMATSU_CONFIG=/var/lib/kuromatsu/config.json
 Environment=KUROMATSU_MODELS_DIR=/var/lib/kuromatsu/models
 Environment=GOMEMLIMIT=450MiB
 Environment=GOGC=50

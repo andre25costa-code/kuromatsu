@@ -267,16 +267,26 @@ func (t *ExecTool) Parameters() map[string]any {
 }
 
 func (t *ExecTool) Execute(ctx context.Context, args map[string]any) *ToolResult {
+	if !t.allowRemote && !constants.IsInternalChannel(strings.TrimSpace(ToolChannel(ctx))) {
+		return ErrorResult("exec is restricted to internal channels")
+	}
 	action, _ := args["action"].(string)
 	if action == "" {
 		return ErrorResult("action is required")
 	}
 
+	if action != "run" && action != "list" {
+		id, _ := args["sessionId"].(string)
+		session, err := t.sessionManager.Get(id)
+		if err != nil || session.owner != t.processOwner(ctx) {
+			return ErrorResult("session not found in the current context")
+		}
+	}
 	switch action {
 	case "run":
 		return t.executeRun(ctx, args)
 	case "list":
-		return t.executeList()
+		return t.executeList(ctx)
 	case "poll":
 		return t.executePoll(args)
 	case "read":
@@ -507,13 +517,15 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEnabled bool) *ToolResult {
 	sessionID := generateSessionID()
 	session := &ProcessSession{
-		ID:         sessionID,
-		Command:    command,
-		PTY:        ptyEnabled,
-		Background: true,
-		StartTime:  time.Now().Unix(),
-		Status:     "running",
-		ptyKeyMode: PtyKeyModeCSI,
+		owner:        t.processOwner(ctx),
+		outputBuffer: &bytes.Buffer{},
+		ID:           sessionID,
+		Command:      command,
+		PTY:          ptyEnabled,
+		Background:   true,
+		StartTime:    time.Now().Unix(),
+		Status:       "running",
+		ptyKeyMode:   PtyKeyModeCSI,
 	}
 
 	var cmd *exec.Cmd
@@ -576,8 +588,6 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 
 	session.PID = cmd.Process.Pid
 	t.sessionManager.Add(session)
-
-	session.outputBuffer = &bytes.Buffer{}
 
 	// PTY mode: read from ptyMaster and wait for process
 	// Note: On Linux, closing ptyMaster doesn't interrupt blocking Read() calls,
@@ -726,8 +736,25 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 	}
 }
 
-func (t *ExecTool) executeList() *ToolResult {
-	sessions := t.sessionManager.List()
+func (t *ExecTool) processOwner(ctx context.Context) string {
+	identity := []string{t.workingDir, ToolAgentID(ctx), ToolSessionKey(ctx), ToolChannel(ctx), ToolChatID(ctx)}
+	if identity[1] == "" && identity[2] == "" && identity[3] == "" && identity[4] == "" {
+		// Direct local callers without runtime identity cannot share sessions
+		// with other tool instances.
+		return fmt.Sprintf("local:%p", t)
+	}
+	encoded, _ := json.Marshal(identity)
+	return string(encoded)
+}
+
+func (t *ExecTool) executeList(ctx context.Context) *ToolResult {
+	var sessions []SessionInfo
+	for _, info := range t.sessionManager.List() {
+		session, err := t.sessionManager.Get(info.ID)
+		if err == nil && session.owner == t.processOwner(ctx) {
+			sessions = append(sessions, info)
+		}
+	}
 	resp := ExecResponse{
 		Sessions: sessions,
 	}
@@ -1413,4 +1440,3 @@ func (t *ExecTool) SetTimeout(timeout time.Duration) {
 func (t *ExecTool) SetRestrictToWorkspace(restrict bool) {
 	t.restrictToWorkspace = restrict
 }
-

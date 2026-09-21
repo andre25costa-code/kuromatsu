@@ -33,6 +33,7 @@ func init() {
 
 // Config is the current config structure with version support.
 type Config struct {
+	SourcePath string `json:"-" yaml:"-"` // Actual loaded file; never persisted.
 	// Config schema version for migration.
 	Version   int             `json:"version"             yaml:"-"`
 	Isolation IsolationConfig `json:"isolation,omitempty" yaml:"-"`
@@ -477,7 +478,7 @@ type AgentDefaults struct {
 	Routing                   *RoutingConfig     `json:"routing,omitempty"`
 	SteeringMode              string             `json:"steering_mode,omitempty"          env:"KUROMATSU_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
 	MaxParallelTurns          int                `json:"max_parallel_turns,omitempty"     env:"KUROMATSU_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
-	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                      envPrefix:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_"`
+	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                       envPrefix:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_"`
 	ToolFeedback              ToolFeedbackConfig `json:"tool_feedback,omitempty"`
 	SplitOnMarker             bool               `json:"split_on_marker"                  env:"KUROMATSU_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
 	ContextManager            string             `json:"context_manager,omitempty"        env:"KUROMATSU_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
@@ -932,17 +933,17 @@ type BaiduSearchConfig struct {
 
 type WebToolsConfig struct {
 	ToolConfig  `                   yaml:"-"                      envPrefix:"KUROMATSU_TOOLS_WEB_"`
-	Brave       BraveConfig        `yaml:"brave,omitempty"                                        json:"brave"`
-	Tavily      TavilyConfig       `yaml:"tavily,omitempty"                                       json:"tavily"`
-	Kagi        KagiConfig         `yaml:"kagi,omitempty"                                         json:"kagi"`
-	Sogou       SogouConfig        `yaml:"-"                                                      json:"sogou"`
-	DuckDuckGo  DuckDuckGoConfig   `yaml:"-"                                                      json:"duckduckgo"`
-	Gemini      GeminiSearchConfig `yaml:"gemini,omitempty"                                       json:"gemini"`
-	Perplexity  PerplexityConfig   `yaml:"perplexity,omitempty"                                   json:"perplexity"`
-	SearXNG     SearXNGConfig      `yaml:"-"                                                      json:"searxng"`
-	GLMSearch   GLMSearchConfig    `yaml:"glm_search,omitempty"                                   json:"glm_search"`
-	BaiduSearch BaiduSearchConfig  `yaml:"baidu_search,omitempty"                                 json:"baidu_search"`
-	Provider    string             `yaml:"-"                                                      json:"provider,omitempty" env:"KUROMATSU_TOOLS_WEB_PROVIDER"`
+	Brave       BraveConfig        `yaml:"brave,omitempty"                                         json:"brave"`
+	Tavily      TavilyConfig       `yaml:"tavily,omitempty"                                        json:"tavily"`
+	Kagi        KagiConfig         `yaml:"kagi,omitempty"                                          json:"kagi"`
+	Sogou       SogouConfig        `yaml:"-"                                                       json:"sogou"`
+	DuckDuckGo  DuckDuckGoConfig   `yaml:"-"                                                       json:"duckduckgo"`
+	Gemini      GeminiSearchConfig `yaml:"gemini,omitempty"                                        json:"gemini"`
+	Perplexity  PerplexityConfig   `yaml:"perplexity,omitempty"                                    json:"perplexity"`
+	SearXNG     SearXNGConfig      `yaml:"-"                                                       json:"searxng"`
+	GLMSearch   GLMSearchConfig    `yaml:"glm_search,omitempty"                                    json:"glm_search"`
+	BaiduSearch BaiduSearchConfig  `yaml:"baidu_search,omitempty"                                  json:"baidu_search"`
+	Provider    string             `yaml:"-"                                                       json:"provider,omitempty" env:"KUROMATSU_TOOLS_WEB_PROVIDER"`
 	// PreferNative controls whether to use provider-native web search when
 	// the active LLM supports it (e.g. OpenAI web_search_preview). When true,
 	// the client-side web_search tool is hidden to avoid duplicate search surfaces,
@@ -967,16 +968,16 @@ type CronToolsConfig struct {
 
 type ExecConfig struct {
 	ToolConfig          `         envPrefix:"KUROMATSU_TOOLS_EXEC_"`
-	EnableDenyPatterns  bool     `                                 json:"enable_deny_patterns"  env:"KUROMATSU_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
-	AllowRemote         bool     `                                 json:"allow_remote"          env:"KUROMATSU_TOOLS_EXEC_ALLOW_REMOTE"`
-	CustomDenyPatterns  []string `                                 json:"custom_deny_patterns"  env:"KUROMATSU_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
-	CustomAllowPatterns []string `                                 json:"custom_allow_patterns" env:"KUROMATSU_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
-	TimeoutSeconds      int      `                                 json:"timeout_seconds"       env:"KUROMATSU_TOOLS_EXEC_TIMEOUT_SECONDS"` // 0 means use default (60s)
+	EnableDenyPatterns  bool     `                                  json:"enable_deny_patterns"  env:"KUROMATSU_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
+	AllowRemote         bool     `                                  json:"allow_remote"          env:"KUROMATSU_TOOLS_EXEC_ALLOW_REMOTE"`
+	CustomDenyPatterns  []string `                                  json:"custom_deny_patterns"  env:"KUROMATSU_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
+	CustomAllowPatterns []string `                                  json:"custom_allow_patterns" env:"KUROMATSU_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
+	TimeoutSeconds      int      `                                  json:"timeout_seconds"       env:"KUROMATSU_TOOLS_EXEC_TIMEOUT_SECONDS"` // 0 means use default (60s)
 }
 
 type SkillsToolsConfig struct {
 	ToolConfig `                       yaml:"-"                    envPrefix:"KUROMATSU_TOOLS_SKILLS_"`
-	Registries SkillsRegistriesConfig `yaml:"registries,omitempty"                                    json:"registries"`
+	Registries SkillsRegistriesConfig `yaml:"registries,omitempty"                                     json:"registries"`
 	// Deprecated: use registries.github instead.
 	Github                SkillsGithubConfig `yaml:"github,omitempty" json:"github"`
 	MaxConcurrentSearches int                `yaml:"-"                json:"max_concurrent_searches" env:"KUROMATSU_TOOLS_SKILLS_MAX_CONCURRENT_SEARCHES"`
@@ -985,8 +986,8 @@ type SkillsToolsConfig struct {
 
 type MediaCleanupConfig struct {
 	ToolConfig `    envPrefix:"KUROMATSU_MEDIA_CLEANUP_"`
-	MaxAge     int `                                    json:"max_age_minutes"  env:"KUROMATSU_MEDIA_CLEANUP_MAX_AGE"`
-	Interval   int `                                    json:"interval_minutes" env:"KUROMATSU_MEDIA_CLEANUP_INTERVAL"`
+	MaxAge     int `                                     json:"max_age_minutes"  env:"KUROMATSU_MEDIA_CLEANUP_MAX_AGE"`
+	Interval   int `                                     json:"interval_minutes" env:"KUROMATSU_MEDIA_CLEANUP_INTERVAL"`
 }
 
 type ReadFileToolConfig struct {
@@ -1028,22 +1029,22 @@ type ToolsConfig struct {
 	Skills          SkillsToolsConfig  `json:"skills"            yaml:"skills,omitempty"`
 	MediaCleanup    MediaCleanupConfig `json:"media_cleanup"     yaml:"-"`
 	MCP             MCPConfig          `json:"mcp"               yaml:"-"`
-	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_APPEND_FILE_"`
-	EditFile        ToolConfig         `json:"edit_file"         yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_EDIT_FILE_"`
-	FindSkills      ToolConfig         `json:"find_skills"       yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_FIND_SKILLS_"`
-	InstallSkill    ToolConfig         `json:"install_skill"     yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_INSTALL_SKILL_"`
-	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_LIST_DIR_"`
-	LoadImage       ToolConfig         `json:"load_image"        yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_LOAD_IMAGE_"`
+	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_APPEND_FILE_"`
+	EditFile        ToolConfig         `json:"edit_file"         yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_EDIT_FILE_"`
+	FindSkills      ToolConfig         `json:"find_skills"       yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_FIND_SKILLS_"`
+	InstallSkill    ToolConfig         `json:"install_skill"     yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_INSTALL_SKILL_"`
+	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_LIST_DIR_"`
+	LoadImage       ToolConfig         `json:"load_image"        yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_LOAD_IMAGE_"`
 	Message         MessageToolsConfig `json:"message"           yaml:"-"`
-	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_READ_FILE_"`
-	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_SEND_FILE_"`
-	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_SEND_TTS_"`
-	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_SPAWN_"`
-	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_SPAWN_STATUS_"`
-	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_SUBAGENT_"`
-	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_WEB_FETCH_"`
-	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_WRITE_FILE_"`
-	Sysmon          SysmonToolConfig   `json:"sysmon"            yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_SYSMON_"`
+	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_READ_FILE_"`
+	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_SEND_FILE_"`
+	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_SEND_TTS_"`
+	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_SPAWN_"`
+	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_SPAWN_STATUS_"`
+	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_SUBAGENT_"`
+	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_WEB_FETCH_"`
+	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_WRITE_FILE_"`
+	Sysmon          SysmonToolConfig   `json:"sysmon"            yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_SYSMON_"`
 }
 
 // SysmonToolConfig configures the sysmon tool (FR-011): read-only system
@@ -1051,8 +1052,8 @@ type ToolsConfig struct {
 // AllowDestructive gates "proc kill"/"proc renice" and defaults to false
 // (BR-007) -- read-only actions are unaffected by it.
 type SysmonToolConfig struct {
-	ToolConfig       `yaml:"-" envPrefix:"KUROMATSU_TOOLS_SYSMON_"`
-	AllowDestructive bool `json:"allow_destructive" yaml:"-" env:"ALLOW_DESTRUCTIVE"`
+	ToolConfig       `     yaml:"-" envPrefix:"KUROMATSU_TOOLS_SYSMON_"`
+	AllowDestructive bool `yaml:"-"                                     json:"allow_destructive" env:"ALLOW_DESTRUCTIVE"`
 }
 
 // IsFilterSensitiveDataEnabled returns true if sensitive data filtering is enabled
@@ -1186,7 +1187,7 @@ type MCPServerConfig struct {
 // MCPConfig defines configuration for all MCP servers
 type MCPConfig struct {
 	ToolConfig `                    envPrefix:"KUROMATSU_TOOLS_MCP_"`
-	Discovery  ToolDiscoveryConfig `                                json:"discovery"`
+	Discovery  ToolDiscoveryConfig `                                 json:"discovery"`
 	// MaxInlineTextChars controls how much MCP text stays inline before it is saved as an artifact.
 	MaxInlineTextChars int `json:"max_inline_text_chars,omitempty" env:"KUROMATSU_TOOLS_MCP_MAX_INLINE_TEXT_CHARS"`
 	// Servers is a map of server name to server configuration
@@ -1449,6 +1450,13 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	if err = cfg.ValidateSleep(); err != nil {
+		return nil, err
+	}
+	if err = cfg.ValidatePlatformPaths(); err != nil {
+		return nil, err
+	}
+	cfg.SourcePath, err = filepath.Abs(path)
+	if err != nil {
 		return nil, err
 	}
 	cfg.Gateway.Host, err = resolveGatewayHostFromEnv(gatewayHostBeforeEnv)
