@@ -15,6 +15,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 	"github.com/andre25costa-code/kuromatsu/pkg/session"
+	"github.com/andre25costa-code/kuromatsu/pkg/sysinfo"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
@@ -212,6 +213,32 @@ type turnState struct {
 	userMessage string
 	media       []string
 
+	// focusWindow is the active focus window (ADR-014/FR-014), initialized
+	// from opts.FocusWindow and updated in place whenever A4's bounded
+	// escalation changes ts.profile mid-turn — so it always reflects
+	// whichever window actually served the turn. Empty whenever focus is
+	// disabled. focusEscalations counts escalations this turn (capped by
+	// FocusConfig.MaxEscalationsPerTurn).
+	focusWindow      string
+	focusEscalations int
+
+	// unknownToolCalls counts AC-014-5's "tool name doesn't exist in the
+	// global registry" rejections this turn (FR-019's unknown_tool_calls
+	// telemetry column).
+	unknownToolCalls int
+
+	// turnUsage accumulates UsageInfo across every LLM call in the turn
+	// (FR-019/C4) -- lastUsage below only reflects the most recent call,
+	// which undercounts a multi-iteration tool-calling turn.
+	turnUsage turnUsageTotals
+
+	// startCPUStat/startCPUStatOK back stealPercent() (FR-019/S34):
+	// sampled once at turn construction, compared against a fresh sample
+	// at record time. OK is false (stealPercent then returns 0) on a
+	// platform without /proc/stat, e.g. Windows.
+	startCPUStat   sysinfo.CPUStat
+	startCPUStatOK bool
+
 	phase        TurnPhase
 	iteration    int
 	startedAt    time.Time
@@ -280,6 +307,11 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 		media:        append([]string(nil), opts.Dispatch.Media...),
 		phase:        TurnPhaseSetup,
 		startedAt:    time.Now(),
+		focusWindow:  opts.FocusWindow,
+	}
+	if stat, err := sysinfo.CPUStatTotal(); err == nil {
+		ts.startCPUStat = stat
+		ts.startCPUStatOK = true
 	}
 
 	// Bind session store and capture initial history length for rollback logic
@@ -415,6 +447,34 @@ func (ts *turnState) finalContentLen() int {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 	return len(ts.finalContent)
+}
+
+// focusWindowSnapshot returns the window currently active for this turn
+// (ADR-014/FR-014) — empty when focus is disabled.
+func (ts *turnState) focusWindowSnapshot() string {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.focusWindow
+}
+
+// escalateFocusWindow records a bounded escalation (A4/AC-014-6): it
+// updates the active window and increments the escalation counter,
+// returning the new counter value. Callers are expected to have already
+// checked it against FocusConfig.MaxEscalationsPerTurn.
+func (ts *turnState) escalateFocusWindow(window string) int {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.focusWindow = window
+	ts.focusEscalations++
+	return ts.focusEscalations
+}
+
+// focusEscalationsSnapshot returns how many times this turn has escalated
+// its focus window so far.
+func (ts *turnState) focusEscalationsSnapshot() int {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.focusEscalations
 }
 
 func (ts *turnState) finalContentSnapshot() string {
@@ -891,6 +951,73 @@ func (ts *turnState) SetLastUsage(usage *providers.UsageInfo) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
 	ts.lastUsage = usage
+}
+
+// turnUsageTotals sums UsageInfo across every LLM call in one turn
+// (FR-019/C4/AC-019-1's prompt_tokens/cached_tokens/output_tokens/
+// prefill_ms/gen_ms columns).
+type turnUsageTotals struct {
+	PromptTokens int
+	CachedTokens int
+	OutputTokens int
+	PrefillMs    int64
+	GenMs        int64
+}
+
+// AccumulateUsage adds usage's fields into ts.turnUsage. Called alongside
+// SetLastUsage (pipeline_llm.go) after every successful LLM call in the
+// turn -- a nil usage is a no-op (a provider that doesn't report usage).
+func (ts *turnState) AccumulateUsage(usage *providers.UsageInfo) {
+	if ts == nil || usage == nil {
+		return
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.turnUsage.PromptTokens += usage.PromptTokens
+	ts.turnUsage.CachedTokens += usage.CachedTokens
+	ts.turnUsage.OutputTokens += usage.CompletionTokens
+	ts.turnUsage.PrefillMs += usage.PrefillMs
+	ts.turnUsage.GenMs += usage.GenerationMs
+}
+
+// turnUsageSnapshot returns the accumulated totals so far.
+func (ts *turnState) turnUsageSnapshot() turnUsageTotals {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.turnUsage
+}
+
+// recordUnknownToolCall increments the AC-014-5/FR-019 counter (a tool
+// name that doesn't exist anywhere in the global registry).
+func (ts *turnState) recordUnknownToolCall() {
+	if ts == nil {
+		return
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.unknownToolCalls++
+}
+
+// unknownToolCallsSnapshot returns how many unknown-tool rejections this
+// turn has recorded so far.
+func (ts *turnState) unknownToolCallsSnapshot() int {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.unknownToolCalls
+}
+
+// stealPercent returns the CPU steal% delta since the turn started
+// (S06/R7, FR-019/S34) -- 0 when /proc/stat wasn't readable at either end
+// (e.g. Windows; graceful degradation, not an error).
+func (ts *turnState) stealPercent() float64 {
+	if ts == nil || !ts.startCPUStatOK {
+		return 0
+	}
+	end, err := sysinfo.CPUStatTotal()
+	if err != nil {
+		return 0
+	}
+	return end.StealPercent(ts.startCPUStat)
 }
 
 // =============================================================================

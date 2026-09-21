@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test integration-test build-all llama-lib llama-lib-arm64 llama-lib-x86-64 build-native build-native-arm64 build-native-x86-64 nativebench-x86-64 run-native bench-native docker-build-native docker-save-native
+.PHONY: all build install uninstall clean help test integration-test build-all llama-lib llama-lib-arm64 llama-lib-x86-64 build-native build-native-arm64 build-native-x86-64 nativebench-x86-64 localllm-integration-test-x86-64 run-native bench-native docker-build-native docker-save-native
 
 # Build variables
 BINARY_NAME=kuromatsu
@@ -366,6 +366,18 @@ build-native-x86-64: generate llama-lib-x86-64
 nativebench-x86-64: generate
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
 		-o $(BUILD_DIR)/nativebench-linux-amd64 ./cmd/nativebench
+
+## localllm-integration-test-x86-64: Build (but don't run) the opt-in cgo
+## integration test binary for pkg/providers/localllm -- includes
+## TestCgoEngine_CoreParking_Integration (B2), which needs the real GGUF and
+## the full cgo toolchain, neither available on a 1GB deploy target. Same
+## deal as nativebench-x86-64: shipped self-contained (static llama.a, no
+## runtime deps beyond glibc) so it can be copied to any host with the real
+## model and run standalone with `-test.run`, `KUROMATSU_INTEGRATION_TESTS=1`
+## and `KUROMATSU_TEST_MODEL=<path>` -- no Go toolchain needed there.
+localllm-integration-test-x86-64: generate
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 $(GO) test -c $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
+		-o $(BUILD_DIR)/localllm-integration-test-linux-amd64 ./pkg/providers/localllm/
 
 ## build-native-arm64: SECONDARY/future target, see llama-lib-arm64 above.
 ## True cross-compile of the full binary for linux/arm64, running natively on

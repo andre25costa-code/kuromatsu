@@ -2,9 +2,9 @@
 id: ADR-009
 title: llama.cpp como submodule pinado; GGUFs fora do git com download verificado
 status: accepted
-version: 1
+version: 2
 owner: André
-last_updated: 2026-09-10
+last_updated: 2026-09-11
 depends_on: [ADR-001]
 ---
 
@@ -21,7 +21,7 @@ O tipo `Q1_0` só existe no fork prism (C3) — o build precisa de uma versão e
    um commit deliberado.
 2. `models/*.gguf` no `.gitignore`; obtenção via `scripts/download-model.sh`
    (+`make model-download`) com verificação SHA256 e idempotência (FR-012). Fonte
-   oficial: TBD S25.
+   oficial: confirmada em S25 (`huggingface.co/prism-ml/Bonsai-1.7B-gguf`; ver S40).
 3. Artefatos de build C (`llama.cpp/build-native/`) também ignorados.
 
 ## Alternativas

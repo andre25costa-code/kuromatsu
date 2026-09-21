@@ -75,6 +75,9 @@ func (r *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error {
 
 	updatedMemory, report := runTriage(ctx, r.cfg, weeklyDeep, currentMemory, digests, r.chat)
 	report.Date = now
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	if report.MemoryUpdated && !r.cfg.DryRun {
 		if err := writeMemory(workspace, updatedMemory); err != nil {
@@ -86,9 +89,26 @@ func (r *Runtime) RunColdPathOnce(ctx context.Context, workspace string) error {
 		return fmt.Errorf("sleep: writing report: %w", err)
 	}
 
-	r.mu.Lock()
-	r.lastRun[workspace] = now
-	r.mu.Unlock()
+	if !r.cfg.DryRun {
+		if source, ok := r.sessions.(interface {
+			Acknowledge(ctx context.Context, workspace string, digests []SessionDigest) error
+		}); ok {
+			if err := source.Acknowledge(ctx, workspace, report.ProcessedDigests); err != nil {
+				return err
+			}
+		}
+		if len(report.ProcessedDigests) == len(digests) && report.Err == nil {
+			r.mu.Lock()
+			r.lastRun[workspace] = now
+			r.mu.Unlock()
+		}
+	}
+	if report.Err != nil {
+		return report.Err
+	}
+	if report.BudgetHit {
+		return ErrBudgetExceeded
+	}
 
 	return nil
 }

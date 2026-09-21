@@ -10,15 +10,17 @@ import (
 // <workspace>/state/sleep-report-<date>.md, whether or not DryRun applied
 // the update, so a dry run's output is inspectable (FR-010/AC-010-2).
 type Report struct {
-	Date          time.Time
-	WeeklyDeep    bool
-	DryRun        bool
-	SessionsSeen  int
-	BatchesRun    int
-	TokensUsed    int
-	BudgetHit     bool
-	MemoryUpdated bool
-	Notes         []string
+	ProcessedDigests []SessionDigest
+	Err              error
+	Date             time.Time
+	WeeklyDeep       bool
+	DryRun           bool
+	SessionsSeen     int
+	BatchesRun       int
+	TokensUsed       int
+	BudgetHit        bool
+	MemoryUpdated    bool
+	Notes            []string
 }
 
 // Render formats the report as the Markdown file content.
@@ -33,6 +35,10 @@ func (r Report) Render() string {
 	fmt.Fprintf(&b, "- Modo: %s\n", mode)
 	fmt.Fprintf(&b, "- Dry-run: %v\n", r.DryRun)
 	fmt.Fprintf(&b, "- Sessões consideradas: %d\n", r.SessionsSeen)
+	fmt.Fprintf(&b, "- Sessões processadas: %d\n", len(r.ProcessedDigests))
+	if r.Err != nil {
+		fmt.Fprintf(&b, "- Execução incompleta: %v\n", r.Err)
+	}
 	fmt.Fprintf(&b, "- Lotes processados: %d\n", r.BatchesRun)
 	fmt.Fprintf(&b, "- Tokens usados: %d\n", r.TokensUsed)
 	fmt.Fprintf(&b, "- Orçamento esgotado: %v\n", r.BudgetHit)

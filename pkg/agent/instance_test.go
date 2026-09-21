@@ -82,6 +82,168 @@ func TestNewAgentInstance_UsesDefaultsTemperatureAndMaxTokens(t *testing.T) {
 	}
 }
 
+// TestNewAgentInstance_SysmonStateReaderWiredOnlyWhenRunstateEnabled covers
+// the Trilho C bridge (ADR-016 point 5): sysmon's action=state must report
+// the real runstate snapshot when runstate.enabled=true, and the
+// "not enabled" fallback (unchanged FR-011 behavior) otherwise.
+func TestNewAgentInstance_SysmonStateReaderWiredOnlyWhenRunstateEnabled(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-instance-sysmon-state-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	baseCfg := func() *config.Config {
+		cfg := &config.Config{
+			Agents: config.AgentsConfig{
+				Defaults: config.AgentDefaults{Workspace: tmpDir, ModelName: "test-model"},
+			},
+		}
+		cfg.Tools.Sysmon.Enabled = true
+		return cfg
+	}
+
+	t.Run("runstate disabled: not-enabled fallback", func(t *testing.T) {
+		cfg := baseCfg()
+		agent := NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, &mockProvider{})
+		tool, ok := agent.Tools.Get("sysmon")
+		if !ok {
+			t.Fatal("sysmon tool not registered")
+		}
+		res := tool.Execute(context.Background(), map[string]any{"action": "state"})
+		if !strings.Contains(res.ForLLM, "not enabled") {
+			t.Fatalf("expected the not-enabled fallback, got: %s", res.ForLLM)
+		}
+	})
+
+	t.Run("runstate enabled: reports the real snapshot", func(t *testing.T) {
+		cfg := baseCfg()
+		cfg.Runstate.Enabled = true
+		agent := NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, &mockProvider{})
+		tool, ok := agent.Tools.Get("sysmon")
+		if !ok {
+			t.Fatal("sysmon tool not registered")
+		}
+		res := tool.Execute(context.Background(), map[string]any{"action": "state"})
+		if !strings.Contains(res.ForLLM, "bits=") {
+			t.Fatalf("expected a real runstate snapshot, got: %s", res.ForLLM)
+		}
+	})
+}
+
+// TestNewAgentInstance_NativeExtraBodySetsContextWindowAndClampsMaxTokens
+// covers A8/FR-015 AC-015-6: a model whose ExtraBody declares the real
+// native n_ctx/max_predict must drive ContextWindow (when not explicitly
+// configured) and clamp MaxTokens down — the bug this closes is
+// ContextWindow defaulting to maxTokens*4 (32768*4) while the engine's real
+// n_ctx was 2048, so the proactive overflow cut never fired.
+func TestNewAgentInstance_NativeExtraBodySetsContextWindowAndClampsMaxTokens(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-instance-native-limits-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace: tmpDir,
+				ModelName: "bonsai-local",
+				MaxTokens: 32768,
+			},
+		},
+		ModelList: []*config.ModelConfig{
+			{
+				ModelName: "bonsai-local",
+				Provider:  "native",
+				Model:     "Bonsai-1.7B-Q1_0",
+				ExtraBody: map[string]any{"n_ctx": 2048, "max_predict": 512, "kv_cache_type": "q8_0"},
+			},
+		},
+	}
+
+	provider := &mockProvider{}
+	agent := NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, provider)
+
+	if agent.ContextWindow != 2048 {
+		t.Fatalf("ContextWindow = %d, want 2048 (from extra_body.n_ctx)", agent.ContextWindow)
+	}
+	if agent.MaxTokens != 512 {
+		t.Fatalf("MaxTokens = %d, want 512 (clamped by extra_body.max_predict)", agent.MaxTokens)
+	}
+}
+
+// TestNewAgentInstance_ExplicitContextWindowNotOverriddenByNativeLimits
+// covers the "se não configurado" half of AC-015-6: an operator-set
+// context_window must win over extra_body.n_ctx.
+func TestNewAgentInstance_ExplicitContextWindowNotOverriddenByNativeLimits(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-instance-native-limits-explicit-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:     tmpDir,
+				ModelName:     "bonsai-local",
+				MaxTokens:     32768,
+				ContextWindow: 4096,
+			},
+		},
+		ModelList: []*config.ModelConfig{
+			{
+				ModelName: "bonsai-local",
+				Provider:  "native",
+				Model:     "Bonsai-1.7B-Q1_0",
+				ExtraBody: map[string]any{"n_ctx": 2048},
+			},
+		},
+	}
+
+	provider := &mockProvider{}
+	agent := NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, provider)
+
+	if agent.ContextWindow != 4096 {
+		t.Fatalf("ContextWindow = %d, want the explicitly configured 4096, not n_ctx", agent.ContextWindow)
+	}
+}
+
+// TestNewAgentInstance_NonNativeModelUnaffectedByNativeLimits covers the
+// compatibility half of AC-015-6: a model with no n_ctx/max_predict in
+// ExtraBody keeps today's heuristics untouched.
+func TestNewAgentInstance_NonNativeModelUnaffectedByNativeLimits(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-instance-native-limits-cloud-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace: tmpDir,
+				ModelName: "cloud-model",
+				MaxTokens: 8192,
+			},
+		},
+		ModelList: []*config.ModelConfig{
+			{ModelName: "cloud-model", Provider: "openai", Model: "gpt-5.4"},
+		},
+	}
+
+	provider := &mockProvider{}
+	agent := NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, provider)
+
+	if agent.MaxTokens != 8192 {
+		t.Fatalf("MaxTokens = %d, want unchanged 8192", agent.MaxTokens)
+	}
+	if agent.ContextWindow != 8192*4 {
+		t.Fatalf("ContextWindow = %d, want unchanged 4x heuristic (%d)", agent.ContextWindow, 8192*4)
+	}
+}
+
 func TestNewAgentInstance_DefaultsTemperatureWhenZero(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "agent-instance-test-*")
 	if err != nil {
@@ -1371,5 +1533,51 @@ func TestNewAgentInstance_ExplicitEmptyToolsFieldBlocksAllTools(t *testing.T) {
 				t.Fatal("expected list_dir to be blocked by explicit empty tools field")
 			}
 		})
+	}
+}
+
+// TestResolveAgentFallbacks_ExplicitEmptyFallbacksExcludesNativeFallback is
+// Trilho G C.4: ApplyNativeFallback only ever appends the native model name
+// to cfg.Agents.Defaults.ModelFallbacks (the global chain), never to a
+// per-agent agents.list[].model.fallbacks override. An agent that sets its
+// own (even short) fallback list must not silently inherit the global
+// native fallback -- that's what makes "ollama+ollama, local completamente
+// desativado para este agente" already reachable today with zero new code.
+func TestResolveAgentFallbacks_ExplicitEmptyFallbacksExcludesNativeFallback(t *testing.T) {
+	defaults := &config.AgentDefaults{
+		ModelFallbacks: []string{"bonsai-local"}, // what ApplyNativeFallback appends globally
+	}
+	agentCfg := &config.AgentConfig{
+		ID: "estudos",
+		Model: &config.AgentModelConfig{
+			Primary:   "ollama-cloud-a",
+			Fallbacks: []string{"ollama-cloud-b"},
+		},
+	}
+
+	got := resolveAgentFallbacks(agentCfg, defaults)
+
+	if len(got) != 1 || got[0] != "ollama-cloud-b" {
+		t.Fatalf(`resolveAgentFallbacks() = %v, want ["ollama-cloud-b"]`, got)
+	}
+	for _, name := range got {
+		if name == "bonsai-local" {
+			t.Fatalf("resolveAgentFallbacks() = %v, want the global native fallback excluded entirely", got)
+		}
+	}
+}
+
+// TestResolveAgentFallbacks_NilAgentModelFallsBackToGlobalDefaults is the
+// control case for the test above: an agent with no model override at all
+// (the "sensores" shape) still inherits the global chain, native fallback
+// included -- the exclusion above is specific to an explicit per-agent
+// override, not a general regression.
+func TestResolveAgentFallbacks_NilAgentModelFallsBackToGlobalDefaults(t *testing.T) {
+	defaults := &config.AgentDefaults{ModelFallbacks: []string{"bonsai-local"}}
+	agentCfg := &config.AgentConfig{ID: "sensores"}
+
+	got := resolveAgentFallbacks(agentCfg, defaults)
+	if len(got) != 1 || got[0] != "bonsai-local" {
+		t.Fatalf(`resolveAgentFallbacks() = %v, want ["bonsai-local"] from the global defaults`, got)
 	}
 }

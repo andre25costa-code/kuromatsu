@@ -13,7 +13,7 @@ só entra aqui o que foi **confirmado**; o que falta está registrado como estad
 5. `03-system-design/13-architecture.md` + `14-modules.md` — arquitetura
 6. `03-system-design/18-ai-component.md` — o componente de IA (Bonsai-1.7B-Q1_0)
 7. `06-infrastructure/29-nfr.md` — metas quantificadas (RAM, tok/s)
-8. `07-engineering/adr/` — decisões de arquitetura (ADR-001..010)
+8. `07-engineering/adr/` — decisões de arquitetura (ADR-001..018; ADR-011 `superseded_by: ADR-012`, ADR-006 `superseded_by: ADR-018`)
 
 ## Arquivos de controle
 
@@ -21,6 +21,8 @@ só entra aqui o que foi **confirmado**; o que falta está registrado como estad
 |---|---|
 | `spec.manifest.yaml` | Índice para agentes: item → arquivo, tags, papéis |
 | `spec-coverage.yaml` | Estado dos 40 itens de consideração (confirmed/draft/tbd/n/a/missing) |
+| `entregues/E0..E7,E8,E10-*.md` | Auditoria dos entregáveis já fechados: FRs cobertas, commits, medições |
+| `BACKLOG.md` | Só o que falta: entregáveis abertos e questões pendentes |
 
 ## Regras vigentes
 

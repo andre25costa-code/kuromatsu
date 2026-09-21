@@ -1,6 +1,7 @@
 package localllm
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/providers/protocoltypes"
@@ -82,6 +83,61 @@ func TestRenderPrompt_WithTools(t *testing.T) {
 
 	if got != want {
 		t.Fatalf("RenderPrompt mismatch:\ngot:  %q\nwant: %q", got, want)
+	}
+}
+
+func TestRenderPromptParts_CoreEnd_NoSystemNoTools(t *testing.T) {
+	messages := []protocoltypes.Message{{Role: "user", Content: "Oi"}}
+
+	_, coreEnd := RenderPromptParts(messages, nil, false)
+	if coreEnd != 0 {
+		t.Fatalf("coreEnd = %d, want 0 (no system message, no tools -- nothing to park)", coreEnd)
+	}
+}
+
+func TestRenderPromptParts_CoreEnd_SystemMessageOnly(t *testing.T) {
+	messages := []protocoltypes.Message{
+		{Role: "system", Content: "Você é útil."},
+		{Role: "user", Content: "Oi"},
+	}
+
+	prompt, coreEnd := RenderPromptParts(messages, nil, false)
+	want := "<|im_start|>system\nVocê é útil.<|im_end|>\n"
+	if prompt[:coreEnd] != want {
+		t.Fatalf("prompt[:coreEnd] = %q, want %q", prompt[:coreEnd], want)
+	}
+	if rest := prompt[coreEnd:]; rest != "<|im_start|>user\nOi<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n" {
+		t.Fatalf("prompt[coreEnd:] = %q, unexpected", rest)
+	}
+}
+
+func TestRenderPromptParts_CoreEnd_ToolsWithoutSystemMessage(t *testing.T) {
+	messages := []protocoltypes.Message{{Role: "user", Content: "Oi"}}
+	tools := []protocoltypes.ToolDefinition{
+		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "noop", Description: "No-op."}},
+	}
+
+	prompt, coreEnd := RenderPromptParts(messages, tools, false)
+	if coreEnd <= 0 || coreEnd >= len(prompt) {
+		t.Fatalf("coreEnd = %d (prompt len %d), want a boundary strictly inside the prompt (tools with no system message still open a system block)", coreEnd, len(prompt))
+	}
+	if !strings.HasSuffix(prompt[:coreEnd], imEnd+"\n") {
+		t.Fatalf("prompt[:coreEnd] = %q, want it to end right after %q", prompt[:coreEnd], imEnd+"\n")
+	}
+}
+
+func TestRenderPrompt_MatchesRenderPromptPartsPrompt(t *testing.T) {
+	// RenderPrompt must remain exactly RenderPromptParts' prompt with
+	// coreEnd discarded -- no drift between the two once B2 started using
+	// the latter in the hot path (provider.go).
+	messages := []protocoltypes.Message{
+		{Role: "system", Content: "Sistema."},
+		{Role: "user", Content: "Oi"},
+	}
+	want := RenderPrompt(messages, nil, true)
+	got, _ := RenderPromptParts(messages, nil, true)
+	if got != want {
+		t.Fatalf("RenderPromptParts prompt = %q, want %q (RenderPrompt)", got, want)
 	}
 }
 

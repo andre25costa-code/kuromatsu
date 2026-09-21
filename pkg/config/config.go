@@ -33,6 +33,7 @@ func init() {
 
 // Config is the current config structure with version support.
 type Config struct {
+	SourcePath string `json:"-" yaml:"-"` // Actual loaded file; never persisted.
 	// Config schema version for migration.
 	Version   int             `json:"version"             yaml:"-"`
 	Isolation IsolationConfig `json:"isolation,omitempty" yaml:"-"`
@@ -48,6 +49,15 @@ type Config struct {
 	Heartbeat HeartbeatConfig `json:"heartbeat"           yaml:"-"`
 	Devices   DevicesConfig   `json:"devices"             yaml:"-"`
 	Voice     VoiceConfig     `json:"voice"               yaml:"-"`
+	// Runstate, Memguard and Telemetry are the Trilho C additions
+	// (ADR-016/017, FR-017/018/019). All default to their zero value
+	// (disabled), which is a strict no-op -- see each config type's doc.
+	Runstate  RunstateConfig  `json:"runstate,omitempty"  yaml:"-"`
+	Memguard  MemguardConfig  `json:"memguard,omitempty"  yaml:"-"`
+	Telemetry TelemetryConfig `json:"telemetry,omitempty" yaml:"-"`
+	// Sleep is the modo dormir bridge config (FR-010/ADR-006/018, Trilho C
+	// C5/E9 parte 2). Zero value keeps sleep disabled (BR-005).
+	Sleep SleepConfig `json:"sleep,omitempty" yaml:"-"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 
@@ -63,6 +73,19 @@ type EvolutionConfig struct {
 	MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
 	ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 	ColdPathTimes   []string `json:"cold_path_times,omitempty"`
+	// Model is a model_list ref the evolution cold path (LLM pattern
+	// clustering, draft generation, success judging) must use instead of
+	// the agent's default chain -- ADR-018 point 5: like sleep, evolution
+	// is not allowed to run its LLM calls against the native Bonsai model
+	// (same three reasons: e2-micro CPU budget, MEMORY.md/skill integrity,
+	// RAM). Empty, or resolving to the native provider (the default), does
+	// NOT turn evolution off entirely -- FinalizeTurn's non-LLM hot-path
+	// case collection keeps running either way (Enabled alone controls
+	// that); only the cold path itself stays disabled until this is set to
+	// a valid external model_list entry. See HasValidExternalModel
+	// (pkg/config/sleep.go) and AC-010-9; the gate itself lives in
+	// evolution_bridge.go's newEvolutionBridge, mirroring newSleepBridge.
+	Model string `json:"model,omitempty"`
 	// Deprecated: use MinTaskCount.
 	MinCaseCount int `json:"min_case_count,omitempty"`
 	// Deprecated: use MinSuccessRatio.
@@ -78,6 +101,7 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		MinSuccessRatio float64  `json:"min_success_ratio,omitempty"`
 		ColdPathTrigger string   `json:"cold_path_trigger,omitempty"`
 		ColdPathTimes   []string `json:"cold_path_times,omitempty"`
+		Model           string   `json:"model,omitempty"`
 	}{
 		Enabled:         c.Enabled,
 		Mode:            c.Mode,
@@ -86,6 +110,7 @@ func (c EvolutionConfig) MarshalJSON() ([]byte, error) {
 		MinSuccessRatio: c.EffectiveMinSuccessRatio(),
 		ColdPathTrigger: strings.TrimSpace(c.ColdPathTrigger),
 		ColdPathTimes:   c.EffectiveColdPathTimes(),
+		Model:           strings.TrimSpace(c.Model),
 	}
 	if !out.Enabled {
 		out.Mode = ""
@@ -312,13 +337,45 @@ func (m AgentModelConfig) MarshalJSON() ([]byte, error) {
 }
 
 type AgentConfig struct {
-	ID        string            `json:"id"`
-	Default   bool              `json:"default,omitempty"`
-	Name      string            `json:"name,omitempty"`
-	Workspace string            `json:"workspace,omitempty"`
-	Model     *AgentModelConfig `json:"model,omitempty"`
-	Skills    []string          `json:"skills,omitempty"`
-	Subagents *SubagentsConfig  `json:"subagents,omitempty"`
+	ID        string                `json:"id"`
+	Default   bool                  `json:"default,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	Workspace string                `json:"workspace,omitempty"`
+	Model     *AgentModelConfig     `json:"model,omitempty"`
+	Skills    []string              `json:"skills,omitempty"`
+	Subagents *SubagentsConfig      `json:"subagents,omitempty"`
+	Heartbeat *AgentHeartbeatConfig `json:"heartbeat,omitempty"`
+	Sleep     *AgentSleepConfig     `json:"sleep,omitempty"`
+}
+
+// AgentSleepConfig is a per-agent modo-dormir override
+// (agents.list[].sleep, ADR-019's "sono configurável por agente"). nil (the
+// default) means this agent inherits the global sleep block entirely. Like
+// AgentHeartbeatConfig, JSON-only with no env bindings on purpose -- a
+// process-wide KUROMATSU_SLEEP_* env var meant for the global block must
+// never silently clobber one agent's override. Empty string/zero fields
+// mean "inherit that field from the global sleep block", mirroring how
+// SleepConfig.EffectiveWindow already treats an empty Window.
+type AgentSleepConfig struct {
+	Enabled          *bool  `json:"enabled,omitempty"`
+	Window           string `json:"window,omitempty"`
+	UnconsciousModel string `json:"unconscious_model,omitempty"`
+	WeeklyDeep       *bool  `json:"weekly_deep,omitempty"`
+	MaxTokensBudget  int    `json:"max_tokens_budget,omitempty"`
+	DryRun           *bool  `json:"dry_run,omitempty"`
+}
+
+// AgentHeartbeatConfig is a per-agent heartbeat override
+// (agents.list[].heartbeat, Trilho G B.1). nil (the default) means this
+// agent inherits the global heartbeat block entirely. Unlike
+// HeartbeatConfig it has no env bindings on purpose -- env vars only ever
+// apply to the one global block (mirrors AgentModelConfig, which also
+// only takes JSON), so an override here can never be silently clobbered
+// by a process-wide KUROMATSU_HEARTBEAT_* env var meant for a different
+// agent.
+type AgentHeartbeatConfig struct {
+	Enabled  *bool `json:"enabled,omitempty"`
+	Interval int   `json:"interval,omitempty"`
 }
 
 type SubagentsConfig struct {
@@ -439,7 +496,7 @@ type AgentDefaults struct {
 	Routing                   *RoutingConfig     `json:"routing,omitempty"`
 	SteeringMode              string             `json:"steering_mode,omitempty"          env:"KUROMATSU_AGENTS_DEFAULTS_STEERING_MODE"`      // "one-at-a-time" (default) or "all"
 	MaxParallelTurns          int                `json:"max_parallel_turns,omitempty"     env:"KUROMATSU_AGENTS_DEFAULTS_MAX_PARALLEL_TURNS"` // Max concurrent turns (0 or 1 = sequential)
-	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                      envPrefix:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_"`
+	SubTurn                   SubTurnConfig      `json:"subturn"                                                                                       envPrefix:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_"`
 	ToolFeedback              ToolFeedbackConfig `json:"tool_feedback,omitempty"`
 	SplitOnMarker             bool               `json:"split_on_marker"                  env:"KUROMATSU_AGENTS_DEFAULTS_SPLIT_ON_MARKER"` // split messages on <|[SPLIT]|> marker
 	ContextManager            string             `json:"context_manager,omitempty"        env:"KUROMATSU_AGENTS_DEFAULTS_CONTEXT_MANAGER"`
@@ -447,6 +504,20 @@ type AgentDefaults struct {
 	TurnProfile               TurnProfileConfig  `json:"turn_profile,omitempty"`
 	MaxLLMRetries             int                `json:"max_llm_retries,omitempty"        env:"KUROMATSU_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
 	LLMRetryBackoffSecs       int                `json:"llm_retry_backoff_secs,omitempty" env:"KUROMATSU_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
+	// RunstateResumeWaitSecs, when > 0, gives a runstate.ErrBusy suspension
+	// (the memguard vetoing a new inference entry, ADR-017) its own wait
+	// budget instead of the generic MaxLLMRetries/LLMRetryBackoffSecs
+	// budget -- that one is sized for provider rate limits (a few seconds),
+	// which is incompatible with memguard's resume window (PSISustainSecs,
+	// typically tens of seconds). 0 (default) is a strict no-op: identical
+	// to today's behavior, matching every other Trilho C knob's "off by
+	// default".
+	RunstateResumeWaitSecs int `json:"runstate_resume_wait_secs,omitempty" env:"KUROMATSU_AGENTS_DEFAULTS_RUNSTATE_RESUME_WAIT_SECS"`
+	// Focus and Reflexes are the Trilho A "janelas de foco" additions
+	// (ADR-014/FR-013/FR-014). Both default to their zero value (disabled /
+	// empty), which is a strict no-op — see FocusConfig and ReflexConfig.
+	Focus    FocusConfig    `json:"focus,omitempty"`
+	Reflexes []ReflexConfig `json:"reflexes,omitempty"`
 }
 
 const DefaultMaxMediaSize = 20 * 1024 * 1024 // 20 MB
@@ -577,6 +648,35 @@ type PicoClientSettings struct {
 type HeartbeatConfig struct {
 	Enabled  bool `json:"enabled"  env:"KUROMATSU_HEARTBEAT_ENABLED"`
 	Interval int  `json:"interval" env:"KUROMATSU_HEARTBEAT_INTERVAL"` // minutes, min 5
+}
+
+// EffectiveHeartbeat resolves the heartbeat settings for agentID: its own
+// agents.list[].heartbeat override where set, falling back field-by-field
+// to the global c.Heartbeat (Trilho G B.1). With agents.list empty (the
+// implicit "main" agent) there is never a matching AgentConfig, so this is
+// always exactly c.Heartbeat -- byte-identical to before per-agent
+// heartbeat existed.
+//
+// Deliberately does not import pkg/routing to normalize agentID (routing
+// already imports pkg/config, so that would be a cycle) -- agentID here is
+// expected to already be normalized, since callers get it from
+// AgentRegistry.ListAgentIDs()/AgentInstance.ID, which are normalized once
+// when the registry is built.
+func (c *Config) EffectiveHeartbeat(agentID string) HeartbeatConfig {
+	eff := c.Heartbeat
+	for _, ac := range c.Agents.List {
+		if !strings.EqualFold(strings.TrimSpace(ac.ID), strings.TrimSpace(agentID)) || ac.Heartbeat == nil {
+			continue
+		}
+		if ac.Heartbeat.Enabled != nil {
+			eff.Enabled = *ac.Heartbeat.Enabled
+		}
+		if ac.Heartbeat.Interval > 0 {
+			eff.Interval = ac.Heartbeat.Interval
+		}
+		break
+	}
+	return eff
 }
 
 type DevicesConfig struct {
@@ -851,17 +951,17 @@ type BaiduSearchConfig struct {
 
 type WebToolsConfig struct {
 	ToolConfig  `                   yaml:"-"                      envPrefix:"KUROMATSU_TOOLS_WEB_"`
-	Brave       BraveConfig        `yaml:"brave,omitempty"                                        json:"brave"`
-	Tavily      TavilyConfig       `yaml:"tavily,omitempty"                                       json:"tavily"`
-	Kagi        KagiConfig         `yaml:"kagi,omitempty"                                         json:"kagi"`
-	Sogou       SogouConfig        `yaml:"-"                                                      json:"sogou"`
-	DuckDuckGo  DuckDuckGoConfig   `yaml:"-"                                                      json:"duckduckgo"`
-	Gemini      GeminiSearchConfig `yaml:"gemini,omitempty"                                       json:"gemini"`
-	Perplexity  PerplexityConfig   `yaml:"perplexity,omitempty"                                   json:"perplexity"`
-	SearXNG     SearXNGConfig      `yaml:"-"                                                      json:"searxng"`
-	GLMSearch   GLMSearchConfig    `yaml:"glm_search,omitempty"                                   json:"glm_search"`
-	BaiduSearch BaiduSearchConfig  `yaml:"baidu_search,omitempty"                                 json:"baidu_search"`
-	Provider    string             `yaml:"-"                                                      json:"provider,omitempty" env:"KUROMATSU_TOOLS_WEB_PROVIDER"`
+	Brave       BraveConfig        `yaml:"brave,omitempty"                                         json:"brave"`
+	Tavily      TavilyConfig       `yaml:"tavily,omitempty"                                        json:"tavily"`
+	Kagi        KagiConfig         `yaml:"kagi,omitempty"                                          json:"kagi"`
+	Sogou       SogouConfig        `yaml:"-"                                                       json:"sogou"`
+	DuckDuckGo  DuckDuckGoConfig   `yaml:"-"                                                       json:"duckduckgo"`
+	Gemini      GeminiSearchConfig `yaml:"gemini,omitempty"                                        json:"gemini"`
+	Perplexity  PerplexityConfig   `yaml:"perplexity,omitempty"                                    json:"perplexity"`
+	SearXNG     SearXNGConfig      `yaml:"-"                                                       json:"searxng"`
+	GLMSearch   GLMSearchConfig    `yaml:"glm_search,omitempty"                                    json:"glm_search"`
+	BaiduSearch BaiduSearchConfig  `yaml:"baidu_search,omitempty"                                  json:"baidu_search"`
+	Provider    string             `yaml:"-"                                                       json:"provider,omitempty" env:"KUROMATSU_TOOLS_WEB_PROVIDER"`
 	// PreferNative controls whether to use provider-native web search when
 	// the active LLM supports it (e.g. OpenAI web_search_preview). When true,
 	// the client-side web_search tool is hidden to avoid duplicate search surfaces,
@@ -886,16 +986,16 @@ type CronToolsConfig struct {
 
 type ExecConfig struct {
 	ToolConfig          `         envPrefix:"KUROMATSU_TOOLS_EXEC_"`
-	EnableDenyPatterns  bool     `                                 json:"enable_deny_patterns"  env:"KUROMATSU_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
-	AllowRemote         bool     `                                 json:"allow_remote"          env:"KUROMATSU_TOOLS_EXEC_ALLOW_REMOTE"`
-	CustomDenyPatterns  []string `                                 json:"custom_deny_patterns"  env:"KUROMATSU_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
-	CustomAllowPatterns []string `                                 json:"custom_allow_patterns" env:"KUROMATSU_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
-	TimeoutSeconds      int      `                                 json:"timeout_seconds"       env:"KUROMATSU_TOOLS_EXEC_TIMEOUT_SECONDS"` // 0 means use default (60s)
+	EnableDenyPatterns  bool     `                                  json:"enable_deny_patterns"  env:"KUROMATSU_TOOLS_EXEC_ENABLE_DENY_PATTERNS"`
+	AllowRemote         bool     `                                  json:"allow_remote"          env:"KUROMATSU_TOOLS_EXEC_ALLOW_REMOTE"`
+	CustomDenyPatterns  []string `                                  json:"custom_deny_patterns"  env:"KUROMATSU_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
+	CustomAllowPatterns []string `                                  json:"custom_allow_patterns" env:"KUROMATSU_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
+	TimeoutSeconds      int      `                                  json:"timeout_seconds"       env:"KUROMATSU_TOOLS_EXEC_TIMEOUT_SECONDS"` // 0 means use default (60s)
 }
 
 type SkillsToolsConfig struct {
 	ToolConfig `                       yaml:"-"                    envPrefix:"KUROMATSU_TOOLS_SKILLS_"`
-	Registries SkillsRegistriesConfig `yaml:"registries,omitempty"                                    json:"registries"`
+	Registries SkillsRegistriesConfig `yaml:"registries,omitempty"                                     json:"registries"`
 	// Deprecated: use registries.github instead.
 	Github                SkillsGithubConfig `yaml:"github,omitempty" json:"github"`
 	MaxConcurrentSearches int                `yaml:"-"                json:"max_concurrent_searches" env:"KUROMATSU_TOOLS_SKILLS_MAX_CONCURRENT_SEARCHES"`
@@ -904,8 +1004,8 @@ type SkillsToolsConfig struct {
 
 type MediaCleanupConfig struct {
 	ToolConfig `    envPrefix:"KUROMATSU_MEDIA_CLEANUP_"`
-	MaxAge     int `                                    json:"max_age_minutes"  env:"KUROMATSU_MEDIA_CLEANUP_MAX_AGE"`
-	Interval   int `                                    json:"interval_minutes" env:"KUROMATSU_MEDIA_CLEANUP_INTERVAL"`
+	MaxAge     int `                                     json:"max_age_minutes"  env:"KUROMATSU_MEDIA_CLEANUP_MAX_AGE"`
+	Interval   int `                                     json:"interval_minutes" env:"KUROMATSU_MEDIA_CLEANUP_INTERVAL"`
 }
 
 type ReadFileToolConfig struct {
@@ -947,22 +1047,22 @@ type ToolsConfig struct {
 	Skills          SkillsToolsConfig  `json:"skills"            yaml:"skills,omitempty"`
 	MediaCleanup    MediaCleanupConfig `json:"media_cleanup"     yaml:"-"`
 	MCP             MCPConfig          `json:"mcp"               yaml:"-"`
-	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_APPEND_FILE_"`
-	EditFile        ToolConfig         `json:"edit_file"         yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_EDIT_FILE_"`
-	FindSkills      ToolConfig         `json:"find_skills"       yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_FIND_SKILLS_"`
-	InstallSkill    ToolConfig         `json:"install_skill"     yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_INSTALL_SKILL_"`
-	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_LIST_DIR_"`
-	LoadImage       ToolConfig         `json:"load_image"        yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_LOAD_IMAGE_"`
+	AppendFile      ToolConfig         `json:"append_file"       yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_APPEND_FILE_"`
+	EditFile        ToolConfig         `json:"edit_file"         yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_EDIT_FILE_"`
+	FindSkills      ToolConfig         `json:"find_skills"       yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_FIND_SKILLS_"`
+	InstallSkill    ToolConfig         `json:"install_skill"     yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_INSTALL_SKILL_"`
+	ListDir         ToolConfig         `json:"list_dir"          yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_LIST_DIR_"`
+	LoadImage       ToolConfig         `json:"load_image"        yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_LOAD_IMAGE_"`
 	Message         MessageToolsConfig `json:"message"           yaml:"-"`
-	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_READ_FILE_"`
-	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_SEND_FILE_"`
-	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_SEND_TTS_"`
-	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_SPAWN_"`
-	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_SPAWN_STATUS_"`
-	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_SUBAGENT_"`
-	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_WEB_FETCH_"`
-	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_WRITE_FILE_"`
-	Sysmon          SysmonToolConfig   `json:"sysmon"            yaml:"-"                                                       envPrefix:"KUROMATSU_TOOLS_SYSMON_"`
+	ReadFile        ReadFileToolConfig `json:"read_file"         yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_READ_FILE_"`
+	SendFile        ToolConfig         `json:"send_file"         yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_SEND_FILE_"`
+	SendTTS         ToolConfig         `json:"send_tts"          yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_SEND_TTS_"`
+	Spawn           ToolConfig         `json:"spawn"             yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_SPAWN_"`
+	SpawnStatus     ToolConfig         `json:"spawn_status"      yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_SPAWN_STATUS_"`
+	Subagent        ToolConfig         `json:"subagent"          yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_SUBAGENT_"`
+	WebFetch        ToolConfig         `json:"web_fetch"         yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_WEB_FETCH_"`
+	WriteFile       ToolConfig         `json:"write_file"        yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_WRITE_FILE_"`
+	Sysmon          SysmonToolConfig   `json:"sysmon"            yaml:"-"                                                        envPrefix:"KUROMATSU_TOOLS_SYSMON_"`
 }
 
 // SysmonToolConfig configures the sysmon tool (FR-011): read-only system
@@ -970,8 +1070,8 @@ type ToolsConfig struct {
 // AllowDestructive gates "proc kill"/"proc renice" and defaults to false
 // (BR-007) -- read-only actions are unaffected by it.
 type SysmonToolConfig struct {
-	ToolConfig       `yaml:"-" envPrefix:"KUROMATSU_TOOLS_SYSMON_"`
-	AllowDestructive bool `json:"allow_destructive" yaml:"-" env:"ALLOW_DESTRUCTIVE"`
+	ToolConfig       `     yaml:"-" envPrefix:"KUROMATSU_TOOLS_SYSMON_"`
+	AllowDestructive bool `yaml:"-"                                     json:"allow_destructive" env:"ALLOW_DESTRUCTIVE"`
 }
 
 // IsFilterSensitiveDataEnabled returns true if sensitive data filtering is enabled
@@ -1105,7 +1205,7 @@ type MCPServerConfig struct {
 // MCPConfig defines configuration for all MCP servers
 type MCPConfig struct {
 	ToolConfig `                    envPrefix:"KUROMATSU_TOOLS_MCP_"`
-	Discovery  ToolDiscoveryConfig `                                json:"discovery"`
+	Discovery  ToolDiscoveryConfig `                                 json:"discovery"`
 	// MaxInlineTextChars controls how much MCP text stays inline before it is saved as an artifact.
 	MaxInlineTextChars int `json:"max_inline_text_chars,omitempty" env:"KUROMATSU_TOOLS_MCP_MAX_INLINE_TEXT_CHARS"`
 	// Servers is a map of server name to server configuration
@@ -1359,6 +1459,22 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	if err = cfg.ValidateTurnProfile(); err != nil {
+		return nil, err
+	}
+	if err = cfg.ValidateFocus(); err != nil {
+		return nil, err
+	}
+	if err = cfg.ValidateReflexes(); err != nil {
+		return nil, err
+	}
+	if err = cfg.ValidateSleep(); err != nil {
+		return nil, err
+	}
+	if err = cfg.ValidatePlatformPaths(); err != nil {
+		return nil, err
+	}
+	cfg.SourcePath, err = filepath.Abs(path)
+	if err != nil {
 		return nil, err
 	}
 	cfg.Gateway.Host, err = resolveGatewayHostFromEnv(gatewayHostBeforeEnv)

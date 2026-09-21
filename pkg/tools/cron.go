@@ -19,6 +19,9 @@ import (
 // JobExecutor is the interface for executing cron jobs through the agent
 type JobExecutor interface {
 	ProcessDirectWithChannel(ctx context.Context, content, sessionKey, channel, chatID string) (string, error)
+	// ProcessDirectForAgent is ProcessDirectWithChannel's per-agent form
+	// (Trilho G B.2), used when payload.AgentID is set.
+	ProcessDirectForAgent(ctx context.Context, agentID, content, sessionKey, channel, chatID string) (string, error)
 	// PublishResponseIfNeeded sends response to the outbound bus only when the
 	// agent did not already deliver content through the message tool in this round.
 	PublishResponseIfNeeded(ctx context.Context, channel, chatID, sessionKey, response string)
@@ -131,6 +134,10 @@ func (t *CronTool) Parameters() map[string]any {
 			"job_id": map[string]any{
 				"type":        "string",
 				"description": "Job ID (for get/update/remove/enable/disable)",
+			},
+			"window": map[string]any{
+				"type":        "string",
+				"description": "Optional focus window (add only) to run this job's message in, e.g. 'shell'. Leave unset to use the default cron window.",
 			},
 		},
 		"required": []string{"action"},
@@ -250,6 +257,15 @@ func (t *CronTool) addJob(ctx context.Context, args map[string]any) *ToolResult 
 	if command != "" {
 		job.Payload.Command = command
 		needsUpdate = true
+	}
+	// window (ADR-014/FR-014): which focus window ExecuteJob should tag
+	// this job's dispatched message with (via the inline [foco:...] tag) —
+	// optional, a no-op with focus disabled or when omitted.
+	if window, ok := args["window"].(string); ok {
+		if window = strings.TrimSpace(window); window != "" {
+			job.Payload.Window = window
+			needsUpdate = true
+		}
 	}
 	if needsUpdate {
 		t.cronService.UpdateJob(job)
@@ -643,14 +659,40 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 
 	sessionKey := fmt.Sprintf("agent:cron-%s-%s", job.ID, uuid.New().String())
 
-	// Call agent with the job message
-	response, err := t.executor.ProcessDirectWithChannel(
-		ctx,
-		job.Payload.Message,
-		sessionKey,
-		channel,
-		chatID,
-	)
+	// ADR-014/FR-014: an explicit job.Payload.Window tags the dispatched
+	// message with the same inline "[foco:<window>] " prefix a user typing
+	// it would use, so the router (pkg/routing/focus.go) picks it up ahead
+	// of its own Origins["cron"] default. A no-op when Window is unset, or
+	// when focus is disabled entirely (the tag is just inert text then).
+	jobMessage := job.Payload.Message
+	if window := strings.TrimSpace(job.Payload.Window); window != "" {
+		jobMessage = fmt.Sprintf("[foco:%s] %s", window, jobMessage)
+	}
+
+	// Call agent with the job message. An explicit job.Payload.AgentID
+	// (Trilho G B.2) bypasses agents.dispatch.rules entirely -- without
+	// it, a job whose Channel/To already matches a dispatch rule lands on
+	// that rule's agent with zero code changes here.
+	var response string
+	var err error
+	if agentID := strings.TrimSpace(job.Payload.AgentID); agentID != "" {
+		response, err = t.executor.ProcessDirectForAgent(
+			ctx,
+			agentID,
+			jobMessage,
+			sessionKey,
+			channel,
+			chatID,
+		)
+	} else {
+		response, err = t.executor.ProcessDirectWithChannel(
+			ctx,
+			jobMessage,
+			sessionKey,
+			channel,
+			chatID,
+		)
+	}
 	if err != nil {
 		return fmt.Sprintf("Error: %v", err)
 	}

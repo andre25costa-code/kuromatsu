@@ -1,0 +1,36 @@
+#!/usr/sbin/nft -f
+# Kuromatsu — substitui o fail2ban (economiza ~20MB de RSS) por rate-limit
+# nativo do nftables no SSH (ADR-013). Aplicar:
+#   sudo cp deploy/nftables/ssh-ratelimit.nft /etc/nftables.conf
+#   sudo systemctl enable --now nftables
+# Verificar ANTES de desativar o fail2ban:
+#   sudo nft list ruleset
+#   # de outra máquina: várias tentativas de login SSH devem passar a ser
+#   # descartadas (sem resposta) após o limite.
+
+flush ruleset
+
+table inet filter {
+	set ssh_ratelimit {
+		type ipv4_addr
+		flags dynamic,timeout
+		timeout 10m
+	}
+
+	chain input {
+		type filter hook input priority filter; policy accept;
+
+		ct state established,related accept
+		iif lo accept
+		ip protocol icmp accept
+
+		# Até 6 novas conexões por IP em 60s; excedentes são descartados
+		# silenciosamente (sem RST) para não realimentar scanners.
+		tcp dport 22 ct state new add @ssh_ratelimit { ip saddr limit rate over 6/minute burst 6 packets } drop
+		tcp dport 22 accept
+	}
+
+	chain forward {
+		type filter hook forward priority filter; policy drop;
+	}
+}

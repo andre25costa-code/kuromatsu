@@ -1,0 +1,10 @@
+[Unit]
+Description=Kuromatsu — agenda do backup noturno (04:30, cross-cloud para kuro/Oracle)
+
+[Timer]
+OnCalendar=*-*-* 04:30:00
+RandomizedDelaySec=600
+Persistent=true
+
+[Install]
+WantedBy=timers.target

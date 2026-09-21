@@ -44,6 +44,14 @@ type HeartbeatService struct {
 	enabled   bool
 	mu        sync.RWMutex
 	stopChan  chan struct{}
+
+	// shouldSkip is the Trilho C runstate hook (ADR-016 point 7,
+	// FR-017/AC-017-2): checked at the top of executeHeartbeat. Installed
+	// only when runstate.enabled=true and
+	// runstate.skip_heartbeat_when_busy is on (gateway.go, C2) -- nil
+	// (the default) means every heartbeat runs exactly as it always has,
+	// with zero risk of ever pulling in a real evaluation (AC-017-7).
+	shouldSkip func() bool
 }
 
 // NewHeartbeatService creates a new heartbeat service
@@ -77,6 +85,17 @@ func (hs *HeartbeatService) SetHandler(handler HeartbeatHandler) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 	hs.handler = handler
+}
+
+// SetShouldSkip installs the Trilho C runstate hook (AC-017-2): fn is
+// called at the top of every executeHeartbeat, and a true result skips
+// that disptach entirely (logged, not enqueued for later -- a missed
+// heartbeat is just a missed heartbeat, S17/S30). Pass nil to remove the
+// hook and go back to always running (the default).
+func (hs *HeartbeatService) SetShouldSkip(fn func() bool) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	hs.shouldSkip = fn
 }
 
 // Start begins the heartbeat service
@@ -150,6 +169,7 @@ func (hs *HeartbeatService) executeHeartbeat() {
 	hs.mu.RLock()
 	enabled := hs.enabled
 	handler := hs.handler
+	shouldSkip := hs.shouldSkip
 	if !hs.enabled || hs.stopChan == nil {
 		hs.mu.RUnlock()
 		return
@@ -157,6 +177,11 @@ func (hs *HeartbeatService) executeHeartbeat() {
 	hs.mu.RUnlock()
 
 	if !enabled {
+		return
+	}
+
+	if shouldSkip != nil && shouldSkip() {
+		logger.InfoC("heartbeat", "Skipping heartbeat: runstate busy (AC-017-2)")
 		return
 	}
 

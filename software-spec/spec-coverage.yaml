@@ -3,7 +3,10 @@
 # Regras: itens mudam de estado, nunca são removidos; atualização incremental.
 
 project: kuromatsu
-updated: 2026-09-11
+updated: 2026-09-21
+# Reconciliação de implementação e correções: ../docs/internal-audit-2026-09-16.md
+# S36/S37/S38 resolvidos 2026-09-21 (E8 implementado; ver BACKLOG.md)
+# depends_on: [S11, S17, S27, S30, S32, S33]
 spec_version: 0.1.0
 
 items:
@@ -17,7 +20,14 @@ items:
   S05:
     status: n/a
     note: Sem modelo de negócio — fork pessoal open-source, sem monetização.
-  S06: { status: confirmed, file: 01-business/06-assumptions.md }
+  S06:
+    status: confirmed
+    file: 01-business/06-assumptions.md
+    note: 'v4 (2026-09-11): +R7 (throttling de créditos de burst do e2-micro,
+      números reais medidos), +R8 (host físico do e2-micro varia por boot),
+      A1/A2 anotados com o novo alvo `demetrius` (ADR-013, accepted) — Oracle
+      vira alvo de backup (S33). Conteúdo anterior mantido, sem downgrade de
+      status (riscos/premissas não passam pelo gate FR/AC).'
 
   # ── 2ª parte: Business Design ─────────────────────────
   S07:
@@ -25,10 +35,37 @@ items:
     note: Os fluxos "de negócio" são as rotinas pessoais de estudo do usuário, que vivem no workspace privado (docker/data/, fora do repo público). O repo entrega a plataforma, não os fluxos.
   S08: { status: confirmed, file: 02-business-design/08-business-rules.md }
   S09:
-    status: n/a
-    note: Nenhuma entidade nova com máquina de estados; as máquinas existentes do PicoClaw (sessões, cron jobs) não são alteradas por este trabalho.
+    status: confirmed
+    file: 02-business-design/09-state-machines.md
+    note: 'Corrigido 2026-09-11: estava n/a ("nenhuma entidade nova com máquina de
+      estados"). Deixou de ser verdade com o plano `demetrius` — `pkg/runstate.Engine`
+      (bitmask com refcount) é a primeira máquina de estados nova do fork. ADR-016
+      (accepted).'
   S10: { status: confirmed, file: 02-business-design/10-scope.md }
-  S11: { status: confirmed, file: 02-business-design/11-requirements.md }
+  S11:
+    status: confirmed
+    file: 02-business-design/11-requirements.md
+    note: 'v8 (2026-09-12): 1ª verificação real por compilação/teste (Trilhos
+      A+B, `go build/vet/test` no `kuro`) achou 4 falhas reais — 2 eram
+      asserção de teste errada em `pkg/agent` (corrigidas: "reaction" é uma
+      shared tool sempre presente no `AgentLoop` real, os testes assumiam um
+      conjunto fechado); 1 pré-existente e fora do escopo A/B/C
+      (`TestApplyLegacyEnvCompat_CopiesUnsetVar`, `pkg/config`, não tocada por
+      nenhum trilho); 1 achado real de AC-015-5 (corrigido acima: "≤70/tool"
+      era inalcançável com 9 propriedades/tool e a decisão do ADR-014 de não
+      remover propriedades opcionais — corrigido para "corte ≥40%, teto
+      200/tool", medido real 168/tool). v7 (2026-09-12): FR-013..020/AC-010-7..9
+      confirmadas por André ("pode mandar brasa") — Gate da metodologia
+      liberado, Onda 2 (código, Trilho B→A→C) autorizada. v6 (2026-09-11,
+      orquestrador): corrigidos AC-020-2
+      (`MemoryMax` 850M→900M, valor real da 1ª implantação) e AC-020-7 (nome
+      real do arquivo sysctl, `99-z-kuromatsu.conf`, não `90-kuromatsu.conf`)
+      — achados do spec-verifier sobre FR-020 desatualizada vs. a implantação
+      real. Adicionados AC-020-8/9 (dois achados novos da 1ª implantação:
+      `.security.yml` legado rejeitado por canais removidos; prompt de
+      heartbeat real mede 6029 tokens, bem acima do piso estimado em R6/S06
+      para o template genérico). FR-001..012 mantêm o grau de confirmação que
+      já tinham (a maioria entregue, ver entregues/).'
   S12:
     status: n/a
     note: Usuário único (André); sem papéis de negócio distintos.
@@ -40,12 +77,26 @@ items:
     status: n/a
     note: Usuário único; o controle de acesso existente do PicoClaw (allowlists de tools, allow_read/write_paths) permanece inalterado.
   S16:
-    status: missing
-    note: O fluxo interno (mensagem → pipeline → tools → resposta) é herdado do PicoClaw e derivável do código; documentar aqui só se o pipeline for alterado além do provider.
+    status: confirmed
+    file: 03-system-design/16-system-flow.md
+    note: 'Corrigido 2026-09-11: o gatilho previsto ("pipeline alterado além do
+      provider") ocorreu — roteador de foco, reflexos e escalonamento (plano
+      `demetrius`) mudam o fluxo interno o suficiente para merecer registro
+      próprio. ADR-014 (accepted).'
   S17:
-    status: missing
-    note: Semântica de falha do provider nativo (overflow, single-flight, keep-alive) registrada em ADR-003 e S18; consolidar aqui caso surjam mais estratégias de consistência.
-  S18: { status: confirmed, file: 03-system-design/18-ai-component.md }
+    status: confirmed
+    file: 03-system-design/17-failure-semantics.md
+    note: 'Corrigido 2026-09-11: consolidado com o volume novo (runstate/memguard,
+      ADR-015/016/017, accepted) — idempotência, retry/backoff, degradação. Fonte
+      única para retry/DLQ; S24/S30 só cruzam-referenciam.'
+  S18:
+    status: confirmed
+    file: 03-system-design/18-ai-component.md
+    note: 'v4 (2026-09-11): +seção "Runtime v2" (ADR-015 accepted) — cache de
+      prefixo do KV (cross-ref S21), render/prompt compacto (cross-ref
+      ADR-014), correção do bug de n_threads fixo em 4 (achado real: threads
+      não foi a causa dominante da lentidão medida, ver g0-medicao-real.md),
+      núcleos de janela em RAM.'
 
   # ── 4ª parte: Data Design ─────────────────────────────
   S19:
@@ -55,9 +106,23 @@ items:
     status: n/a
     note: Sem schema novo de banco (ver ADR-008). O relatório do modo dormir é arquivo Markdown simples.
   S21:
-    status: n/a
-    note: Sem camada de cache adicional; o KV cache é interno ao runtime de inferência e está documentado em S18/ADR-003.
-  S22: { status: confirmed, file: 07-engineering/adr/ADR-005-rebrand-compat.md, note: A única migração de dados é o home dir ~/.picoclaw → ~/.kuromatsu, coberta pela ADR-005 (leitura in-place + comando de migração explícito futuro). }
+    status: confirmed
+    file: 04-data-design/21-cache-strategy.md
+    note: 'Corrigido 2026-09-11: estava n/a. Deixou de ser verdade com o plano
+      `demetrius` — o cache de prefixo entre chamadas e os núcleos de janela em
+      RAM passam a ser uma camada de cache de primeira classe (chave, invalidação,
+      nível de consistência), reinterpretando o item do checklist para o KV cache
+      do llama.cpp em vez de um cache de dados de negócio. ADR-015 (accepted).'
+  S22:
+    status: confirmed
+    file: 04-data-design/22-data-migration.md
+    note: >-
+      Corrigido 2026-09-11 (auditoria E0-E7): antes apontava para uma ADR em
+      vez de um capítulo próprio. Conteúdo (única migração = home dir
+      ~/.picoclaw → ~/.kuromatsu, leitura in-place) realocado para seu
+      capítulo dedicado; ADR-005 continua com a decisão/alternativas, S32
+      agora só faz cross-link (唯一歸屬).
+
   # ── 5ª parte: Interface Design ────────────────────────
   S23:
     status: n/a
@@ -74,41 +139,111 @@ items:
 
   # ── 6ª parte: Infrastructure ──────────────────────────
   S27:
-    status: missing
-    note: Segurança herdada do PicoClaw (.security.yml, redaction, tool gating). Nova superfície a documentar depois - ações destrutivas do sysmon (kill/renice) gated por config.
+    status: confirmed
+    file: 06-infrastructure/27-security.md
+    note: 'Corrigido 2026-09-11: estava missing ("nova superfície a documentar
+      depois"). O `runstate` (S09) expõe um canal de estado novo (arquivo,
+      sd_notify, /health, sysmon state) e o trim do SO troca fail2ban por
+      nftables (ADR-013) — superfície suficiente para capítulo próprio.
+      Segurança herdada (.security.yml, BR-007, gating de tools) documentada
+      como inalterada. ADR-013/016 (accepted).'
   S28:
     status: n/a
     note: Uso pessoal, dados próprios; a fronteira de privacidade relevante (dados pessoais fora do repo/binário; envio a LLM externo só se configurado) está em BR-003 e S18.
-  S29: { status: confirmed, file: 06-infrastructure/29-nfr.md }
+  S29:
+    status: confirmed
+    file: 06-infrastructure/29-nfr.md
+    note: 'v4 (2026-09-11): NFR-002 desdobrada em burst (≥4 tok/s, gate formal)
+      × piso estrangulado (informativo — números reais medidos em
+      g0-medicao-real.md); +NFR-006 (turno ≤90s), +NFR-007 (overhead de
+      framework ≤800 tokens/janela), +NFR-008 (MemAvailable idle ≥250MB com
+      modelo carregado — nota de medição parcial: 696MB medidos sem o modelo
+      carregado, condição diferente da do NFR-008), +NFR-009 (cache ≥70% a
+      partir do 2º turno). Numeração NFR-006..009 escolhida para não colidir
+      com o NFR-005 (Disponibilidade) já existente — o plano original citava
+      "NFR-005..008" sem saber desse conflito.'
   S30:
-    status: missing
-    note: Cron/heartbeat herdados sem mudança; o modo dormir está especificado em FR-010 + ADR-006. Consolidar aqui se os agendadores forem alterados.
+    status: confirmed
+    file: 06-infrastructure/30-scheduling.md
+    note: 'Corrigido 2026-09-11: estava missing ("cron/heartbeat herdados sem
+      mudança... consolidar aqui se os agendadores forem alterados"). A
+      mecânica de disparo continua sem mudança, mas heartbeat/cron passam a
+      ter janela de foco própria por origem (FR-014/ADR-014) e a CPU da
+      `demetrius` passa a ser orçamento (heartbeat >=60min, preferência por
+      jobs cron Command sobre Message) — volume suficiente para capítulo
+      próprio. ADR-014 (accepted).'
   S31:
     status: n/a
     note: Sem gestão própria de arquivos/mídia; PDFs e afins são tratados pelo hub pessoal privado, fora do escopo do repo.
-  S32: { status: confirmed, file: 06-infrastructure/32-deployment.md }
+  S32:
+    status: confirmed
+    file: 06-infrastructure/32-deployment.md
+    note: 'v5 (2026-09-11): +seção "Deploy binário direto na demetrius"
+      (systemd sem Docker em runtime, trim do SO, sysctl, nftables — ADR-013
+      accepted) citando os artefatos reais já versionados em
+      deploy/{systemd,sysctl,nftables}/; tabela de Ambientes atualizada
+      (Oracle deixa de ser prod, vira backup — ver S33); migração real em
+      andamento com resultados parciais medidos em g0-medicao-real.md.'
   S33:
-    status: missing
-    note: Backup ainda não discutido - docker/data/ serve de backup do hub, mas não há política de backup da VM Oracle (snapshots? rsync?). Recomendado decidir antes do go-live (E7).
+    status: confirmed
+    file: 06-infrastructure/33-backup.md
+    note: 'Corrigido 2026-09-11: estava missing (Q2 em S06 sem decisão).
+      Resolvida com a mudança de papel da Oracle (deixa de rodar inferência,
+      ADR-013, vira alvo de backup cross-cloud da `demetrius` via timer
+      systemd noturno + rsync). Reconciliação 2026-09-16: a guarda por
+      runstate e retenção de 14 arquivos já estão implementadas em
+      deploy/systemd/backup-to-kuro.sh. Procedimento/ensaio de restore
+      continua pendente de validação. ADR-013 (accepted).'
   S34:
-    status: missing
-    note: Observabilidade = logs existentes + sysmon (FR-011) + nativebench. Sem métricas/alertas estruturados; avaliar após E7.
+    status: confirmed
+    file: 06-infrastructure/34-observability.md
+    note: 'Corrigido 2026-09-11: estava missing ("sem métricas/alertas
+      estruturados"). Continua sem alertas, mas estado observável (runstate
+      via run/state, sd_notify, /health, sysmon state) e telemetria por
+      turno em SQLite (turns.db, FR-019) passam a existir como desenho —
+      volume suficiente para capítulo próprio. ADR-016/017 (accepted).'
 
   # ── 7ª parte: Engineering ─────────────────────────────
   S35: { status: confirmed, file: 07-engineering/adr/ }
   S36:
-    status: missing
-    note: Convenções herdadas (golangci, make check, Conventional Commits do upstream). Documentar apenas se divergirmos.
+    status: confirmed
+    file: 07-engineering/36-coding-conventions.md
+    note: 'Resolvido 2026-09-21: estava missing ("documentar apenas se
+      divergirmos"). Não divergimos — o capítulo só aponta para AGENTS.md
+      (raiz, adicionado no audit de 2026-09-16), que já é o dono único
+      dessas convenções. Deliberadamente curto, sem duplicar conteúdo.'
   S37:
-    status: missing
-    note: Tabela de config/env (KUROMATSU_*) deve ser gerada após o E3 (rename) e mantida na skill kuromatsu-docs (E8), não aqui — evitar dupla fonte.
+    status: confirmed
+    file: 07-engineering/37-config-env-reference.md
+    note: 'Resolvido 2026-09-21: a tabela de env/config vive na skill
+      kuromatsu-docs (E8, workspace/skills/kuromatsu-docs/references/config.md),
+      exatamente como a nota original previa. Este capítulo só aponta pra
+      ela, com o comando grep que gera a lista real das 119 variáveis
+      KUROMATSU_* — sem tabela hardcoded que ficaria desatualizada.'
   # ── 8ª parte: Quality Assurance ───────────────────────
   S38:
-    status: missing
-    note: Estratégia de teste está distribuída nos gates de cada entregável (S11): make vet+test por commit, golden tests do ChatML, teste de fallback. Consolidar se crescer.
+    status: confirmed
+    file: 08-quality-assurance/38-test-strategy.md
+    note: 'Resolvido 2026-09-21: cresceu o suficiente para consolidar
+      (critério da própria nota anterior) — o audit de 2026-09-16 rodou
+      -race em pacotes-alvo, testes de integração nativa com GGUF real, e
+      lint incremental como gate formal, além do padrão "número real, não
+      estimativa" (O4/KR4.1 do plano de refatoração) já em uso em vários
+      testes. Documenta as camadas (unitário/-race/integração/nativo/lint)
+      e a flakiness pré-existente conhecida
+      (TestAgentLoop_Run_AutoContinuesLateSteeringMessage).'
   S39:
-    status: tbd
-    note: Baseline de avaliação (tok/s, RAM, qualidade de tool-call) depende de medição real na Oracle com nativebench no E7 — não inventar números antes.
+    status: confirmed
+    file: 06-infrastructure/39-baseline-benchmarks.md
+    note: 'Benchmark quantitativo real na `demetrius` pós-deploy dos Trilhos A/B/C
+      (2026-09-13): cache de prefixo do KV confirmado dentro do turno (98,3% hit,
+      ~40x) e entre turnos de heartbeat (88,0% hit, ~11x); n_threads=4 trava a VM
+      (valida ADR-015); regressão PICOCLAW_* confirmada em produção; memória dentro
+      da meta (NFR-001/008). Achado crítico não corrigido: shutdown gracioso não
+      cancela inferência em voo (SIGKILL após timeout de 90s) — decisão aberta do
+      André, ver BACKLOG. Ainda não medido: piso "burst pleno" em VM fria,
+      NFR-003/004/006-burst, overhead de framework isolado (NFR-007, possível gap
+      flagueado, precisa do prompt_size_test/A9 para confirmar).'
     owner: André
     blocks: []
 

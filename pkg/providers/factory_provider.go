@@ -388,11 +388,43 @@ func finalizeProviderFromConfig(
 	modelID string,
 	cfg *config.ModelConfig,
 ) (LLMProvider, string, error) {
-	wrapped, err := wrapProviderWithToolSchemaTransform(provider, cfg.ToolSchemaTransform)
+	wrapped, err := wrapProviderWithToolSchemaTransformOptions(
+		provider,
+		cfg.ToolSchemaTransform,
+		compactSchemaOptionsFromModelConfig(cfg),
+	)
 	if err != nil {
 		return nil, "", err
 	}
 	return wrapped, modelID, nil
+}
+
+// compactSchemaOptionsFromModelConfig reads an optional
+// extra_body.compact_schema override ({max_enum, property_descriptions,
+// required_only}) for the "compact" tool_schema_transform (ADR-014 point 4 /
+// FR-015). ExtraBody already carries every other native-model runtime knob
+// (n_ctx, kv_cache_type, ...), so this reuses the same bag instead of adding
+// a new top-level config field. Absent for any model that doesn't set it —
+// TransformToolDefinitions then falls back to its own defaults.
+func compactSchemaOptionsFromModelConfig(cfg *config.ModelConfig) common.CompactSchemaOptions {
+	var opts common.CompactSchemaOptions
+	if cfg == nil || cfg.ExtraBody == nil {
+		return opts
+	}
+	raw, ok := cfg.ExtraBody["compact_schema"].(map[string]any)
+	if !ok {
+		return opts
+	}
+	if v, ok := common.AsInt(raw["max_enum"]); ok {
+		opts.MaxEnum = v
+	}
+	if v, ok := raw["property_descriptions"].(bool); ok {
+		opts.PropertyDescriptions = v
+	}
+	if v, ok := raw["required_only"].(bool); ok {
+		opts.RequiredOnly = v
+	}
+	return opts
 }
 
 func isEmptyAPIKeyAllowed(protocol string) bool {
