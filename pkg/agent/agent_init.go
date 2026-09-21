@@ -120,7 +120,7 @@ func NewAgentLoop(
 	al.activeReqCond = sync.NewCond(&al.activeReqMu)
 	al.refreshRuntimeEventLogger(cfg)
 	al.providerFactory = providers.CreateProviderFromConfig
-	al.sleep = newSleepBridge(cfg, registry, al.providerFactory, rs)
+	al.sleep = newSleepScheduler(cfg, registry, al.providerFactory, rs)
 	al.hooks = NewHookManager(al.runtimeEvents.Channel())
 	configureHookManagerFromConfig(al.hooks, cfg)
 	al.contextManager = al.resolveContextManager()

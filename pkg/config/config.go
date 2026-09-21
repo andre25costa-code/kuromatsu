@@ -345,6 +345,24 @@ type AgentConfig struct {
 	Skills    []string              `json:"skills,omitempty"`
 	Subagents *SubagentsConfig      `json:"subagents,omitempty"`
 	Heartbeat *AgentHeartbeatConfig `json:"heartbeat,omitempty"`
+	Sleep     *AgentSleepConfig     `json:"sleep,omitempty"`
+}
+
+// AgentSleepConfig is a per-agent modo-dormir override
+// (agents.list[].sleep, ADR-019's "sono configurável por agente"). nil (the
+// default) means this agent inherits the global sleep block entirely. Like
+// AgentHeartbeatConfig, JSON-only with no env bindings on purpose -- a
+// process-wide KUROMATSU_SLEEP_* env var meant for the global block must
+// never silently clobber one agent's override. Empty string/zero fields
+// mean "inherit that field from the global sleep block", mirroring how
+// SleepConfig.EffectiveWindow already treats an empty Window.
+type AgentSleepConfig struct {
+	Enabled          *bool  `json:"enabled,omitempty"`
+	Window           string `json:"window,omitempty"`
+	UnconsciousModel string `json:"unconscious_model,omitempty"`
+	WeeklyDeep       *bool  `json:"weekly_deep,omitempty"`
+	MaxTokensBudget  int    `json:"max_tokens_budget,omitempty"`
+	DryRun           *bool  `json:"dry_run,omitempty"`
 }
 
 // AgentHeartbeatConfig is a per-agent heartbeat override

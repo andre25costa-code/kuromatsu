@@ -2,9 +2,9 @@
 id: ADR-019
 title: Multi-agente real (agents.list/dispatch/pin), heartbeat e cron por agente, Ollama Cloud como fallback externo
 status: accepted
-version: 1
+version: 2
 owner: André
-last_updated: 2026-09-14
+last_updated: 2026-09-21
 depends_on: [ADR-014, ADR-016, ADR-018]
 ---
 
@@ -109,12 +109,18 @@ fora.
   é o mesmo isolamento que torna `sensores` e `estudos` seguros um do
   outro. Decisão de produto consciente do André, não surpresa de
   implementação.
-- `cfg.Sleep` continua global, não por-agente — irrelevante se cada
-  persona rodar em instâncias de processo separadas (o caso mais provável:
-  o Raspberry Pi da propriedade rural é um processo Kuromatsu inteiramente
-  separado da instância "estudos"), mas seria uma limitação real se as duas
-  personas precisassem rodar no mesmo processo com políticas de sono
-  diferentes.
+- **Atualização 2026-09-21**: `cfg.Sleep` deixou de ser só global.
+  `agents.list[].sleep` (`AgentSleepConfig`) sobrescreve campo a campo —
+  mesmo padrão do `AgentHeartbeatConfig` — e `Config.EffectiveSleep(agentID)`
+  resolve o efetivo por agente. `pkg/agent/sleep_bridge.go` agrupa os
+  agentes pelo `SleepConfig` efetivo e cria um `sleepBridge` independente
+  por grupo (`sleepScheduler`), então `sensores` e `estudos` no mesmo
+  processo já podem ter janela/modelo/orçamento de sono diferentes, ou um
+  dos dois desligar o sono por completo (`enabled: false` só naquele
+  agente) sem afetar o outro. `ValidateSleep` (ADR-018) passou a checar
+  cada override por agente com o mesmo gate do bloco global — um
+  `unconscious_model` por-agente que resolva pro nativo não escapa da
+  validação só porque o override não tocou todos os campos.
 - N agentes com heartbeat habilitado disparam turnos de heartbeat
   escalonados (`heartbeatStartStagger`, 2s entre agentes) em vez de todos
   ~1s após o boot — evita uma fila real de turnos de modelo local

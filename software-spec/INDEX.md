@@ -21,7 +21,7 @@ só entra aqui o que foi **confirmado**; o que falta está registrado como estad
 |---|---|
 | `spec.manifest.yaml` | Índice para agentes: item → arquivo, tags, papéis |
 | `spec-coverage.yaml` | Estado dos 40 itens de consideração (confirmed/draft/tbd/n/a/missing) |
-| `entregues/E0..E7,E10-*.md` | Auditoria dos entregáveis já fechados: FRs cobertas, commits, medições |
+| `entregues/E0..E7,E8,E10-*.md` | Auditoria dos entregáveis já fechados: FRs cobertas, commits, medições |
 | `BACKLOG.md` | Só o que falta: entregáveis abertos e questões pendentes |
 
 ## Regras vigentes

@@ -20,21 +20,23 @@
         "separate_messages": false
       }
     },
-    "_comment_list": "Optional (Trilho G, ADR-019): agents.list turns on real multi-agent mode -- each entry is a fully isolated AgentInstance (own workspace, model, tools, session store). Leave list empty/omitted (the common case) and everything above still describes a single implicit \"main\" agent, byte-identical to before this existed. The example below shows the rural-property use case: \"sensores\" stays entirely on the local native model (no model.fallbacks at all -- ApplyNativeFallback only ever forces bonsai-local into agents.defaults.model_fallbacks, never into an agents.list[].model.fallbacks, so this agent truly never calls out to a paid API); \"estudos\" is the default agent and can reach for the heavier ollama-cloud model (see model_list below) when needed, falling back to the local model if that's unavailable.",
+    "_comment_list": "Optional (Trilho G, ADR-019): agents.list turns on real multi-agent mode -- each entry is a fully isolated AgentInstance (own workspace, model, tools, session store). Leave list empty/omitted (the common case) and everything above still describes a single implicit \"main\" agent, byte-identical to before this existed. The example below shows the rural-property use case: \"sensores\" stays entirely on the local native model (no model.fallbacks at all -- ApplyNativeFallback only ever forces bonsai-local into agents.defaults.model_fallbacks, never into an agents.list[].model.fallbacks, so this agent truly never calls out to a paid API); \"estudos\" is the default agent and can reach for the heavier ollama-cloud model (see model_list below) when needed, falling back to the local model if that's unavailable. \"sleep\" (ADR-019 update) is likewise per-agent: sensores opts out of modo dormir entirely (no external calls at night on a field device), while estudos keeps its own consolidation window -- each override merges field-by-field onto the global sleep block below.",
     "list": [
       {
         "id": "sensores",
         "name": "Sensores & Automação",
         "workspace": "~/.kuromatsu/workspace-sensores",
         "model": { "primary": "bonsai-local" },
-        "heartbeat": { "interval": 30 }
+        "heartbeat": { "interval": 30 },
+        "sleep": { "enabled": false }
       },
       {
         "id": "estudos",
         "default": true,
         "name": "Estudos",
         "workspace": "~/.kuromatsu/workspace",
-        "model": { "primary": "ollama-cloud", "fallbacks": ["bonsai-local"] }
+        "model": { "primary": "ollama-cloud", "fallbacks": ["bonsai-local"] },
+        "sleep": { "window": "01:00-02:00" }
       }
     ],
     "_comment_dispatch": "Optional: agents.dispatch.rules routes an inbound message to an agent by channel/account/space/chat/topic/sender/mentioned, checked in order, falling back to the default agent. A user can still override per-chat at runtime with /agent <id> (Trilho G B.3), which takes precedence over these rules.",

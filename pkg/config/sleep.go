@@ -32,6 +32,46 @@ type SleepConfig struct {
 	DryRun          bool `json:"dry_run,omitempty"`
 }
 
+// EffectiveSleep resolves the modo-dormir settings for agentID: its own
+// agents.list[].sleep override where set, falling back field-by-field to
+// the global c.Sleep (mirrors Config.EffectiveHeartbeat). agents.list
+// empty (the implicit "main" agent) never has a matching AgentConfig, so
+// this is always exactly c.Sleep -- byte-identical to before per-agent
+// sleep existed.
+//
+// Deliberately does not import pkg/routing to normalize agentID, for the
+// same reason EffectiveHeartbeat doesn't: routing already imports
+// pkg/config, so that would be a cycle. Callers get agentID already
+// normalized, from AgentRegistry.ListAgentIDs()/AgentInstance.ID.
+func (c *Config) EffectiveSleep(agentID string) SleepConfig {
+	eff := c.Sleep
+	for _, ac := range c.Agents.List {
+		if !strings.EqualFold(strings.TrimSpace(ac.ID), strings.TrimSpace(agentID)) || ac.Sleep == nil {
+			continue
+		}
+		if ac.Sleep.Enabled != nil {
+			eff.Enabled = *ac.Sleep.Enabled
+		}
+		if w := strings.TrimSpace(ac.Sleep.Window); w != "" {
+			eff.Window = w
+		}
+		if m := strings.TrimSpace(ac.Sleep.UnconsciousModel); m != "" {
+			eff.UnconsciousModel = m
+		}
+		if ac.Sleep.WeeklyDeep != nil {
+			eff.WeeklyDeep = *ac.Sleep.WeeklyDeep
+		}
+		if ac.Sleep.MaxTokensBudget > 0 {
+			eff.MaxTokensBudget = ac.Sleep.MaxTokensBudget
+		}
+		if ac.Sleep.DryRun != nil {
+			eff.DryRun = *ac.Sleep.DryRun
+		}
+		break
+	}
+	return eff
+}
+
 const defaultSleepWindow = "03:00-05:00"
 
 // EffectiveWindow returns Window, or the ADR-006 default "03:00-05:00"
@@ -55,12 +95,24 @@ func (c *Config) ValidateSleep() error {
 	if c == nil {
 		return nil
 	}
-	if c.Sleep.Enabled {
-		if err := parseHHMMWindow(c.Sleep.EffectiveWindow()); err != nil {
-			return fmt.Errorf("sleep.window: %w", err)
+	if err := c.validateSleepConfig("sleep", c.Sleep); err != nil {
+		return err
+	}
+	// Per-agent overrides (agents.list[].sleep, ADR-019) must independently
+	// satisfy the same window/model gate as the global block -- an agent's
+	// own unconscious_model resolving to native, or its own window being
+	// malformed, must not slip past validation just because the global
+	// sleep block happens to be fine (or disabled). Only agents that
+	// actually set an override are checked here; an agent without one
+	// resolves to c.Sleep, already validated above.
+	for i := range c.Agents.List {
+		ac := &c.Agents.List[i]
+		if ac.Sleep == nil {
+			continue
 		}
-		if !c.Sleep.HasValidExternalModel(c.ModelList) {
-			logger.WarnC("sleep", "modo dormir requer um modelo externo em sleep.unconscious_model")
+		label := fmt.Sprintf("agents.list[%s].sleep", strings.TrimSpace(ac.ID))
+		if err := c.validateSleepConfig(label, c.EffectiveSleep(ac.ID)); err != nil {
+			return err
 		}
 	}
 	// AC-010-9: same trava, applied to the evolution cold path. Also
@@ -72,6 +124,28 @@ func (c *Config) ValidateSleep() error {
 		if !c.Evolution.HasValidExternalModel(c.ModelList) {
 			logger.WarnC("evolution", "evolução requer um modelo externo em evolution.model")
 		}
+	}
+	return nil
+}
+
+// validateSleepConfig is the shared gate behind ValidateSleep's global and
+// per-agent checks: a structurally invalid Window is a fatal LoadConfig
+// error (label names which block, e.g. "sleep" or
+// "agents.list[estudos].sleep"); a missing/native unconscious_model is
+// deliberately NOT an error here (ADR-018 point 2), only a warning --
+// sleep_bridge.go independently checks HasValidExternalModel before
+// scheduling anything for that agent.
+func (c *Config) validateSleepConfig(label string, sc SleepConfig) error {
+	if !sc.Enabled {
+		return nil
+	}
+	if err := parseHHMMWindow(sc.EffectiveWindow()); err != nil {
+		return fmt.Errorf("%s.window: %w", label, err)
+	}
+	if !sc.HasValidExternalModel(c.ModelList) {
+		logger.WarnCF("sleep", "modo dormir requer um modelo externo em unconscious_model", map[string]any{
+			"scope": label,
+		})
 	}
 	return nil
 }

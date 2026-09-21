@@ -3,9 +3,10 @@
 # Regras: itens mudam de estado, nunca são removidos; atualização incremental.
 
 project: kuromatsu
-updated: 2026-09-16
+updated: 2026-09-21
 # Reconciliação de implementação e correções: ../docs/internal-audit-2026-09-16.md
-# depends_on: [S11, S17, S27, S30, S32, S33, S38]
+# S36/S37/S38 resolvidos 2026-09-21 (E8 implementado; ver BACKLOG.md)
+# depends_on: [S11, S17, S27, S30, S32, S33]
 spec_version: 0.1.0
 
 items:
@@ -205,15 +206,32 @@ items:
   # ── 7ª parte: Engineering ─────────────────────────────
   S35: { status: confirmed, file: 07-engineering/adr/ }
   S36:
-    status: missing
-    note: Convenções herdadas (golangci, make check, Conventional Commits do upstream). Documentar apenas se divergirmos.
+    status: confirmed
+    file: 07-engineering/36-coding-conventions.md
+    note: 'Resolvido 2026-09-21: estava missing ("documentar apenas se
+      divergirmos"). Não divergimos — o capítulo só aponta para AGENTS.md
+      (raiz, adicionado no audit de 2026-09-16), que já é o dono único
+      dessas convenções. Deliberadamente curto, sem duplicar conteúdo.'
   S37:
-    status: missing
-    note: Tabela de config/env (KUROMATSU_*) deve ser gerada após o E3 (rename) e mantida na skill kuromatsu-docs (E8), não aqui — evitar dupla fonte.
+    status: confirmed
+    file: 07-engineering/37-config-env-reference.md
+    note: 'Resolvido 2026-09-21: a tabela de env/config vive na skill
+      kuromatsu-docs (E8, workspace/skills/kuromatsu-docs/references/config.md),
+      exatamente como a nota original previa. Este capítulo só aponta pra
+      ela, com o comando grep que gera a lista real das 119 variáveis
+      KUROMATSU_* — sem tabela hardcoded que ficaria desatualizada.'
   # ── 8ª parte: Quality Assurance ───────────────────────
   S38:
-    status: missing
-    note: Estratégia de teste está distribuída nos gates de cada entregável (S11): make vet+test por commit, golden tests do ChatML, teste de fallback. Consolidar se crescer.
+    status: confirmed
+    file: 08-quality-assurance/38-test-strategy.md
+    note: 'Resolvido 2026-09-21: cresceu o suficiente para consolidar
+      (critério da própria nota anterior) — o audit de 2026-09-16 rodou
+      -race em pacotes-alvo, testes de integração nativa com GGUF real, e
+      lint incremental como gate formal, além do padrão "número real, não
+      estimativa" (O4/KR4.1 do plano de refatoração) já em uso em vários
+      testes. Documenta as camadas (unitário/-race/integração/nativo/lint)
+      e a flakiness pré-existente conhecida
+      (TestAgentLoop_Run_AutoContinuesLateSteeringMessage).'
   S39:
     status: confirmed
     file: 06-infrastructure/39-baseline-benchmarks.md

@@ -103,9 +103,10 @@ type AgentLoop struct {
 	runstate *runstate.Engine
 
 	// sleep is the Trilho C "bridge do sono" scheduler (FR-010/ADR-018,
-	// C5/E9 parte 2). nil whenever sleep.enabled=false (the default) or
+	// C5/E9 parte 2, per-agent override ADR-019). nil whenever no agent
+	// resolves to an enabled, valid sleep config, or
 	// ReloadProviderAndConfig is mid-swap — see sleep_bridge.go.
-	sleep *sleepBridge
+	sleep *sleepScheduler
 
 	// telemetry is the Trilho C per-turn telemetry bridge (FR-019/C4,
 	// ADR-017). nil whenever telemetry.enabled=false (the default) — no
@@ -505,12 +506,12 @@ func (al *AgentLoop) ReloadProviderAndConfig(
 		}
 	}
 
-	// newSleepBridge takes explicit dependencies (not a live al) precisely
-	// so it can be built here, before the lock, from the same
+	// newSleepScheduler takes explicit dependencies (not a live al)
+	// precisely so it can be built here, before the lock, from the same
 	// about-to-become-current registry/cfg/rs the evolution bridge above
 	// already used -- never through an unsynchronized read of al's
 	// mutable fields.
-	newSleepBr := newSleepBridge(cfg, registry, al.providerFactory, rs)
+	newSleepBr := newSleepScheduler(cfg, registry, al.providerFactory, rs)
 
 	// newTelemetryBridge is likewise built from explicit dependencies
 	// before the lock (same reasoning as newSleepBr above), and recreated

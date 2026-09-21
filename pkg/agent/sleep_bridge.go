@@ -54,54 +54,131 @@ type sleepBridge struct {
 	wg     sync.WaitGroup
 }
 
-// newSleepBridge constructs the scheduler from explicit, already-resolved
-// dependencies (mirroring newEvolutionBridge's signature style: registry,
-// cfg, provider-ish things, rs -- never a live *AgentLoop whose fields
-// could be concurrently swapped by a reload), or returns nil when there is
-// nothing to schedule (see the doc comment above for the exact
-// conditions). Called from NewAgentLoop and ReloadProviderAndConfig.
-func newSleepBridge(
+// sleepScheduler owns zero or more independent sleepBridge instances, one
+// per distinct effective sleep config among the registry's agents (ADR-019
+// "sono configurável por agente"). With agents.list empty, or with no
+// agent overriding sleep, every agent resolves to the same
+// cfg.Sleep -- exactly one group, one bridge, byte-identical to the single
+// global sleepBridge that existed before per-agent sleep. Nil-receiver-safe
+// like sleepBridge itself; nil when there is nothing to schedule at all.
+type sleepScheduler struct {
+	bridges []*sleepBridge
+}
+
+// Close stops every bridge's timer goroutine and waits for in-flight runs
+// to observe cancellation. Safe on a nil *sleepScheduler.
+func (s *sleepScheduler) Close() error {
+	if s == nil {
+		return nil
+	}
+	for _, b := range s.bridges {
+		b.Close()
+	}
+	return nil
+}
+
+// newSleepScheduler groups the registry's agents by their effective sleep
+// config (Config.EffectiveSleep), then builds one independent sleepBridge
+// per group whose config is actually Enabled and resolves to a valid
+// external model. Called from NewAgentLoop and ReloadProviderAndConfig --
+// never a live *AgentLoop whose fields could be concurrently swapped by a
+// reload.
+func newSleepScheduler(
 	cfg *config.Config,
 	registry *AgentRegistry,
 	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error),
 	rs *runstate.Engine,
+) *sleepScheduler {
+	if cfg == nil || registry == nil {
+		return nil
+	}
+
+	groups := make(map[config.SleepConfig][]string)
+	registry.mu.RLock()
+	for id, agent := range registry.agents {
+		if agent == nil {
+			continue
+		}
+		workspace := strings.TrimSpace(agent.Workspace)
+		if workspace == "" {
+			continue
+		}
+		sleepCfg := cfg.EffectiveSleep(id)
+		found := false
+		for _, w := range groups[sleepCfg] {
+			if w == workspace {
+				found = true
+				break
+			}
+		}
+		if !found {
+			groups[sleepCfg] = append(groups[sleepCfg], workspace)
+		}
+	}
+	registry.mu.RUnlock()
+
+	var bridges []*sleepBridge
+	for sleepCfg, workspaces := range groups {
+		if b := newSleepBridgeForGroup(cfg, sleepCfg, workspaces, registry, providerFactory, rs); b != nil {
+			bridges = append(bridges, b)
+		}
+	}
+	if len(bridges) == 0 {
+		return nil
+	}
+	return &sleepScheduler{bridges: bridges}
+}
+
+// newSleepBridgeForGroup builds one sleepBridge for the agents that share
+// sleepCfg as their effective sleep config, scheduling only those
+// workspaces. Returns nil under exactly the same conditions the single
+// global bridge used to (disabled, no valid external model, no workspace,
+// invalid window) -- see the doc comment on sleepBridge above.
+func newSleepBridgeForGroup(
+	cfg *config.Config,
+	sleepCfg config.SleepConfig,
+	workspaces []string,
+	registry *AgentRegistry,
+	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error),
+	rs *runstate.Engine,
 ) *sleepBridge {
-	if cfg == nil || !cfg.Sleep.Enabled {
+	if !sleepCfg.Enabled {
 		return nil
 	}
-	if !cfg.Sleep.HasValidExternalModel(cfg.ModelList) {
-		logger.WarnC("sleep", "modo dormir requer um modelo externo em sleep.unconscious_model")
+	if !sleepCfg.HasValidExternalModel(cfg.ModelList) {
+		logger.WarnCF("sleep", "modo dormir requer um modelo externo em unconscious_model", map[string]any{
+			"workspaces": workspaces,
+		})
 		return nil
 	}
-	workspaces := registryWorkspaces(registry)
 	if len(workspaces) == 0 {
 		return nil
 	}
-	window, err := sleep.ParseWindow(cfg.Sleep.EffectiveWindow())
+	window, err := sleep.ParseWindow(sleepCfg.EffectiveWindow())
 	if err != nil {
-		logger.WarnCF("sleep", "invalid sleep.window, sleep bridge not scheduling", map[string]any{
-			"window": cfg.Sleep.EffectiveWindow(),
+		logger.WarnCF("sleep", "invalid sleep window, sleep bridge not scheduling", map[string]any{
+			"window": sleepCfg.EffectiveWindow(),
 			"error":  err.Error(),
 		})
 		return nil
 	}
 
 	sessions := newAgentSessionSource(registry)
-	chat := newSleepChatFunc(cfg, providerFactory)
+	chat := newSleepChatFunc(cfg, sleepCfg.UnconsciousModel, providerFactory)
 
-	sleepCfg := sleep.Config{
+	runtimeCfg := sleep.Config{
 		Enabled:          true,
-		Window:           cfg.Sleep.EffectiveWindow(),
-		UnconsciousModel: cfg.Sleep.UnconsciousModel,
-		WeeklyDeep:       cfg.Sleep.WeeklyDeep,
-		MaxTokensBudget:  cfg.Sleep.MaxTokensBudget,
-		DryRun:           cfg.Sleep.DryRun,
+		Window:           sleepCfg.EffectiveWindow(),
+		UnconsciousModel: sleepCfg.UnconsciousModel,
+		WeeklyDeep:       sleepCfg.WeeklyDeep,
+		MaxTokensBudget:  sleepCfg.MaxTokensBudget,
+		DryRun:           sleepCfg.DryRun,
 	}
 
 	bgCtx, cancel := context.WithCancel(context.Background())
 	bridge := &sleepBridge{
-		cfg:        cfg.Sleep,
-		runtime:    sleep.NewRuntime(sleepCfg, sessions, chat),
+		cfg:        sleepCfg,
+		runtime:    sleep.NewRuntime(runtimeCfg, sessions, chat),
 		rs:         rs,
 		workspaces: workspaces,
 		bgCtx:      bgCtx,
@@ -111,9 +188,9 @@ func newSleepBridge(
 	return bridge
 }
 
-// sleepSnapshot returns al's current sleep bridge (nil when disabled),
+// sleepSnapshot returns al's current sleep scheduler (nil when disabled),
 // guarded by mu like focus/reflexes/runstate.
-func (al *AgentLoop) sleepSnapshot() *sleepBridge {
+func (al *AgentLoop) sleepSnapshot() *sleepScheduler {
 	al.mu.RLock()
 	defer al.mu.RUnlock()
 	return al.sleep
@@ -218,6 +295,7 @@ func (b *sleepBridge) runOnceContext(ctx context.Context) error {
 // sleep run preempt itself the instant it started.
 func newSleepChatFunc(
 	cfg *config.Config,
+	unconsciousModel string,
 	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error),
 ) sleep.ChatFunc {
 	if providerFactory == nil {
@@ -230,11 +308,11 @@ func newSleepChatFunc(
 		if err != nil {
 			return sleep.ChatResult{}, err
 		}
-		modelCfg, err := resolvedRuntimeModelConfig(cfg, cfg.Sleep.UnconsciousModel, cfg.Agents.Defaults.Workspace)
+		modelCfg, err := resolvedRuntimeModelConfig(cfg, unconsciousModel, cfg.Agents.Defaults.Workspace)
 		if err != nil {
 			return sleep.ChatResult{}, fmt.Errorf(
 				"sleep: resolving unconscious_model %q: %w",
-				cfg.Sleep.UnconsciousModel,
+				unconsciousModel,
 				err,
 			)
 		}
@@ -243,7 +321,7 @@ func newSleepChatFunc(
 		if err != nil {
 			return sleep.ChatResult{}, fmt.Errorf(
 				"sleep: creating provider for unconscious_model %q: %w",
-				cfg.Sleep.UnconsciousModel,
+				unconsciousModel,
 				err,
 			)
 		}
@@ -252,7 +330,7 @@ func newSleepChatFunc(
 		candidate := providers.FallbackCandidate{
 			Provider:    modelCfg.Provider,
 			Model:       modelID,
-			DisplayName: cfg.Sleep.UnconsciousModel,
+			DisplayName: unconsciousModel,
 		}
 		messages := []providers.Message{
 			{Role: "system", Content: systemPrompt},

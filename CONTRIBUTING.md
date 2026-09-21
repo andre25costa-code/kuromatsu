@@ -78,7 +78,7 @@ go test -run TestName -v ./pkg/session/      # Run a single test
 go test -bench=. -benchmem -run='^$' ./...  # Run benchmarks
 ```
 
-Docker-backed integration suites are auto-discovered from [`integration/suites/`](integration/suites/). See [`integration/README.md`](integration/README.md) for the suite layout and the conventions used by CI.
+Docker-backed integration suites are auto-discovered from [`integration/suites/`](integration/suites/). See [`workspace/skills/kuromatsu-docs/references/testing.md`](workspace/skills/kuromatsu-docs/references/testing.md) for the suite layout and the conventions used by CI.
 
 ### Code Style
 

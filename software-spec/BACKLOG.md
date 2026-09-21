@@ -8,9 +8,107 @@
 > A rodada atual corrige isolamento de memória/shell, confirmação do sono,
 > orçamento/deadline, aliases/horários, origem de configuração e concorrência.
 > Ver [dossiê e validação](../docs/internal-audit-2026-09-16.md).
-> Pendências preservadas: `kuromatsu-docs`, políticas de sono por agente,
-> S36–S38, ensaio de restore e medições no hardware-alvo.
-> `depends_on`: S11, S17, S27, S30, S32, S33, S38.
+> `depends_on`: S11, S17, S27, S30, S32, S33.
+>
+> **Reconciliação 2026-09-21** — As quatro pendências que a rodada anterior
+> preservou (`kuromatsu-docs`, políticas de sono por agente, S36–S38) estão
+> **resolvidas** nesta rodada:
+>
+> - **E8 — skill `kuromatsu-docs`** (`software-spec/entregues/E8-*.md`):
+>   implementada em PT-BR (ADR-010), 8 tópicos + 3 extras migrados dos
+>   READMEs por pasta, que foram removidos (`git ls-files '*README*'` já
+>   reduz a só o raiz). Shim em `.claude/skills/kuromatsu-docs/`.
+> - **Sono por agente** (ADR-019, atualizada v1→v2): `agents.list[].sleep`
+>   sobrescreve campo a campo, `Config.EffectiveSleep`,
+>   `pkg/agent/sleep_bridge.go` reestruturado em `sleepScheduler` (um
+>   `sleepBridge` por grupo de config efetiva), `ValidateSleep` checando
+>   cada override por agente com o gate do ADR-018.
+> - **S36/S37/S38**: capítulos escritos (`07-engineering/36-*.md`,
+>   `37-*.md`, `08-quality-assurance/38-*.md`), todos `confirmed`.
+>
+> **Continuam pendentes** (não é invenção — fora do alcance desta sessão, por
+> motivo explícito, não por esquecimento):
+>
+> - **Ensaio de restore do backup**: explicitamente pausado a pedido do
+>   André ("ignore o backup em kuro, por enquanto — tenho outros planos pra
+>   essa máquina", 2026-09-14) — não revisitado nesta rodada porque a
+>   instrução permanece de pé.
+> - **Medições de desempenho em hardware-alvo real** (Raspberry Pi/edge):
+>   exige hardware físico que não está disponível nesta sessão — não é
+>   simulável de forma honesta, então não foi feito nem estimado.
+> - **Latência do heartbeat nativo e a tarefa cron confusa no Telegram**:
+>   investigados ao vivo em 2026-09-21 — achado real, não é o que o audit de
+>   09-16/09-17 supôs. Ver "Incidente ao vivo — 2026-09-21" abaixo.
+
+## Incidente ao vivo — 2026-09-21: `HEARTBEAT.md` de um ambiente diferente causou loop de cron jobs em produção
+
+Durante a investigação dos dois itens acima, a `demetrius` estava, **naquele
+momento**, com um turno de heartbeat preso desde as 18:43 UTC (25+ min e
+subindo). Achados, em ordem de descoberta:
+
+1. **Velocidade real de inferência confirmada em produção**: 0,47–0,49 tok/s
+   (`prefill_ms` 93–190s, `gen_ms` 150–160s por chamada de LLM). O cache de
+   prefixo funciona (~96% hit) — a lentidão é compute puro do e2-micro, não
+   um bug de cache. A ~4-6min por iteração de tool-call, e com
+   `max_tool_iterations: 50` como teto real, um turno que não convirja pode
+   rodar horas — exatamente o mecanismo por trás dos 12–72min já observados
+   no audit anterior, agora com o número real por iteração.
+2. **A causa raiz não é o mecanismo de cron em si — é `workspace/HEARTBEAT.md`
+   na própria `demetrius`, com conteúdo de um ambiente diferente**: o
+   arquivo instruía "Checagem de Cronograma SM-2" via
+   `python hub_core/hub_cli.py schedule --days 7` e referenciava
+   `C:\Users\pc\Desktop\cronograma.md`/`boletim_diario.md` — caminhos
+   Windows e um script (`hub_core/`) que pertencem ao "hub pessoal" do André
+   no Windows (Galaxy Book 4), não a este servidor Linux. O modelo, seguindo
+   essa instrução ao pé da letra a cada heartbeat, tentou repetidamente
+   "agendar" essa tarefa via `cron add` — e como `cron add` **não é
+   idempotente por `job_id`** (passar o mesmo `job_id` como argumento não
+   impede criar um job novo de verdade), cada tentativa criou um job novo.
+   Resultado, ao longo de ~73 minutos: **7 jobs duplicados** ("Heartbeat
+   check executed", a maioria `0 6 * * *`, um com cron_expr malformado de 6
+   campos), todos filhos do mesmo turno de heartbeat travado.
+3. Isso também fecha, de vez, o item aberto do audit de 09-17 ("resposta
+   confusa no Telegram sobre `exec`"): o job original `a7941f53305cdf3d`
+   usava `payload.message` (vira turno de LLM completo) em vez de
+   `payload.command` (execução determinística, 0 tokens) — o mecanismo
+   certo (`ExecuteJob` já ramifica em `payload.Command != ""`,
+   `pkg/tools/cron.go:624`) sempre existiu no código; o job é que estava
+   configurado errado desde a criação.
+
+**Ações tomadas em produção, com autorização explícita do André**:
+- `systemctl restart kuromatsu` (2×: uma para interromper o turno preso —
+  graciosamente, sem SIGKILL, mesmo padrão já validado antes —, outra depois
+  de corrigir o `jobs.json` em disco, porque o cron não recarrega ao vivo:
+  `pkg/cron/service.go`'s `Load()` só roda uma vez no boot, então o processo
+  que já estava de pé continuaria com os 8 jobs antigos na memória até
+  reiniciar).
+- Removidos os 7 jobs duplicados via `kuromatsu cron remove <id>` (CLI).
+- `a7941f53305cdf3d` corrigido para `payload.command` (checagem
+  determinística: `systemctl is-active kuromatsu && curl -sf
+  http://127.0.0.1:18790/health`), via edição atômica de `jobs.json` com
+  backup (`jobs.json.before-heartbeat-fix-<epoch>`, ao lado do arquivo real
+  — não há `--command` na CLI `cron add`, só na tool do agente).
+- Confirmado pós-restart: exatamente 1 job na lista, `/health` OK,
+  `NRestarts=0`.
+
+**Não corrigido nesta rodada, decisão do André**:
+- **O conteúdo de `HEARTBEAT.md` na `demetrius` continua descrevendo rotinas
+  de outro ambiente** — vai instruir o modelo a tentar a mesma coisa
+  errada no próximo ciclo de heartbeat (intervalo de 60min). Precisa de
+  reescrita com instruções reais para este servidor (ou ficar vazio/mínimo)
+  — conteúdo de workspace, decisão de produto, não algo para eu inventar
+  sozinho.
+- **`cron add` não ser idempotente por `job_id`** é o mecanismo que
+  transformou "uma instrução errada" em "7 jobs duplicados" em vez de "1
+  erro repetido". Corrigir isso (dedup por `job_id` na criação, ou pelo
+  menos um limite de jobs com o mesmo nome) reduziria o dano de qualquer
+  instrução mal-formada futura, mas é mudança de código, fora do escopo
+  desta investigação ao vivo.
+- **`max_tool_iterations: 50` sem limite de tempo** continua permitindo um
+  turno teoricamente multi-hora sob a velocidade real medida. O audit de
+  09-17 já recomendava revisão por tarefa; o número real de agora (0,47-0,49
+  tok/s, 4-6min/iteração) deixa isso mais concreto: 50 iterações × 5min ≈
+  4h de teto teórico para um único turno.
 
 Só o que **não** está entregue. Para o que já foi entregue e auditado, ver
 `entregues/E0..E7,E10-*.md`. IDs (`FR-`, `ADR-`, `S`) nunca mudam de lugar por
