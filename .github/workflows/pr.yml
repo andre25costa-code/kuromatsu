@@ -16,9 +16,6 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Run go generate
-        run: go generate ./...
-
       - name: Golangci Lint
         uses: golangci/golangci-lint-action@v9
         with:
@@ -58,9 +55,6 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-
-      - name: Run go generate
-        run: go generate ./...
 
       - name: Run go test
         run: go test -tags goolm,stdjson ./...

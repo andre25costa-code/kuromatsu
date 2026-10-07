@@ -62,16 +62,6 @@ type bm25DocEntry struct {
 	tf map[string]uint32
 }
 
-// WithK1 overrides the term-frequency saturation constant (default 1.2).
-func WithK1(k1 float64) BM25Option {
-	return func(c *bm25Config) { c.k1 = k1 }
-}
-
-// WithB overrides the document-length normalization factor (default 0.75).
-func WithB(b float64) BM25Option {
-	return func(c *bm25Config) { c.b = b }
-}
-
 // NewBM25Engine creates a BM25Engine for the given corpus.
 //
 //   - corpus   : slice of documents of any type T.

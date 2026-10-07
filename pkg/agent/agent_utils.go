@@ -15,6 +15,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 	"github.com/andre25costa-code/kuromatsu/pkg/session"
 	"github.com/andre25costa-code/kuromatsu/pkg/utils"
 )
@@ -153,35 +154,6 @@ func latestUserContent(messages []providers.Message) string {
 	return ""
 }
 
-func toolFeedbackExplanationFromResponse(
-	response *providers.LLMResponse,
-	messages []providers.Message,
-) string {
-	if response == nil {
-		return ""
-	}
-	explanation := strings.TrimSpace(response.Content)
-	if explanation == "" {
-		explanation = toolFeedbackExplanationFromToolCalls(response.ToolCalls)
-	}
-	if explanation == "" {
-		explanation = toolFeedbackExplanationFromMessages(messages)
-	}
-	return explanation
-}
-
-func toolFeedbackExplanationFromToolCalls(toolCalls []providers.ToolCall) string {
-	for _, tc := range toolCalls {
-		if tc.ExtraContent == nil {
-			continue
-		}
-		if explanation := strings.TrimSpace(tc.ExtraContent.ToolFeedbackExplanation); explanation != "" {
-			return explanation
-		}
-	}
-	return ""
-}
-
 func toolFeedbackExplanationForToolCall(
 	response *providers.LLMResponse,
 	toolCall providers.ToolCall,
@@ -240,87 +212,6 @@ func hookDeniedToolContent(prefix, reason string) string {
 		return prefix
 	}
 	return prefix + ": " + reason
-}
-
-func appendEventContextFields(fields map[string]any, turnCtx *TurnContext) {
-	if turnCtx == nil {
-		return
-	}
-
-	if inbound := turnCtx.Inbound; inbound != nil {
-		if inbound.Channel != "" {
-			fields["inbound_channel"] = inbound.Channel
-		}
-		if inbound.Account != "" {
-			fields["inbound_account"] = inbound.Account
-		}
-		if inbound.ChatID != "" {
-			fields["inbound_chat_id"] = inbound.ChatID
-		}
-		if inbound.ChatType != "" {
-			fields["inbound_chat_type"] = inbound.ChatType
-		}
-		if inbound.TopicID != "" {
-			fields["inbound_topic_id"] = inbound.TopicID
-		}
-		if inbound.SpaceType != "" {
-			fields["inbound_space_type"] = inbound.SpaceType
-		}
-		if inbound.SpaceID != "" {
-			fields["inbound_space_id"] = inbound.SpaceID
-		}
-		if inbound.SenderID != "" {
-			fields["inbound_sender_id"] = inbound.SenderID
-		}
-		if inbound.Mentioned {
-			fields["inbound_mentioned"] = true
-		}
-	}
-
-	if route := turnCtx.Route; route != nil {
-		if route.AgentID != "" {
-			fields["route_agent_id"] = route.AgentID
-		}
-		if route.Channel != "" {
-			fields["route_channel"] = route.Channel
-		}
-		if route.AccountID != "" {
-			fields["route_account_id"] = route.AccountID
-		}
-		if route.MatchedBy != "" {
-			fields["route_matched_by"] = route.MatchedBy
-		}
-		if len(route.SessionPolicy.Dimensions) > 0 {
-			fields["route_dimensions"] = strings.Join(route.SessionPolicy.Dimensions, ",")
-		}
-		if count := len(route.SessionPolicy.IdentityLinks); count > 0 {
-			fields["route_identity_link_count"] = count
-		}
-	}
-
-	if scope := turnCtx.Scope; scope != nil {
-		if scope.Version > 0 {
-			fields["scope_version"] = scope.Version
-		}
-		if scope.AgentID != "" {
-			fields["scope_agent_id"] = scope.AgentID
-		}
-		if scope.Channel != "" {
-			fields["scope_channel"] = scope.Channel
-		}
-		if scope.Account != "" {
-			fields["scope_account"] = scope.Account
-		}
-		if len(scope.Dimensions) > 0 {
-			fields["scope_dimensions"] = strings.Join(scope.Dimensions, ",")
-		}
-		for dim, value := range scope.Values {
-			if dim == "" || value == "" {
-				continue
-			}
-			fields["scope_"+dim] = value
-		}
-	}
 }
 
 func inferMediaType(filename, contentType string) string {
@@ -592,11 +483,88 @@ func closeProviderIfStateful(provider providers.LLMProvider) {
 	}
 }
 
-// activeRequestsInc atomically increments the active request count.
-func (al *AgentLoop) activeRequestsInc() {
+// errRuntimeSuspendedOverloaded is what CallLLM's inner callLLM closure
+// (pipeline_llm.go) returns when activeRequestsInc refuses because
+// runstate.Suspended is active (S09/ADR-016 point 6 -- the memguard,
+// ADR-017, decided the process is critically low on memory and vetoed a
+// new Inference entry). The word "overloaded" is deliberate: pipeline_llm.
+// go's existing error classification (transientLLMRetryReason ->
+// providers.ClassifyError -> overloadedPatterns's substr("overloaded"))
+// already maps any error whose text contains it to FailoverRateLimit
+// (transient, retry-with-backoff) -- the exact same treatment
+// runstate.ErrOverloaded's PreLoad refusal already gets (S17) -- so no new
+// retry logic is needed here, just the right words. Wraps runstate.ErrBusy
+// (%w) so errors.Is(err, runstate.ErrBusy) still recognizes it as the same
+// "busy, try again" family every other gated call site uses.
+var errRuntimeSuspendedOverloaded = fmt.Errorf("runstate: system overloaded (suspended): %w", runstate.ErrBusy)
+
+// waitForRunstateResume blocks until engine's Mode no longer has Suspended
+// set, or until max elapses / ctx is done, whichever comes first. Returns
+// true only if a non-Suspended Mode was actually observed within budget.
+//
+// Exists because errRuntimeSuspendedOverloaded above is deliberately
+// classified as the same "overloaded" family as a provider rate-limit
+// (transient, retry-with-backoff) -- but the generic backoff
+// (agents.defaults.max_llm_retries/llm_retry_backoff_secs, ~6s total by
+// default) is sized for provider rate limits, not for a memguard
+// suspension: recovering from Suspended requires PSISustainSecs of
+// sustained low pressure (pkg/runstate/memguard.go), typically tens of
+// seconds. A caller that detects this specific error can use this to wait
+// on the real resume signal instead of guessing with a fixed sleep.
+//
+// engine nil or max<=0 returns false immediately -- callers must fall
+// through to the generic classification path in that case, which keeps
+// agents.defaults.runstate_resume_wait_secs=0 byte-identical to before
+// this existed.
+func waitForRunstateResume(ctx context.Context, engine *runstate.Engine, max time.Duration) bool {
+	if engine == nil || max <= 0 {
+		return false
+	}
+	ch, cancel := engine.Subscribe()
+	defer cancel()
+
+	timer := time.NewTimer(max)
+	defer timer.Stop()
+
+	for {
+		select {
+		case mode := <-ch:
+			if !mode.Has(runstate.Suspended) {
+				return true
+			}
+		case <-timer.C:
+			return false
+		case <-ctx.Done():
+			return false
+		}
+	}
+}
+
+// activeRequestsInc atomically increments the active request count and the
+// runstate.Inference refcount, refusing when the engine is Suspended
+// (S09/ADR-016 point 6: "enquanto Suspended está ativo, nenhuma nova
+// entrada de Inference/ToolExec/Dream é aceita"). Returns ok=false when
+// refused -- callers must not proceed to call the provider, and must NOT
+// call activeRequestsDec in that case (nothing was incremented, on either
+// counter).
+//
+// This is also the Trilho C Inference hook (ADR-016 point 7): every real
+// LLM call goes through here (pipeline_llm.go's CallLLM, context_legacy.go)
+// paired with activeRequestsDec below, so runstate.Inference tracks the
+// exact same set of "an active request is in flight" moments the pre-
+// existing activeReqCount refcount already tracked -- no new call site,
+// no new invariant to keep in sync. A nil al.runstate (runstate.enabled=
+// false, the default) makes this always succeed, exactly as before C3.
+func (al *AgentLoop) activeRequestsInc() (ok bool) {
+	if rs := al.rsSnapshot(); rs != nil {
+		if _, entered := rs.TryEnter(runstate.Inference); !entered {
+			return false
+		}
+	}
 	al.activeReqMu.Lock()
 	al.activeReqCount++
 	al.activeReqMu.Unlock()
+	return true
 }
 
 // activeRequestsDec atomically decrements the active request count
@@ -609,6 +577,9 @@ func (al *AgentLoop) activeRequestsDec() {
 		al.activeReqCond.Broadcast()
 	}
 	al.activeReqMu.Unlock()
+	if rs := al.rsSnapshot(); rs != nil {
+		rs.Dec(runstate.Inference)
+	}
 }
 
 func (al *AgentLoop) waitForActiveRequests(ctx context.Context, timeout time.Duration) bool {
@@ -692,13 +663,6 @@ func mapCommandError(result commands.ExecuteResult) string {
 		return fmt.Sprintf("Failed to execute command: %v", result.Err)
 	}
 	return fmt.Sprintf("Failed to execute /%s: %v", result.Command, result.Err)
-}
-
-func isNativeSearchProvider(p providers.LLMProvider) bool {
-	if ns, ok := p.(providers.NativeSearchCapable); ok {
-		return ns.SupportsNativeSearch()
-	}
-	return false
 }
 
 func filterClientWebSearch(tools []providers.ToolDefinition) []providers.ToolDefinition {

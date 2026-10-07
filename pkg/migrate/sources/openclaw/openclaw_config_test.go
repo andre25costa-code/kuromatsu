@@ -107,61 +107,6 @@ func TestLoadOpenClawConfig(t *testing.T) {
 	}
 }
 
-func TestGetProviderConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "openclaw.json")
-
-	testConfig := `{
-		"models": {
-			"providers": {
-				"anthropic": {
-					"api_key": "sk-ant-test",
-					"base_url": "https://api.anthropic.com",
-					"max_tokens": 4096
-				},
-				"openai": {
-					"api_key": "sk-test",
-					"base_url": "https://api.openai.com"
-				}
-			}
-		}
-	}`
-
-	err := os.WriteFile(configPath, []byte(testConfig), 0o644)
-	if err != nil {
-		t.Fatalf("failed to write test config: %v", err)
-	}
-
-	cfg, err := LoadOpenClawConfig(configPath)
-	if err != nil {
-		t.Fatalf("failed to load config: %v", err)
-	}
-
-	providers := GetProviderConfig(cfg.Models)
-	if len(providers) != 2 {
-		t.Errorf("expected 2 providers, got %d", len(providers))
-	}
-
-	if anthropic, ok := providers["anthropic"]; ok {
-		if anthropic.APIKey != "sk-ant-test" {
-			t.Errorf("expected anthropic api_key 'sk-ant-test', got '%s'", anthropic.APIKey)
-		}
-		if anthropic.BaseURL != "https://api.anthropic.com" {
-			t.Errorf("expected anthropic base_url 'https://api.anthropic.com', got '%s'", anthropic.BaseURL)
-		}
-	} else {
-		t.Error("anthropic provider not found")
-	}
-
-	if openai, ok := providers["openai"]; ok {
-		if openai.APIKey != "sk-test" {
-			t.Errorf("expected openai api_key 'sk-test', got '%s'", openai.APIKey)
-		}
-	} else {
-		t.Error("openai provider not found")
-	}
-}
-
 func TestConvertToKuromatsu(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "openclaw.json")
@@ -292,7 +237,7 @@ func TestConvertToKuromatsu(t *testing.T) {
 	}
 }
 
-func TestToStandardConfig_ExecAllowRemoteDefaultsTrue(t *testing.T) {
+func TestToStandardConfig_ExecAllowRemoteDefaultsFalse(t *testing.T) {
 	cfg := (&KuromatsuConfig{
 		Tools: ToolsConfig{
 			Exec: ExecConfig{
@@ -301,8 +246,8 @@ func TestToStandardConfig_ExecAllowRemoteDefaultsTrue(t *testing.T) {
 		},
 	}).ToStandardConfig()
 
-	if !cfg.Tools.Exec.AllowRemote {
-		t.Fatal("ToStandardConfig() should preserve the default tools.exec.allow_remote=true")
+	if cfg.Tools.Exec.AllowRemote {
+		t.Fatal("ToStandardConfig() should preserve the default tools.exec.allow_remote=false")
 	}
 }
 
@@ -607,31 +552,6 @@ func TestHasFunctions(t *testing.T) {
 	}
 	if cfg2.HasMemory() {
 		t.Error("should not have memory")
-	}
-}
-
-func TestLoadOpenClawConfigFromDir(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "openclaw.json")
-
-	testConfig := `{"agents": {}}`
-	err := os.WriteFile(configPath, []byte(testConfig), 0o644)
-	if err != nil {
-		t.Fatalf("failed to write test config: %v", err)
-	}
-
-	cfg, err := LoadOpenClawConfigFromDir(tmpDir)
-	if err != nil {
-		t.Fatalf("failed to load config from dir: %v", err)
-	}
-
-	if cfg.Agents == nil {
-		t.Error("agents should not be nil")
-	}
-
-	_, err = LoadOpenClawConfigFromDir("/nonexistent/dir")
-	if err == nil {
-		t.Error("should return error for nonexistent dir")
 	}
 }
 

@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -57,66 +56,6 @@ func newConfiguredHookLoop(t *testing.T, provider *llmHookTestProvider, hooks co
 	}
 
 	return NewAgentLoop(cfg, bus.NewMessageBus(), provider)
-}
-
-func TestAgentLoop_ProcessDirectWithChannel_AutoMountsBuiltinHook(t *testing.T) {
-	const hookName = "test-auto-builtin-hook"
-
-	if err := RegisterBuiltinHook(hookName, func(
-		ctx context.Context,
-		spec config.BuiltinHookConfig,
-	) (any, error) {
-		var hookCfg builtinAutoHookConfig
-		if len(spec.Config) > 0 {
-			if err := json.Unmarshal(spec.Config, &hookCfg); err != nil {
-				return nil, err
-			}
-		}
-		return &builtinAutoHook{
-			model:  hookCfg.Model,
-			suffix: hookCfg.Suffix,
-		}, nil
-	}); err != nil {
-		t.Fatalf("RegisterBuiltinHook failed: %v", err)
-	}
-	t.Cleanup(func() {
-		unregisterBuiltinHook(hookName)
-	})
-
-	rawCfg, err := json.Marshal(builtinAutoHookConfig{
-		Model:  "builtin-model",
-		Suffix: "|builtin",
-	})
-	if err != nil {
-		t.Fatalf("json.Marshal failed: %v", err)
-	}
-
-	provider := &llmHookTestProvider{}
-	al := newConfiguredHookLoop(t, provider, config.HooksConfig{
-		Enabled: true,
-		Builtins: map[string]config.BuiltinHookConfig{
-			hookName: {
-				Enabled: true,
-				Config:  rawCfg,
-			},
-		},
-	})
-	defer al.Close()
-
-	resp, err := al.ProcessDirectWithChannel(context.Background(), "hello", "session-1", "cli", "direct")
-	if err != nil {
-		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
-	}
-	if resp != "provider content|builtin" {
-		t.Fatalf("expected builtin-hooked content, got %q", resp)
-	}
-
-	provider.mu.Lock()
-	lastModel := provider.lastModel
-	provider.mu.Unlock()
-	if lastModel != "builtin-model" {
-		t.Fatalf("expected builtin model, got %q", lastModel)
-	}
 }
 
 func TestAgentLoop_ProcessDirectWithChannel_AutoMountsProcessHook(t *testing.T) {

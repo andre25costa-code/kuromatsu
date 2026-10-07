@@ -2,9 +2,6 @@ package seahorse
 
 import (
 	"time"
-
-	"github.com/andre25costa-code/kuromatsu/pkg/providers"
-	"github.com/andre25costa-code/kuromatsu/pkg/tokenizer"
 )
 
 // SummaryKind distinguishes leaf summaries (from raw messages) vs condensed
@@ -128,36 +125,4 @@ type SearchResult struct {
 	CreatedAt      time.Time   `json:"createdAt"`
 	Rank           float64     `json:"rank,omitempty"`
 	TotalCount     int         `json:"totalCount,omitempty"` // Total matching rows (from window function)
-}
-
-// EstimateMessageTokens estimates token count for a full message using the
-// shared tokenizer package for consistency with agent.context_budget.
-func EstimateMessageTokens(msg Message) int {
-	pm := providers.Message{
-		Role:             msg.Role,
-		Content:          msg.Content,
-		ModelName:        msg.ModelName,
-		ReasoningContent: msg.ReasoningContent,
-	}
-
-	// Convert MessageParts to ToolCalls / ToolCallID / Media
-	for _, part := range msg.Parts {
-		switch part.Type {
-		case "tool_use":
-			pm.ToolCalls = append(pm.ToolCalls, providers.ToolCall{
-				ID:   part.ToolCallID,
-				Type: "function",
-				Function: &providers.FunctionCall{
-					Name:      part.Name,
-					Arguments: part.Arguments,
-				},
-			})
-		case "tool_result":
-			pm.ToolCallID = part.ToolCallID
-		case "media":
-			pm.Media = append(pm.Media, part.MediaURI)
-		}
-	}
-
-	return tokenizer.EstimateMessageTokens(pm)
 }

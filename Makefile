@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test integration-test build-all llama-lib llama-lib-arm64 llama-lib-x86-64 build-native build-native-arm64 build-native-x86-64 nativebench-x86-64 run-native bench-native docker-build-native docker-save-native
+.PHONY: all build install uninstall clean help test integration-test build-all llama-lib llama-lib-arm64 llama-lib-x86-64 build-native build-native-arm64 build-native-x86-64 nativebench-x86-64 localllm-integration-test-x86-64 run-native bench-native docker-build-native docker-save-native
 
 # Build variables
 BINARY_NAME=kuromatsu
@@ -186,20 +186,8 @@ BINARY_PATH=$(BUILD_DIR)/$(BINARY_NAME)-$(PLATFORM)-$(ARCH)
 # Default target
 all: build
 
-## generate: Run generate
-generate:
-	@echo "Run generate..."
-ifeq ($(OS),Windows_NT)
-	@$(POWERSHELL) "if (Test-Path -LiteralPath './$(CMD_DIR)/workspace') { Remove-Item -LiteralPath './$(CMD_DIR)/workspace' -Recurse -Force }"
-	@$(POWERSHELL) "$$env:GOOS=''; $$env:GOARCH=''; $(GO) generate ./..."
-else
-	@rm -r ./$(CMD_DIR)/workspace 2>/dev/null || true
-	@GOOS=$$($(GO) env GOHOSTOS) GOARCH=$$($(GO) env GOHOSTARCH) $(GO) generate ./...
-endif
-	@echo "Run generate complete"
-
 ## build: Build the kuromatsu binary for current platform
-build: generate
+build:
 	@echo "Building $(BINARY_NAME)$(EXT) for $(PLATFORM)/$(ARCH)..."
 ifeq ($(OS),Windows_NT)
 	@$(POWERSHELL) "New-Item -ItemType Directory -Force -Path '$(BUILD_DIR)' | Out-Null"
@@ -214,7 +202,7 @@ endif
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)$(EXT)"
 
 ## build-whatsapp-native: Build with WhatsApp native (whatsmeow) support; larger binary
-build-whatsapp-native: generate
+build-whatsapp-native:
 ## @echo "Building $(BINARY_NAME) with WhatsApp native for $(PLATFORM)/$(ARCH)..."
 	@echo "Building for multiple platforms..."
 	@mkdir -p $(BUILD_DIR)
@@ -232,21 +220,21 @@ build-whatsapp-native: generate
 ##	@ln -sf $(BINARY_NAME)-$(PLATFORM)-$(ARCH) $(BUILD_DIR)/$(BINARY_NAME)
 
 ## build-linux-arm: Build for Linux ARMv7 (e.g. Raspberry Pi Zero 2 W 32-bit)
-build-linux-arm: generate
+build-linux-arm:
 	@echo "Building for linux/arm (GOARM=7)..."
 	@mkdir -p $(BUILD_DIR)
 	GOOS=linux GOARCH=arm GOARM=7 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm ./$(CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-linux-arm"
 
 ## build-linux-arm64: Build for Linux ARM64 (e.g. Raspberry Pi Zero 2 W 64-bit)
-build-linux-arm64: generate
+build-linux-arm64:
 	@echo "Building for linux/arm64..."
 	@mkdir -p $(BUILD_DIR)
 	GOOS=linux GOARCH=arm64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64 ./$(CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64"
 
 ## build-linux-mipsle: Build for Linux MIPS32 LE
-build-linux-mipsle: generate
+build-linux-mipsle:
 	@echo "Building for linux/mipsle (softfloat)..."
 	@mkdir -p $(BUILD_DIR)
 	GOOS=linux GOARCH=mipsle GOMIPS=softfloat $(GO) build $(GOFLAGS_NO_GOOLM) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-mipsle ./$(CMD_DIR)
@@ -254,7 +242,7 @@ build-linux-mipsle: generate
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-linux-mipsle"
 
 ## build-android-arm64: Build core for Android ARM64
-build-android-arm64: generate
+build-android-arm64:
 	@echo "Building for android/arm64..."
 	@mkdir -p $(BUILD_DIR)
 	GOOS=android GOARCH=arm64 $(GO) build -tags stdjson -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-android-arm64 ./$(CMD_DIR)
@@ -346,14 +334,14 @@ llama-lib-arm64:
 	@cp -f $(LLAMA_BUILD_DIR_ARM64)/lib/*.a $(LLAMA_BUILD_DIR)/lib/
 
 ## build-native: Build the binary with in-process inference (host CPU, cgo)
-build-native: generate llama-lib
+build-native: llama-lib
 	CGO_ENABLED=1 $(GO) build $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
 		-o $(BUILD_DIR)/$(BINARY_NAME)-native$(EXT) ./$(CMD_DIR)
 	@echo "Build complete: $(BUILD_DIR)/$(BINARY_NAME)-native$(EXT)"
 
 ## build-native-x86-64: PRIMARY deploy binary (ADR-012) -- pinned AVX2
 ## baseline, always a native compile (no cross-toolchain, no QEMU).
-build-native-x86-64: generate llama-lib-x86-64
+build-native-x86-64: llama-lib-x86-64
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
 		-o $(BUILD_DIR)/$(BINARY_NAME)-native-linux-amd64 ./$(CMD_DIR)
 
@@ -363,16 +351,28 @@ build-native-x86-64: generate llama-lib-x86-64
 ## the C++ build a second time when run right after build-native-x86-64 in
 ## the same Dockerfile stage. No model download, no execution -- just the
 ## binary, shipped in the image so S39 can be (re)measured on the real box.
-nativebench-x86-64: generate
+nativebench-x86-64:
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
 		-o $(BUILD_DIR)/nativebench-linux-amd64 ./cmd/nativebench
+
+## localllm-integration-test-x86-64: Build (but don't run) the opt-in cgo
+## integration test binary for pkg/providers/localllm -- includes
+## TestCgoEngine_CoreParking_Integration (B2), which needs the real GGUF and
+## the full cgo toolchain, neither available on a 1GB deploy target. Same
+## deal as nativebench-x86-64: shipped self-contained (static llama.a, no
+## runtime deps beyond glibc) so it can be copied to any host with the real
+## model and run standalone with `-test.run`, `KUROMATSU_INTEGRATION_TESTS=1`
+## and `KUROMATSU_TEST_MODEL=<path>` -- no Go toolchain needed there.
+localllm-integration-test-x86-64:
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 $(GO) test -c $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
+		-o $(BUILD_DIR)/localllm-integration-test-linux-amd64 ./pkg/providers/localllm/
 
 ## build-native-arm64: SECONDARY/future target, see llama-lib-arm64 above.
 ## True cross-compile of the full binary for linux/arm64, running natively on
 ## the amd64 build host (ADR-011) -- no QEMU. Same cross-toolchain as
 ## llama-lib-arm64; cgo cross-compiles fine once CC/CXX point at a valid
 ## cross-compiler.
-build-native-arm64: generate llama-lib-arm64
+build-native-arm64: llama-lib-arm64
 	CC=$(ARM64_CC) CXX=$(ARM64_CXX) CGO_ENABLED=1 GOOS=linux GOARCH=arm64 \
 		$(GO) build $(GOFLAGS),nativellm -ldflags "$(LDFLAGS)" \
 		-o $(BUILD_DIR)/$(BINARY_NAME)-native-linux-arm64 ./$(CMD_DIR)
@@ -388,7 +388,7 @@ bench-native: build-native model-download
 	@$(BUILD_DIR)/nativebench$(EXT) -model models/Bonsai-1.7B-Q1_0.gguf
 
 ## build-all: Build the kuromatsu core binary for all Makefile-managed platforms
-build-all: generate
+build-all:
 	@echo "Building for multiple platforms..."
 	@mkdir -p $(BUILD_DIR)
 	GOOS=linux GOARCH=amd64 $(GO) build $(GOFLAGS) -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64 ./$(CMD_DIR)
@@ -443,11 +443,11 @@ endif
 	@echo "Clean complete"
 
 ## vet: Run go vet for static analysis
-vet: generate
+vet:
 	@$(GO) vet $(GOFLAGS) ./...
 
 ## test: Test Go code
-test: generate
+test:
 	@$(GO) test $(GOFLAGS) ./...
 
 ## integration-test: Run Docker-backed integration test suites
@@ -544,25 +544,6 @@ docker-save-native: docker-build-native
 	@echo "Saved: $(BUILD_DIR)/kuromatsu-native-amd64.tar.gz"
 	@echo "Deploy: scp it to the server, then 'gunzip -c kuromatsu-native-amd64.tar.gz | docker load'"
 
-
-## mem: Build membench, download LOCOMO data (if needed), run benchmark, and show results
-mem:
-	@echo "Building membench..."
-	@mkdir -p $(BUILD_DIR)
-	@$(GO) build -o $(BUILD_DIR)/membench ./cmd/membench
-	@echo "Build complete: $(BUILD_DIR)/membench"
-	@if [ ! -f $(BUILD_DIR)/memdata/locomo10.json ]; then \
-		echo "Downloading LOCOMO dataset..."; \
-		mkdir -p $(BUILD_DIR)/memdata; \
-		curl -sfL "https://raw.githubusercontent.com/snap-research/locomo/main/data/locomo10.json" \
-			-o $(BUILD_DIR)/memdata/locomo10.json && [ -s $(BUILD_DIR)/memdata/locomo10.json ] || { echo "Error: LOCOMO download failed"; exit 1; }; \
-		echo "Download complete"; \
-	else \
-		echo "LOCOMO dataset already exists, skipping download"; \
-	fi
-	@echo "Running benchmark..."
-	@rm -rf $(BUILD_DIR)/memout
-	@$(BUILD_DIR)/membench run --data $(BUILD_DIR)/memdata --out $(BUILD_DIR)/memout --budget 4000
 
 ## help: Show this help message
 help:

@@ -19,6 +19,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/media"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 	"github.com/andre25costa-code/kuromatsu/pkg/routing"
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 	"github.com/andre25costa-code/kuromatsu/pkg/session"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
@@ -851,6 +852,178 @@ func TestAgentLoop_Run_AutoContinuesLateSteeringMessage(t *testing.T) {
 	}
 }
 
+// lateSteeringFailingContinuationProvider is lateSteeringProvider's mirror
+// for the case the continuation itself fails -- the exact shape of the
+// 2026-09-14 production incident (a memguard-suspension error on the
+// steering continuation call).
+type lateSteeringFailingContinuationProvider struct {
+	mu               sync.Mutex
+	calls            int
+	firstCallStarted chan struct{}
+	releaseFirstCall chan struct{}
+	firstStartOnce   sync.Once
+}
+
+func (p *lateSteeringFailingContinuationProvider) Chat(
+	ctx context.Context,
+	messages []providers.Message,
+	tools []providers.ToolDefinition,
+	model string,
+	opts map[string]any,
+) (*providers.LLMResponse, error) {
+	p.mu.Lock()
+	p.calls++
+	call := p.calls
+	p.mu.Unlock()
+
+	if call == 1 {
+		p.firstStartOnce.Do(func() { close(p.firstCallStarted) })
+		<-p.releaseFirstCall
+		return &providers.LLMResponse{Content: "the original 683-char answer"}, nil
+	}
+
+	return nil, fmt.Errorf("runstate: system overloaded (suspended): %w", runstate.ErrBusy)
+}
+
+func (p *lateSteeringFailingContinuationProvider) GetDefaultModel() string {
+	return "late-steering-failing-continuation-mock"
+}
+
+// TestRunTurnWithSteering_OriginalResponsePreservedWhenContinuationFails
+// reproduces the exact 2026-09-14 production incident end-to-end through
+// the real Telegram entry point (Run -> runTurnWithSteering, not
+// ProcessDirectWithChannel): a direct response is generated, a steering
+// message arrives before the turn ends, and the automatic continuation
+// triggered by drainQueuedSteeringContinuations fails (here simulating the
+// memguard suspension the real incident hit). The original response must
+// still be delivered -- pipeline_llm.go no longer discards it pre-emptively
+// (A.1), and runTurnWithSteering already preserves finalResponse when
+// continueErr != nil (agent_steering.go) rather than overwriting it with an
+// empty/failed result.
+func TestRunTurnWithSteering_OriginalResponsePreservedWhenContinuationFails(t *testing.T) {
+	tmpDir := t.TempDir()
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         tmpDir,
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+				// Small explicit values (not 0 -- pipeline_llm.go treats
+				// <=0 as "use the 2/2s default") so the continuation's
+				// failed retries resolve in ~1s instead of the production
+				// default's 2s+4s=6s: this test is about finalResponse
+				// being preserved on failure, not about retry timing
+				// (that's TestPipelineLLM_ErrBusy_UsesOwnWaitBudget_NotGenericBackoff).
+				MaxLLMRetries:       1,
+				LLMRetryBackoffSecs: 1,
+			},
+		},
+	}
+
+	msgBus := bus.NewMessageBus()
+	provider := &lateSteeringFailingContinuationProvider{
+		firstCallStarted: make(chan struct{}),
+		releaseFirstCall: make(chan struct{}),
+	}
+	al := NewAgentLoop(cfg, msgBus, provider)
+
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	defer cancelRun()
+
+	runErrCh := make(chan error, 1)
+	go func() {
+		runErrCh <- al.Run(runCtx)
+	}()
+
+	// Explicit SessionKey (not auto-derived from channel/chatID) so this
+	// test can deterministically wait for the steering message to actually
+	// land in the queue before releasing the first call, instead of racing
+	// PublishInbound against close(releaseFirstCall) -- the auto-derived-key
+	// version of this pattern (TestAgentLoop_Run_AutoContinuesLateSteeringMessage)
+	// is flaky under full-package load for exactly this reason.
+	// A plain string here would be silently ignored: resolveScopeKey
+	// (agent_utils.go) only honors msg.SessionKey when
+	// session.IsExplicitSessionKey is true, else it falls back to the
+	// auto-derived route session key regardless -- BuildOpaqueSessionKey
+	// is what makes it "explicit" (matches the pattern already used a few
+	// hundred lines up in this same file for the identical reason).
+	testSessionKey := session.BuildOpaqueSessionKey("agent:main:test:incident-repro")
+	first := bus.InboundMessage{
+		Context: bus.InboundContext{
+			Channel: "test", ChatID: "chat1", ChatType: "direct", SenderID: "user1",
+		},
+		Content:    "o que você consegue fazer?",
+		SessionKey: testSessionKey,
+	}
+	late := bus.InboundMessage{
+		Context: bus.InboundContext{
+			Channel: "test", ChatID: "chat1", ChatType: "direct", SenderID: "user1",
+		},
+		Content:    "ainda esta ai",
+		SessionKey: testSessionKey,
+	}
+
+	pubCtx, pubCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer pubCancel()
+	if err := msgBus.PublishInbound(pubCtx, first); err != nil {
+		t.Fatalf("publish first inbound: %v", err)
+	}
+
+	select {
+	case <-provider.firstCallStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for first provider call to start")
+	}
+
+	if err := msgBus.PublishInbound(pubCtx, late); err != nil {
+		t.Fatalf("publish late inbound: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for al.pendingSteeringCountForScope(testSessionKey) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("timeout waiting for the late message to enter the steering queue")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	close(provider.releaseFirstCall)
+
+	subCtx, subCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer subCancel()
+
+	var out bus.OutboundMessage
+	select {
+	case out = <-msgBus.OutboundChan():
+	case <-subCtx.Done():
+		t.Fatal("expected an outbound response despite the continuation failing")
+	}
+	if out.Content != "the original 683-char answer" {
+		t.Fatalf("original response was lost: got %q, want the original answer preserved", out.Content)
+	}
+
+	cancelRun()
+	select {
+	case err := <-runErrCh:
+		if err != nil {
+			t.Fatalf("Run returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timeout waiting for Run to stop")
+	}
+
+	provider.mu.Lock()
+	calls := provider.calls
+	provider.mu.Unlock()
+	// 1 original call + 2 attempts for the continuation (MaxLLMRetries: 1
+	// allows exactly 1 retry beyond the continuation's own initial attempt,
+	// both of which fail here) = 3.
+	if calls != 3 {
+		t.Fatalf("expected 3 provider calls (original + 2 failed continuation attempts), got %d", calls)
+	}
+}
+
 func TestAgentLoop_Run_QueuedVoiceMessageIsTranscribedBeforeSteering(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &config.Config{
@@ -1152,7 +1325,24 @@ func TestAgentLoop_Run_PendingStopStillContinuesQueuedFollowUp(t *testing.T) {
 	}
 }
 
-func TestAgentLoop_Steering_DirectResponseContinuesWithQueuedMessage(t *testing.T) {
+// TestAgentLoop_Steering_DirectResponsePreservedWhenSteeringArrivesMidCall
+// replaces the old TestAgentLoop_Steering_DirectResponseContinuesWithQueuedMessage,
+// which asserted the exact bug found in production 2026-09-14: a steering
+// message arriving while a direct (no-tool-call) response was in flight used
+// to discard that already-generated response and fold the steering into a
+// second, "fresher" call instead -- fine when the second call succeeds, but
+// the real incident was a case where it didn't, and the first response
+// (683 real chars, here "stale direct response") was lost with nothing ever
+// delivered. pipeline_llm.go's no-tool-call path no longer does this: a
+// direct response is always finalized and returned immediately.
+// ProcessDirectWithChannel (used by cron and other synchronous direct
+// callers, not the interactive Telegram loop) has no continuation-draining
+// step of its own -- draining a still-queued steering message afterward is
+// runTurnWithSteering's job (agent_steering.go's
+// drainQueuedSteeringContinuations, covered by
+// TestAgentLoop_Run_AutoContinuesLateSteeringMessage above), so the queued
+// message here is expected to remain queued, not silently dropped.
+func TestAgentLoop_Steering_DirectResponsePreservedWhenSteeringArrivesMidCall(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "agent-test-*")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)
@@ -1215,8 +1405,8 @@ func TestAgentLoop_Steering_DirectResponseContinuesWithQueuedMessage(t *testing.
 		if result.err != nil {
 			t.Fatalf("unexpected error: %v", result.err)
 		}
-		if result.resp != "fresh response after steering" {
-			t.Fatalf("expected refreshed response, got %q", result.resp)
+		if result.resp != "stale direct response" {
+			t.Fatalf("expected the original response to be preserved and delivered, got %q", result.resp)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("timeout waiting for ProcessDirectWithChannel")
@@ -1225,12 +1415,16 @@ func TestAgentLoop_Steering_DirectResponseContinuesWithQueuedMessage(t *testing.
 	provider.mu.Lock()
 	calls := provider.calls
 	provider.mu.Unlock()
-	if calls != 2 {
-		t.Fatalf("expected 2 provider calls, got %d", calls)
+	if calls != 1 {
+		t.Fatalf("expected exactly 1 provider call (no inline continuation), got %d", calls)
 	}
 
-	if msgs := al.dequeueSteeringMessagesForScope(sessionKey); len(msgs) != 0 {
-		t.Fatalf("expected steering queue to be empty after continuation, got %v", msgs)
+	msgs := al.dequeueSteeringMessagesForScope(sessionKey)
+	if len(msgs) != 1 {
+		t.Fatalf("expected the steering message to remain queued for a later drain, got %v", msgs)
+	}
+	if msgs[0].Content != "follow-up instruction" {
+		t.Fatalf("queued steering message content = %q, want %q", msgs[0].Content, "follow-up instruction")
 	}
 }
 

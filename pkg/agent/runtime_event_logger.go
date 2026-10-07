@@ -94,14 +94,6 @@ func closeRuntimeEventLoggerSubscription(sub runtimeevents.Subscription) {
 	}
 }
 
-func newRuntimeEventLogger(cfg *config.Config) *runtimeEventLogger {
-	logCfg := config.EffectiveEventLoggingConfig(cfg)
-	if !logCfg.Enabled {
-		return nil
-	}
-	return newRuntimeEventLoggerFromConfig(logCfg)
-}
-
 func newRuntimeEventLoggerFromConfig(logCfg config.EventLoggingConfig) *runtimeEventLogger {
 	return &runtimeEventLogger{cfg: logCfg}
 }

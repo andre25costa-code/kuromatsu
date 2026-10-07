@@ -1,6 +1,10 @@
 package providers
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/common"
+)
 
 // ModelProviderOption describes a canonical provider entry exposed to the Web UI.
 // It also serves as the backend-owned source of truth for shared provider metadata.
@@ -329,7 +333,7 @@ var modelProviderOptionsByName = map[string]ModelProviderOption{
 		DefaultModelAllowed: true,
 		Local:               true,
 		Priority:            51,
-		Aliases:             []string{"bonsai", "kuro"},
+		Aliases:             common.NativeProviderAliases(),
 	},
 	"ollama": {
 		ID:                  "ollama",

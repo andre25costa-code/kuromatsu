@@ -14,12 +14,29 @@ import (
 // AllowDestructive and denied by default (BR-007/AC-011-2).
 type SysmonTool struct {
 	allowDestructive bool
+
+	// stateReader is the Trilho C runstate bridge (ADR-016 point 5): when
+	// set, action=state reports the injected snapshot. nil (the default,
+	// when WithStateReader is never called) makes action=state report a
+	// clear "not available" message instead of erroring -- sysmon's other
+	// actions are completely unaffected either way (FR-011 unchanged).
+	stateReader func() (bits uint32, names []string)
 }
 
 // NewSysmonTool creates a SysmonTool. allowDestructive gates the "kill" and
-// "renice" proc actions; read-only actions (mem/top/load/disk) always work.
+// "renice" proc actions; read-only actions (mem/top/load/disk/state) always
+// work.
 func NewSysmonTool(allowDestructive bool) *SysmonTool {
 	return &SysmonTool{allowDestructive: allowDestructive}
+}
+
+// WithStateReader injects the runstate snapshot reader action=state
+// reports (instance.go, C2). Returns the receiver so callers can chain it
+// onto NewSysmonTool the same way NewWriteFileTool.SetAlternativeTools is
+// chained elsewhere in this package.
+func (t *SysmonTool) WithStateReader(reader func() (bits uint32, names []string)) *SysmonTool {
+	t.stateReader = reader
+	return t
 }
 
 func (t *SysmonTool) Name() string {
@@ -31,7 +48,8 @@ func (t *SysmonTool) Description() string {
 		"container/cgroup limit when running in Docker), the top N processes by " +
 		"RSS, load average, and disk usage. Can also send a signal to a process " +
 		"(action=proc, op=kill) or change its scheduling priority (op=renice), " +
-		"both of which are disabled unless explicitly allowed in config."
+		"both of which are disabled unless explicitly allowed in config. " +
+		"action=state reports what the agent is doing right now (runstate)."
 }
 
 func (t *SysmonTool) Parameters() map[string]any {
@@ -41,7 +59,7 @@ func (t *SysmonTool) Parameters() map[string]any {
 			"action": map[string]any{
 				"type":        "string",
 				"description": "What to inspect or do.",
-				"enum":        []string{"mem", "top", "load", "disk", "proc"},
+				"enum":        []string{"mem", "top", "load", "disk", "proc", "state"},
 			},
 			"limit": map[string]any{
 				"type":        "integer",
@@ -86,9 +104,27 @@ func (t *SysmonTool) Execute(_ context.Context, args map[string]any) *ToolResult
 		return sysmonDiskResult()
 	case "proc":
 		return t.executeProc(args)
+	case "state":
+		return t.executeState()
 	default:
-		return ErrorResult(fmt.Sprintf("unknown action %q; must be one of: mem, top, load, disk, proc", action))
+		return ErrorResult(fmt.Sprintf("unknown action %q; must be one of: mem, top, load, disk, proc, state", action))
 	}
+}
+
+// executeState reports the runstate snapshot injected via WithStateReader,
+// or a clear "not available" result when no reader was ever injected
+// (runstate.enabled=false, the default -- FR-011 stays otherwise
+// unaffected).
+func (t *SysmonTool) executeState() *ToolResult {
+	if t.stateReader == nil {
+		return NewToolResult("runstate is not enabled (runstate.enabled=false)")
+	}
+	bits, names := t.stateReader()
+	label := "idle"
+	if len(names) > 0 {
+		label = strings.Join(names, ",")
+	}
+	return NewToolResult(fmt.Sprintf("bits=%d names=%s", bits, label))
 }
 
 func (t *SysmonTool) executeProc(args map[string]any) *ToolResult {

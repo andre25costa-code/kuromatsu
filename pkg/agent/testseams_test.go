@@ -1,0 +1,236 @@
+package agent
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/tools"
+)
+
+// Test seams: helpers that only tests use. They live here, outside the
+// production binary, after the dead-code cleanup moved them out of the
+// package sources.
+
+func (r *mcpRuntime) hasManager() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.manager != nil
+}
+
+func NamedHook(name string, hook any) HookRegistration {
+	return HookRegistration{
+		Name:   name,
+		Source: HookSourceInProcess,
+		Hook:   hook,
+	}
+}
+
+// SubscribeEvents exposes the previous in-agent event subscription API on top
+// of the runtime event bus for tests and compatibility.
+func (al *AgentLoop) SubscribeEvents(buffer int) EventSubscription {
+	if buffer <= 0 {
+		buffer = defaultEventSubscriberBuffer
+	}
+
+	out := make(chan Event, buffer)
+	if al == nil || al.runtimeEvents == nil {
+		close(out)
+		return EventSubscription{C: out}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sub, in, err := al.runtimeEvents.Channel().
+		Source("agent").
+		OfKind(legacyAgentEventKinds()...).
+		SubscribeChan(ctx, runtimeevents.SubscribeOptions{
+			Name:   "legacy-agent-events",
+			Buffer: buffer,
+		})
+	if err != nil {
+		cancel()
+		close(out)
+		return EventSubscription{C: out}
+	}
+
+	id := legacyEventSubSeq.Add(1)
+	legacyEventSubLock.Store(id, legacyEventSubscription{cancel: cancel, sub: sub})
+	go func() {
+		defer legacyEventSubLock.LoadAndDelete(id)
+		defer close(out)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case evt, ok := <-in:
+				if !ok {
+					return
+				}
+				select {
+				case out <- legacyEventFromRuntimeEvent(evt):
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	return EventSubscription{ID: id, C: out}
+}
+
+func (al *AgentLoop) UnsubscribeEvents(id uint64) {
+	if id == 0 {
+		return
+	}
+	value, ok := legacyEventSubLock.LoadAndDelete(id)
+	if !ok {
+		return
+	}
+	sub, ok := value.(legacyEventSubscription)
+	if !ok {
+		logger.WarnCF("agent", "UnsubscribeEvents: unexpected type in subscription map", map[string]any{
+			"id":   id,
+			"type": fmt.Sprintf("%T", value),
+		})
+		return
+	}
+	sub.cancel()
+	if sub.sub != nil {
+		_ = sub.sub.Close()
+	}
+}
+
+func newRuntimeEventLogger(cfg *config.Config) *runtimeEventLogger {
+	logCfg := config.EffectiveEventLoggingConfig(cfg)
+	if !logCfg.Enabled {
+		return nil
+	}
+	return newRuntimeEventLoggerFromConfig(logCfg)
+}
+
+// push enqueues a steering message in the legacy fallback scope.
+func (sq *steeringQueue) push(msg providers.Message) error {
+	return sq.pushScope(manualSteeringScope, msg)
+}
+
+// dequeue removes and returns pending steering messages from the legacy
+// fallback scope according to the configured mode.
+func (sq *steeringQueue) dequeue() []providers.Message {
+	return sq.dequeueScope(manualSteeringScope)
+}
+
+// len returns the number of queued messages across all scopes.
+func (sq *steeringQueue) len() int {
+	sq.mu.Lock()
+	defer sq.mu.Unlock()
+
+	total := 0
+	for _, queue := range sq.queues {
+		total += len(queue)
+	}
+	return total
+}
+
+// dequeueSteeringMessages is the internal method called by the agent loop
+// to poll for steering messages in the legacy fallback scope.
+func (al *AgentLoop) dequeueSteeringMessages() []providers.Message {
+	if al.steering == nil {
+		return nil
+	}
+	return al.steering.dequeue()
+}
+
+// dequeuePendingSubTurnResults polls the SubTurn result channel for the given
+// session and returns all available results without blocking.
+// Returns nil if no active turn state exists for this session.
+func (al *AgentLoop) dequeuePendingSubTurnResults(sessionKey string) []*tools.ToolResult {
+	tsInterface, ok := al.activeTurnStates.Load(sessionKey)
+	if !ok {
+		return nil
+	}
+	ts, ok := tsInterface.(*turnState)
+	if !ok {
+		return nil
+	}
+
+	var results []*tools.ToolResult
+	for {
+		select {
+		case result, ok := <-ts.pendingResults:
+			if !ok {
+				return results
+			}
+			if result != nil {
+				results = append(results, result)
+			}
+		default:
+			return results
+		}
+	}
+}
+
+func legacyEventFromRuntimeEvent(evt runtimeevents.Event) Event {
+	meta := hookMetaFromRuntimeEvent(evt)
+	return Event{
+		Kind:    evt.Kind,
+		Time:    evt.Time,
+		Meta:    meta,
+		Context: turnContextFromRuntimeScope(evt.Scope),
+		Payload: evt.Payload,
+	}
+}
+
+func turnContextFromRuntimeScope(scope runtimeevents.Scope) *TurnContext {
+	if scope.Channel == "" &&
+		scope.Account == "" &&
+		scope.ChatID == "" &&
+		scope.ChatType == "" &&
+		scope.TopicID == "" &&
+		scope.SpaceID == "" &&
+		scope.SpaceType == "" &&
+		scope.SenderID == "" &&
+		scope.MessageID == "" {
+		return nil
+	}
+	return &TurnContext{
+		Inbound: &bus.InboundContext{
+			Channel:   scope.Channel,
+			Account:   scope.Account,
+			ChatID:    scope.ChatID,
+			ChatType:  scope.ChatType,
+			TopicID:   scope.TopicID,
+			SpaceID:   scope.SpaceID,
+			SpaceType: scope.SpaceType,
+			SenderID:  scope.SenderID,
+			MessageID: scope.MessageID,
+		},
+	}
+}
+
+func legacyAgentEventKinds() []runtimeevents.Kind {
+	return []runtimeevents.Kind{
+		EventKindTurnStart,
+		EventKindTurnEnd,
+		EventKindLLMRequest,
+		EventKindLLMDelta,
+		EventKindLLMResponse,
+		EventKindLLMRetry,
+		EventKindContextCompress,
+		EventKindSessionSummarize,
+		EventKindToolExecStart,
+		EventKindToolExecEnd,
+		EventKindToolExecSkipped,
+		EventKindSteeringInjected,
+		EventKindFollowUpQueued,
+		EventKindInterruptReceived,
+		EventKindSubTurnSpawn,
+		EventKindSubTurnEnd,
+		EventKindSubTurnResultDelivered,
+		EventKindSubTurnOrphan,
+		EventKindError,
+	}
+}

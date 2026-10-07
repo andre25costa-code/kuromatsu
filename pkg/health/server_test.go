@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,6 +41,56 @@ func TestHealthHandler_ReturnsOK(t *testing.T) {
 	}
 	if resp.Uptime == "" {
 		t.Error("uptime should not be empty")
+	}
+}
+
+// AC-017-7: with no SetStateFunc installed (the default,
+// runstate.enabled=false), the JSON never gains a "state" field.
+func TestHealthHandler_NoStateFuncOmitsStateField(t *testing.T) {
+	s := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+
+	s.healthHandler(w, req)
+
+	if strings.Contains(w.Body.String(), `"state"`) {
+		t.Fatalf("body contains a \"state\" key with no SetStateFunc installed: %s", w.Body.String())
+	}
+}
+
+// AC-017-1: with SetStateFunc installed, /health's "state" field reflects
+// exactly what the reader returns.
+func TestHealthHandler_StateFuncPopulatesStateField(t *testing.T) {
+	s := newTestServer()
+	s.SetStateFunc(func() (uint32, []string) { return 3, []string{"inference", "toolexec"} })
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	s.healthHandler(w, req)
+
+	var resp StatusResponse
+	if err := json.NewDecoder(w.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.State == nil {
+		t.Fatal("State = nil, want populated")
+	}
+	if resp.State.Bits != 3 || len(resp.State.Names) != 2 {
+		t.Fatalf("State = %+v, want {Bits:3 Names:[inference toolexec]}", resp.State)
+	}
+}
+
+func TestSetStateFunc_NilRemovesTheField(t *testing.T) {
+	s := newTestServer()
+	s.SetStateFunc(func() (uint32, []string) { return 1, []string{"inference"} })
+	s.SetStateFunc(nil)
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+	s.healthHandler(w, req)
+
+	if strings.Contains(w.Body.String(), `"state"`) {
+		t.Fatalf("body contains a \"state\" key after SetStateFunc(nil): %s", w.Body.String())
 	}
 }
 

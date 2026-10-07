@@ -345,11 +345,6 @@ func (sl *SkillsLoader) parseSimpleYAML(content string) map[string]string {
 	return result
 }
 
-func (sl *SkillsLoader) extractFrontmatter(content string) string {
-	frontmatter, _ := splitFrontmatter(content)
-	return frontmatter
-}
-
 func (sl *SkillsLoader) stripFrontmatter(content string) string {
 	_, body := splitFrontmatter(content)
 	return body

@@ -114,45 +114,6 @@ func WritePidFile(homePath, host string, port int) (*PidFileData, error) {
 	return data, nil
 }
 
-// ReadPidFileWithCheck reads the PID file and additionally checks if
-// the recorded process is still alive. Returns nil if the file is
-// missing, unreadable, or the process has exited.
-func ReadPidFileWithCheck(homePath string) *PidFileData {
-	pidMu.Lock()
-	defer pidMu.Unlock()
-
-	pidPath := pidFilePath(homePath)
-	data, err := readPidFileUnlocked(pidPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		if errors.Is(err, errInvalidPidFile) {
-			logger.Warnf("invalid pid file, remove it: %s (%v)", pidPath, err)
-			_ = os.Remove(pidPath)
-			return nil
-		}
-		logger.Debugf("failed to read pid file: %s", err)
-		return nil
-	}
-
-	// Treat PID 1 as stale when we are not PID 1 ourselves (container
-	// leftover on a shared volume — host PID 1 is init, not gateway).
-	if data.PID == 1 && os.Getpid() != 1 {
-		logger.Debugf("stale container PID 1, remove pid file: %s", pidPath)
-		os.Remove(pidPath)
-		return nil
-	}
-
-	if !isProcessRunning(data.PID) {
-		logger.Debugf("process not running, remove pid file: %s", pidPath)
-		os.Remove(pidPath)
-		return nil
-	}
-
-	return data
-}
-
 // RemovePidFile deletes the PID file (e.g. on graceful shutdown).
 func RemovePidFile(homePath string) {
 	pidMu.Lock()
@@ -169,30 +130,6 @@ func RemovePidFile(homePath string) {
 
 	logger.Infof("remove pid file: %s", pidPath)
 	os.Remove(pidPath)
-}
-
-// RemovePidFileIfPID deletes the PID file only when the recorded PID matches
-// expectedPID. It returns true when the file is removed successfully.
-func RemovePidFileIfPID(homePath string, expectedPID int) bool {
-	if expectedPID <= 0 {
-		return false
-	}
-
-	pidMu.Lock()
-	defer pidMu.Unlock()
-
-	pidPath := pidFilePath(homePath)
-	data, err := readPidFileUnlocked(pidPath)
-	if err != nil {
-		return false
-	}
-	if data.PID != expectedPID {
-		return false
-	}
-	if err := os.Remove(pidPath); err != nil {
-		return false
-	}
-	return true
 }
 
 // readPidFileUnlocked reads the PID file without acquiring the lock.

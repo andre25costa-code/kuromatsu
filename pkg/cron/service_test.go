@@ -365,3 +365,44 @@ func TestCronService_ConcurrentAccess(t *testing.T) {
 
 	wg.Wait()
 }
+
+// AC-028-6: the 2026-09-21 incident -- the model repeated the same
+// "cron add" every heartbeat and each call created a new job (7 duplicates).
+func TestAddJob_IdenticalJobIsNotDuplicated(t *testing.T) {
+	cs := NewCronService(filepath.Join(t.TempDir(), "jobs.json"), nil)
+	schedule := CronSchedule{Kind: "cron", Expr: "0 6 * * *"}
+
+	first, err := cs.AddJob("check", schedule, "check the schedule", "telegram", "123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := cs.AddJob("check", schedule, "check the schedule", "telegram", "123")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if second.ID != first.ID {
+		t.Fatalf("second AddJob created %s, want the existing %s", second.ID, first.ID)
+	}
+	if n := len(cs.ListJobs(true)); n != 1 {
+		t.Fatalf("ListJobs() has %d jobs, want 1", n)
+	}
+}
+
+func TestAddJob_DifferentDestinationOrScheduleIsNewJob(t *testing.T) {
+	cs := NewCronService(filepath.Join(t.TempDir(), "jobs.json"), nil)
+	daily := CronSchedule{Kind: "cron", Expr: "0 6 * * *"}
+
+	if _, err := cs.AddJob("check", daily, "msg", "telegram", "123"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cs.AddJob("check", daily, "msg", "telegram", "456"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cs.AddJob("check", CronSchedule{Kind: "cron", Expr: "0 7 * * *"}, "msg", "telegram", "123"); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(cs.ListJobs(true)); n != 3 {
+		t.Fatalf("ListJobs() has %d jobs, want 3", n)
+	}
+}

@@ -27,16 +27,6 @@ func parseTurnBoundaries(history []providers.Message) []int {
 	return starts
 }
 
-// isSafeBoundary reports whether index is a valid Turn boundary — i.e.,
-// a position where the kept portion (history[index:]) begins at a user
-// message, so no tool-call sequence is torn apart.
-func isSafeBoundary(history []providers.Message, index int) bool {
-	if index <= 0 || index >= len(history) {
-		return true
-	}
-	return history[index].Role == "user"
-}
-
 // findSafeBoundary locates the nearest Turn boundary to targetIndex.
 // It prefers the boundary at or before targetIndex (preserving more recent
 // context). Falls back to the nearest boundary after targetIndex, and

@@ -1987,3 +1987,17 @@ func TestShellTool_CustomAllowDoesNotBecomeStrictAllowlist(t *testing.T) {
 		t.Fatalf("custom allow patterns should not become a strict allowlist, got: %q", got)
 	}
 }
+
+// Security regression: with the default config, a user on an external chat
+// channel cannot make the agent run shell commands (remote exec is opt-in).
+func TestExecTool_DefaultConfigBlocksRemoteChannel(t *testing.T) {
+	tool, err := NewExecToolWithConfig(t.TempDir(), true, config.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := tool.Execute(WithToolContext(context.Background(), "telegram", "12345"),
+		map[string]any{"action": "run", "command": "echo should-not-run"})
+	if !res.IsError || !strings.Contains(res.ForLLM, "restricted to internal channels") {
+		t.Fatalf("remote exec under DefaultConfig = %+v, want blocked", res)
+	}
+}

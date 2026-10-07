@@ -84,10 +84,6 @@ func GenerateState() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-func LoginBrowser(cfg OAuthProviderConfig) (*AuthCredential, error) {
-	return LoginBrowserWithOptions(cfg, LoginBrowserOptions{})
-}
-
 func LoginBrowserWithOptions(cfg OAuthProviderConfig, opts LoginBrowserOptions) (*AuthCredential, error) {
 	pkce, err := GeneratePKCE()
 	if err != nil {
@@ -244,54 +240,6 @@ type DeviceCodeInfo struct {
 	UserCode     string `json:"user_code"`
 	VerifyURL    string `json:"verify_url"`
 	Interval     int    `json:"interval"`
-}
-
-// RequestDeviceCode requests a device code from the OAuth provider.
-// Returns the info needed for the user to authenticate in a browser.
-func RequestDeviceCode(cfg OAuthProviderConfig) (*DeviceCodeInfo, error) {
-	reqBody, _ := json.Marshal(map[string]string{
-		"client_id": cfg.ClientID,
-	})
-
-	resp, err := http.Post(
-		cfg.Issuer+"/api/accounts/deviceauth/usercode",
-		"application/json",
-		strings.NewReader(string(reqBody)),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("requesting device code: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("reading device code response: %w", err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("device code request failed: %s", string(body))
-	}
-
-	deviceResp, err := parseDeviceCodeResponse(body)
-	if err != nil {
-		return nil, fmt.Errorf("parsing device code response: %w", err)
-	}
-
-	if deviceResp.Interval < 1 {
-		deviceResp.Interval = 5
-	}
-
-	return &DeviceCodeInfo{
-		DeviceAuthID: deviceResp.DeviceAuthID,
-		UserCode:     deviceResp.UserCode,
-		VerifyURL:    cfg.Issuer + "/codex/device",
-		Interval:     deviceResp.Interval,
-	}, nil
-}
-
-// PollDeviceCodeOnce makes a single poll attempt to check if the user has authenticated.
-// Returns (credential, nil) on success, (nil, nil) if still pending, or (nil, err) on failure.
-func PollDeviceCodeOnce(cfg OAuthProviderConfig, deviceAuthID, userCode string) (*AuthCredential, error) {
-	return pollDeviceCode(cfg, deviceAuthID, userCode)
 }
 
 func parseDeviceCodeResponse(body []byte) (deviceCodeResponse, error) {
@@ -486,10 +434,6 @@ func RefreshAccessToken(cred *AuthCredential, cfg OAuthProviderConfig) (*AuthCre
 		refreshed.ProjectID = cred.ProjectID
 	}
 	return refreshed, nil
-}
-
-func BuildAuthorizeURL(cfg OAuthProviderConfig, pkce PKCECodes, state, redirectURI string) string {
-	return buildAuthorizeURL(cfg, pkce, state, redirectURI)
 }
 
 func buildAuthorizeURL(cfg OAuthProviderConfig, pkce PKCECodes, state, redirectURI string) string {

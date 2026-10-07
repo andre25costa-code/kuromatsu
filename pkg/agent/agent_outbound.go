@@ -82,7 +82,22 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 		msg.ContextUsage = computeContextUsage(al.agentForSession(sessionKey), sessionKey)
 	}
 	markFinalOutbound(&msg)
-	al.bus.PublishOutbound(ctx, msg)
+	if err := al.bus.PublishOutbound(ctx, msg); err != nil {
+		// This is the delivery of the response itself (including error-
+		// fallback text from maybePublishError) -- a swallowed failure here
+		// is invisible everywhere else, since nothing downstream retries or
+		// notices. context.Canceled/DeadlineExceeded/ErrBusClosed are
+		// expected during shutdown or a canceled turn; anything else means
+		// the user got silence when they shouldn't have.
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, bus.ErrBusClosed) {
+			logger.DebugCF("agent", "Outbound response publish skipped (canceled/closed)",
+				map[string]any{"channel": channel, "chat_id": chatID, "error": err.Error()})
+			return
+		}
+		logger.WarnCF("agent", "Failed to publish outbound response",
+			map[string]any{"channel": channel, "chat_id": chatID, "content_len": len(response), "error": err.Error()})
+		return
+	}
 	logger.InfoCF("agent", "Published outbound response",
 		map[string]any{
 			"channel":     channel,

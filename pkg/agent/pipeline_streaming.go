@@ -479,15 +479,6 @@ func (p *streamingChunkPublisher) FinalizeReasoning(ctx context.Context, content
 	return nil
 }
 
-func (p *streamingChunkPublisher) ClearFinalizedStreamMarker() {
-	if p == nil || p.streamer == nil {
-		return
-	}
-	if cleaner, ok := p.streamer.(interface{ ClearFinalizedStreamMarker() }); ok {
-		cleaner.ClearFinalizedStreamMarker()
-	}
-}
-
 func (p *streamingChunkPublisher) Cancel(ctx context.Context) {
 	if p == nil || p.streamer == nil {
 		return

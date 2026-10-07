@@ -41,7 +41,7 @@ Parameters:
 - scope: "both" (default), "summary", or "message" - what to search
 - role: "user", "assistant", or omit for all - filter by message role
 - last: Time shortcut like "6h", "7d", "2w", "1m" (hours/days/weeks/months)
-- all_conversations: Search all conversations (default: current only)
+- all_conversations: Must be false; only the current session is accessible
 - since: ISO8601 timestamp, content after this time
 - before: ISO8601 timestamp, content before this time
 - limit: Max results (default: 20)
@@ -65,7 +65,7 @@ Examples:
   {"pattern": "%snake%"}
   {"pattern": "project", "scope": "summary"}
   {"pattern": "error", "role": "assistant", "last": "7d"}
-  {"pattern": "error", "all_conversations": true}`
+  {"pattern": "error", "last": "7d"}`
 }
 
 func (t *GrepTool) Parameters() map[string]any {
@@ -92,7 +92,7 @@ func (t *GrepTool) Parameters() map[string]any {
 			},
 			"all_conversations": map[string]any{
 				"type":        "boolean",
-				"description": "Search across all conversations (default: searches current conversation only)",
+				"description": "Must be false. Cross-conversation access is not allowed.",
 			},
 			"since": map[string]any{
 				"type":        "string",
@@ -117,7 +117,11 @@ func (t *GrepTool) Execute(ctx context.Context, args map[string]any) *tools.Tool
 		return tools.ErrorResult("Missing required 'pattern' argument. Example: {\"pattern\": \"authentication\"}")
 	}
 
-	input := GrepInput{Pattern: pattern}
+	conversationID, err := t.engine.toolConversation(ctx)
+	if err != nil {
+		return tools.ErrorResult(err.Error())
+	}
+	input := GrepInput{Pattern: pattern, ConversationID: conversationID}
 
 	if scope, ok := args["scope"].(string); ok && scope != "" {
 		input.Scope = scope
@@ -129,7 +133,9 @@ func (t *GrepTool) Execute(ctx context.Context, args map[string]any) *tools.Tool
 		input.Last = last
 	}
 	if allConv, ok := args["all_conversations"].(bool); ok {
-		input.AllConversations = allConv
+		if allConv {
+			return tools.ErrorResult("cross-conversation memory access is not allowed")
+		}
 	}
 	if limit, ok := args["limit"].(float64); ok {
 		input.Limit = int(limit)

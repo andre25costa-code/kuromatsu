@@ -44,6 +44,18 @@ type HeartbeatService struct {
 	enabled   bool
 	mu        sync.RWMutex
 	stopChan  chan struct{}
+
+	// shouldSkip is the Trilho C runstate hook (ADR-016 point 7,
+	// FR-017/AC-017-2): checked at the top of executeHeartbeat. Installed
+	// only when runstate.enabled=true and
+	// runstate.skip_heartbeat_when_busy is on (gateway.go, C2) -- nil
+	// (the default) means every heartbeat runs exactly as it always has,
+	// with zero risk of ever pulling in a real evaluation (AC-017-7).
+	shouldSkip func() bool
+
+	// now is the clock buildPrompt stamps the prompt with; time.Now
+	// outside tests.
+	now func() time.Time
 }
 
 // NewHeartbeatService creates a new heartbeat service
@@ -62,6 +74,7 @@ func NewHeartbeatService(workspace string, intervalMinutes int, enabled bool) *H
 		interval:  time.Duration(intervalMinutes) * time.Minute,
 		enabled:   enabled,
 		state:     state.NewManager(workspace),
+		now:       time.Now,
 	}
 }
 
@@ -77,6 +90,17 @@ func (hs *HeartbeatService) SetHandler(handler HeartbeatHandler) {
 	hs.mu.Lock()
 	defer hs.mu.Unlock()
 	hs.handler = handler
+}
+
+// SetShouldSkip installs the Trilho C runstate hook (AC-017-2): fn is
+// called at the top of every executeHeartbeat, and a true result skips
+// that disptach entirely (logged, not enqueued for later -- a missed
+// heartbeat is just a missed heartbeat, S17/S30). Pass nil to remove the
+// hook and go back to always running (the default).
+func (hs *HeartbeatService) SetShouldSkip(fn func() bool) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	hs.shouldSkip = fn
 }
 
 // Start begins the heartbeat service
@@ -118,13 +142,6 @@ func (hs *HeartbeatService) Stop() {
 	hs.stopChan = nil
 }
 
-// IsRunning returns whether the service is running
-func (hs *HeartbeatService) IsRunning() bool {
-	hs.mu.RLock()
-	defer hs.mu.RUnlock()
-	return hs.stopChan != nil
-}
-
 // runLoop runs the heartbeat ticker
 func (hs *HeartbeatService) runLoop(stopChan chan struct{}) {
 	ticker := time.NewTicker(hs.interval)
@@ -150,6 +167,7 @@ func (hs *HeartbeatService) executeHeartbeat() {
 	hs.mu.RLock()
 	enabled := hs.enabled
 	handler := hs.handler
+	shouldSkip := hs.shouldSkip
 	if !hs.enabled || hs.stopChan == nil {
 		hs.mu.RUnlock()
 		return
@@ -157,6 +175,11 @@ func (hs *HeartbeatService) executeHeartbeat() {
 	hs.mu.RUnlock()
 
 	if !enabled {
+		return
+	}
+
+	if shouldSkip != nil && shouldSkip() {
+		logger.InfoC("heartbeat", "Skipping heartbeat: runstate busy (AC-017-2)")
 		return
 	}
 
@@ -237,17 +260,20 @@ func (hs *HeartbeatService) buildPrompt() string {
 		return ""
 	}
 
-	now := time.Now().Format("2006-01-02 15:04:05")
+	// FR-021: the time closes the prompt instead of opening it, so every
+	// byte of HEARTBEAT.md stays identical between ticks and remains
+	// reusable from the prefix cache (ADR-015). Minute precision is all a
+	// heartbeat task can act on.
 	return fmt.Sprintf(`# Heartbeat Check
-
-Current time: %s
 
 You are a proactive AI assistant. This is a scheduled heartbeat check.
 Review the following tasks and execute any necessary actions using available skills.
 If there is nothing that requires attention, respond ONLY with: HEARTBEAT_OK
 
 %s
-`, now, content)
+
+Current time: %s
+`, content, hs.now().Format("2006-01-02 15:04 MST"))
 }
 
 // createDefaultHeartbeatTemplate creates the default HEARTBEAT.md file

@@ -11,6 +11,26 @@ func showCommand() Definition {
 		Description: "Show current configuration",
 		SubCommands: []SubCommand{
 			{
+				Name:        "config",
+				Description: "Active configuration file and default workspace",
+				Handler: func(_ context.Context, req Request, rt *Runtime) error {
+					if rt == nil || rt.Config == nil {
+						return req.Reply(unavailableMsg)
+					}
+					path := rt.Config.SourcePath
+					if path == "" {
+						path = "in-memory defaults"
+					}
+					return req.Reply(
+						fmt.Sprintf(
+							"Active config: %s\nDefault workspace: %s",
+							path,
+							rt.Config.Agents.Defaults.Workspace,
+						),
+					)
+				},
+			},
+			{
 				Name:        "model",
 				Description: "Current model and provider",
 				Handler: func(_ context.Context, req Request, rt *Runtime) error {

@@ -9,7 +9,6 @@ import (
 	"html"
 	"io"
 	"mime"
-	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -1543,14 +1542,6 @@ func WebSearchToolOptionsFromConfig(cfg *config.Config) WebSearchToolOptions {
 	}
 }
 
-func WebSearchProviderReady(opts WebSearchToolOptions, name string) bool {
-	return opts.providerReady(name)
-}
-
-func ResolveWebSearchProviderName(opts WebSearchToolOptions, query string) (string, error) {
-	return opts.resolveProviderName(query)
-}
-
 var (
 	knownWebSearchProviders = []string{
 		"sogou",
@@ -2012,11 +2003,6 @@ type WebFetchTool struct {
 	whitelist       *utils.PrivateHostWhitelist
 }
 
-func NewWebFetchTool(maxChars int, format string, fetchLimitBytes int64) (*WebFetchTool, error) {
-	// createHTTPClient cannot fail with an empty proxy string.
-	return NewWebFetchToolWithConfig(maxChars, "", format, fetchLimitBytes, nil)
-}
-
 // allowPrivateWebFetchHosts controls whether loopback/private hosts are allowed.
 // This is false in normal runtime to reduce SSRF exposure, and tests can override it temporarily.
 var allowPrivateWebFetchHosts atomic.Bool
@@ -2322,21 +2308,4 @@ func (t *WebFetchTool) extractText(htmlContent string) string {
 	}
 
 	return strings.Join(cleanLines, "\n")
-}
-
-func newSafeDialContext(
-	dialer *net.Dialer,
-	whitelist *utils.PrivateHostWhitelist,
-) func(context.Context, string, string) (net.Conn, error) {
-	return utils.NewSafeDialContext(dialer, whitelist, func() bool {
-		return allowPrivateWebFetchHosts.Load()
-	})
-}
-
-func newPrivateHostWhitelist(entries []string) (*utils.PrivateHostWhitelist, error) {
-	return utils.NewPrivateHostWhitelist(entries)
-}
-
-func isPrivateOrRestrictedIP(ip net.IP) bool {
-	return utils.IsPrivateOrRestrictedIP(ip)
 }

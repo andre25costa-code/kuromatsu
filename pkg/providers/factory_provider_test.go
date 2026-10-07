@@ -255,7 +255,7 @@ func TestCreateProviderFromConfig_DefaultAPIBase(t *testing.T) {
 			}
 
 			// Verify we got an HTTPProvider for all these protocols
-			if _, ok := provider.(*HTTPProvider); !ok {
+			if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 				t.Fatalf("expected *HTTPProvider, got %T", provider)
 			}
 		})
@@ -403,7 +403,7 @@ func TestCreateProviderFromConfig_LocalProviders(t *testing.T) {
 			if modelID != tt.wantModelID {
 				t.Errorf("modelID = %q, want %q", modelID, tt.wantModelID)
 			}
-			if _, ok := provider.(*HTTPProvider); !ok {
+			if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 				t.Fatalf("expected *HTTPProvider, got %T", provider)
 			}
 		})
@@ -428,7 +428,7 @@ func TestCreateProviderFromConfig_LongCat(t *testing.T) {
 	if modelID != "LongCat-Flash-Thinking" {
 		t.Errorf("modelID = %q, want %q", modelID, "LongCat-Flash-Thinking")
 	}
-	if _, ok := provider.(*HTTPProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 		t.Fatalf("expected *HTTPProvider, got %T", provider)
 	}
 }
@@ -451,7 +451,7 @@ func TestCreateProviderFromConfig_ModelScope(t *testing.T) {
 	if modelID != "Qwen/Qwen3-235B-A22B-Instruct-2507" {
 		t.Errorf("modelID = %q, want %q", modelID, "Qwen/Qwen3-235B-A22B-Instruct-2507")
 	}
-	if _, ok := provider.(*HTTPProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 		t.Fatalf("expected *HTTPProvider, got %T", provider)
 	}
 }
@@ -479,7 +479,7 @@ func TestCreateProviderFromConfig_Novita(t *testing.T) {
 	if modelID != "deepseek/deepseek-v3.2" {
 		t.Errorf("modelID = %q, want %q", modelID, "deepseek/deepseek-v3.2")
 	}
-	if _, ok := provider.(*HTTPProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 		t.Fatalf("expected *HTTPProvider, got %T", provider)
 	}
 }
@@ -508,7 +508,7 @@ func TestCreateProviderFromConfig_Mimo(t *testing.T) {
 	if modelID != "mimo-v2-pro" {
 		t.Errorf("modelID = %q, want %q", modelID, "mimo-v2-pro")
 	}
-	if _, ok := provider.(*HTTPProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 		t.Fatalf("expected *HTTPProvider, got %T", provider)
 	}
 }
@@ -530,7 +530,7 @@ func TestCreateProviderFromConfig_Venice(t *testing.T) {
 	if modelID != "venice-uncensored" {
 		t.Errorf("modelID = %q, want %q", modelID, "venice-uncensored")
 	}
-	if _, ok := provider.(*HTTPProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 		t.Fatalf("expected *HTTPProvider, got %T", provider)
 	}
 }
@@ -552,7 +552,7 @@ func TestCreateProviderFromConfig_NearAI(t *testing.T) {
 	if modelID != "zai-org/GLM-5.1-FP8" {
 		t.Errorf("modelID = %q, want %q", modelID, "zai-org/GLM-5.1-FP8")
 	}
-	if _, ok := provider.(*HTTPProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 		t.Fatalf("expected *HTTPProvider, got %T", provider)
 	}
 }
@@ -574,7 +574,7 @@ func TestCreateProviderFromConfig_SiliconFlow(t *testing.T) {
 	if modelID != "deepseek-ai/DeepSeek-V3" {
 		t.Errorf("modelID = %q, want %q", modelID, "deepseek-ai/DeepSeek-V3")
 	}
-	if _, ok := provider.(*HTTPProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 		t.Fatalf("expected *HTTPProvider, got %T", provider)
 	}
 }
@@ -639,7 +639,7 @@ func TestCreateProviderFromConfig_Gemini(t *testing.T) {
 	if modelID != "gemini-2.5-flash" {
 		t.Errorf("modelID = %q, want %q", modelID, "gemini-2.5-flash")
 	}
-	if _, ok := provider.(*GeminiProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*GeminiProvider); !ok {
 		t.Fatalf("expected *GeminiProvider, got %T", provider)
 	}
 }
@@ -673,7 +673,7 @@ func TestCreateProviderFromConfig_GeminiCustomAPIBaseWithoutKey(t *testing.T) {
 	if modelID != "gemini-2.5-flash" {
 		t.Errorf("modelID = %q, want %q", modelID, "gemini-2.5-flash")
 	}
-	if _, ok := provider.(*GeminiProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*GeminiProvider); !ok {
 		t.Fatalf("expected *GeminiProvider, got %T", provider)
 	}
 }
@@ -952,7 +952,7 @@ func TestCreateProviderFromConfig_QwenInternationalAlias(t *testing.T) {
 			if modelID != wantModelID {
 				t.Errorf("modelID = %q, want %q", modelID, wantModelID)
 			}
-			if _, ok := provider.(*HTTPProvider); !ok {
+			if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 				t.Fatalf("expected *HTTPProvider, got %T", provider)
 			}
 		})
@@ -987,7 +987,7 @@ func TestCreateProviderFromConfig_QwenUSAlias(t *testing.T) {
 			if modelID != wantModelID {
 				t.Errorf("modelID = %q, want %q", modelID, wantModelID)
 			}
-			if _, ok := provider.(*HTTPProvider); !ok {
+			if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 				t.Fatalf("expected *HTTPProvider, got %T", provider)
 			}
 		})
@@ -1053,157 +1053,6 @@ func TestGetDefaultAPIBase_QwenUSAliases(t *testing.T) {
 	for _, protocol := range []string{"qwen-us", "dashscope-us"} {
 		if got := getDefaultAPIBase(protocol); got != expectedURL {
 			t.Fatalf("getDefaultAPIBase(%q) = %q, want %q", protocol, got, expectedURL)
-		}
-	}
-}
-
-func TestModelProviderOptions(t *testing.T) {
-	options := ModelProviderOptions()
-	if len(options) == 0 {
-		t.Fatal("ModelProviderOptions() returned no options")
-	}
-
-	seen := make(map[string]ModelProviderOption, len(options))
-	for _, option := range options {
-		seen[option.ID] = option
-	}
-
-	if _, ok := seen["openai"]; !ok {
-		t.Fatal("openai option missing")
-	}
-	if option, ok := seen["openai"]; ok && !option.CreateAllowed {
-		t.Fatal("openai should be creatable")
-	}
-	if option, ok := seen["openai"]; ok && !option.SupportsFetch {
-		t.Fatal("openai should support upstream model listing")
-	} else if option.DisplayName != "OpenAI" {
-		t.Fatalf("openai display_name = %q, want %q", option.DisplayName, "OpenAI")
-	} else if len(option.CommonModels) == 0 {
-		t.Fatal("openai common_models should not be empty")
-	}
-	if option, ok := seen["lmstudio"]; !ok {
-		t.Fatal("lmstudio option missing")
-	} else if !option.EmptyAPIKeyAllowed {
-		t.Fatal("lmstudio should allow empty API keys")
-	}
-	if option, ok := seen["gpt4free"]; !ok {
-		t.Fatal("gpt4free option missing")
-	} else {
-		if option.DefaultAPIBase != "http://localhost:1337/v1" {
-			t.Fatalf("gpt4free default_api_base = %q, want %q", option.DefaultAPIBase, "http://localhost:1337/v1")
-		}
-		if !option.EmptyAPIKeyAllowed {
-			t.Fatal("gpt4free should allow empty API keys")
-		}
-		if !option.SupportsFetch {
-			t.Fatal("gpt4free should support upstream model listing")
-		}
-	}
-	if option, ok := seen["siliconflow"]; !ok {
-		t.Fatal("siliconflow option missing")
-	} else if option.DefaultAPIBase != "https://api.siliconflow.cn/v1" {
-		t.Fatalf(
-			"siliconflow default_api_base = %q, want %q",
-			option.DefaultAPIBase,
-			"https://api.siliconflow.cn/v1",
-		)
-	}
-	if option, ok := seen["nearai"]; !ok {
-		t.Fatal("nearai option missing")
-	} else {
-		if option.DisplayName != "NEAR AI Cloud" {
-			t.Fatalf("nearai display_name = %q, want %q", option.DisplayName, "NEAR AI Cloud")
-		}
-		if option.DefaultAPIBase != "https://cloud-api.near.ai/v1" {
-			t.Fatalf("nearai default_api_base = %q, want %q", option.DefaultAPIBase, "https://cloud-api.near.ai/v1")
-		}
-		if !option.SupportsFetch {
-			t.Fatal("nearai should support upstream model listing")
-		}
-		if len(option.CommonModels) == 0 {
-			t.Fatal("nearai common_models should not be empty")
-		}
-	}
-	if option, ok := seen["anthropic"]; !ok {
-		t.Fatal("anthropic option missing")
-	} else if option.DefaultAPIBase != "https://api.anthropic.com/v1" {
-		t.Fatalf("anthropic default_api_base = %q, want %q", option.DefaultAPIBase, "https://api.anthropic.com/v1")
-	}
-	// First-party Claude API model IDs use hyphenated formats such as
-	// claude-{name}-{major}-{minor} or claude-{name}-{major}-{minor}-{YYYYMMDD};
-	// dotted provider prefixes are for platform-specific IDs such as Bedrock.
-	// https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions
-	for _, provider := range []string{"anthropic", "anthropic-messages"} {
-		option, ok := seen[provider]
-		if !ok {
-			t.Fatalf("%s option missing", provider)
-		}
-		for _, model := range option.CommonModels {
-			if strings.Contains(model, ".") {
-				t.Fatalf("%s common_model %q uses dotted ID", provider, model)
-			}
-		}
-	}
-	if _, ok := seen["azure"]; !ok {
-		t.Fatal("azure option missing")
-	}
-	if option, ok := seen["bedrock"]; !ok {
-		t.Fatal("bedrock option missing")
-	} else if !option.CreateAllowed {
-		t.Fatal("bedrock should be creatable and defer credential/build errors to runtime")
-	}
-	if option, ok := seen["elevenlabs"]; !ok {
-		t.Fatal("elevenlabs option missing")
-	} else {
-		if option.DefaultAPIBase != "https://api.elevenlabs.io" {
-			t.Fatalf("elevenlabs default_api_base = %q, want %q", option.DefaultAPIBase, "https://api.elevenlabs.io")
-		}
-		if option.DefaultModelAllowed {
-			t.Fatal("elevenlabs should be ASR-only and therefore not allowed as a default chat model")
-		}
-	}
-	if option, ok := seen["antigravity"]; !ok {
-		t.Fatal("antigravity option missing")
-	} else {
-		if !option.CreateAllowed {
-			t.Fatal("antigravity should be creatable")
-		}
-		if option.DefaultAuthMethod != "oauth" {
-			t.Fatalf("antigravity default_auth_method = %q, want %q", option.DefaultAuthMethod, "oauth")
-		}
-		if !option.AuthMethodLocked {
-			t.Fatal("antigravity auth method should be locked")
-		}
-	}
-	if option, ok := seen["github-copilot"]; !ok {
-		t.Fatal("github-copilot option missing")
-	} else if option.DefaultAPIBase != "localhost:4321" {
-		t.Fatalf("github-copilot default_api_base = %q, want %q", option.DefaultAPIBase, "localhost:4321")
-	} else if !option.Local {
-		t.Fatal("github-copilot should be marked local")
-	}
-	if option, ok := seen["qwen-portal"]; !ok {
-		t.Fatal("qwen-portal option missing")
-	} else if len(option.Aliases) == 0 || option.Aliases[0] != "qwen" {
-		t.Fatalf("qwen-portal aliases = %#v, want to include qwen", option.Aliases)
-	}
-
-	for _, option := range options {
-		if len(option.CommonModels) > 6 {
-			t.Fatalf("provider %q exposes %d common_models, want at most 6", option.ID, len(option.CommonModels))
-		}
-		if option.Local && len(option.CommonModels) > 0 {
-			t.Fatalf("local provider %q should not expose common_models", option.ID)
-		}
-		seenModels := make(map[string]struct{}, len(option.CommonModels))
-		for _, model := range option.CommonModels {
-			if strings.TrimSpace(model) == "" {
-				t.Fatalf("provider %q includes an empty common_model entry", option.ID)
-			}
-			if _, exists := seenModels[model]; exists {
-				t.Fatalf("provider %q includes duplicate common_model %q", option.ID, model)
-			}
-			seenModels[model] = struct{}{}
 		}
 	}
 }
@@ -1577,7 +1426,7 @@ func TestCreateProviderFromConfig_ToolSchemaTransformWrapsProvider(t *testing.T)
 	if modelID != "claude-sonnet-4.6" {
 		t.Fatalf("modelID = %q, want %q", modelID, "claude-sonnet-4.6")
 	}
-	if _, ok := provider.(*toolSchemaTransformProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*toolSchemaTransformProvider); !ok {
 		t.Fatalf("provider = %T, want *toolSchemaTransformProvider", provider)
 	}
 }

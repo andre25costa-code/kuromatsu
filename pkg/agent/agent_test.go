@@ -24,7 +24,6 @@ import (
 	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 	"github.com/andre25costa-code/kuromatsu/pkg/media"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
-	"github.com/andre25costa-code/kuromatsu/pkg/routing"
 	"github.com/andre25costa-code/kuromatsu/pkg/session"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 	"github.com/andre25costa-code/kuromatsu/pkg/utils"
@@ -2020,72 +2019,6 @@ func TestRunAgentLoop_ResponseHandledToolPublishesForUserWhenSendResponseDisable
 	}
 }
 
-func TestAppendEventContextFields_IncludesInboundRouteAndScope(t *testing.T) {
-	fields := map[string]any{}
-
-	appendEventContextFields(fields, &TurnContext{
-		Inbound: &bus.InboundContext{
-			Channel:   "slack",
-			Account:   "workspace-a",
-			ChatID:    "C123",
-			ChatType:  "channel",
-			TopicID:   "thread-42",
-			SpaceType: "workspace",
-			SpaceID:   "T001",
-			SenderID:  "U123",
-			Mentioned: true,
-		},
-		Route: &routing.ResolvedRoute{
-			AgentID:   "support",
-			Channel:   "slack",
-			AccountID: "workspace-a",
-			MatchedBy: "default",
-			SessionPolicy: routing.SessionPolicy{
-				Dimensions: []string{"chat", "sender"},
-				IdentityLinks: map[string][]string{
-					"canonical-user": {"slack:U123"},
-				},
-			},
-		},
-		Scope: &session.SessionScope{
-			Version:    session.ScopeVersionV1,
-			AgentID:    "support",
-			Channel:    "slack",
-			Account:    "workspace-a",
-			Dimensions: []string{"chat", "sender"},
-			Values: map[string]string{
-				"chat":   "channel:c123",
-				"sender": "u123",
-			},
-		},
-	})
-
-	if fields["inbound_channel"] != "slack" {
-		t.Fatalf("inbound_channel = %v, want slack", fields["inbound_channel"])
-	}
-	if fields["inbound_topic_id"] != "thread-42" {
-		t.Fatalf("inbound_topic_id = %v, want thread-42", fields["inbound_topic_id"])
-	}
-	if fields["route_matched_by"] != "default" {
-		t.Fatalf("route_matched_by = %v, want default", fields["route_matched_by"])
-	}
-	if fields["route_dimensions"] != "chat,sender" {
-		t.Fatalf("route_dimensions = %v, want chat,sender", fields["route_dimensions"])
-	}
-	if fields["route_identity_link_count"] != 1 {
-		t.Fatalf("route_identity_link_count = %v, want 1", fields["route_identity_link_count"])
-	}
-	if fields["scope_dimensions"] != "chat,sender" {
-		t.Fatalf("scope_dimensions = %v, want chat,sender", fields["scope_dimensions"])
-	}
-	if fields["scope_chat"] != "channel:c123" {
-		t.Fatalf("scope_chat = %v, want channel:c123", fields["scope_chat"])
-	}
-	if fields["scope_sender"] != "u123" {
-		t.Fatalf("scope_sender = %v, want u123", fields["scope_sender"])
-	}
-}
-
 func TestResolveMessageRoute_UsesInboundContextAccount(t *testing.T) {
 	tmpDir := t.TempDir()
 	cfg := &config.Config{
@@ -2668,23 +2601,6 @@ func (m *toolFeedbackReasoningProvider) GetDefaultModel() string {
 	return "tool-feedback-reasoning-model"
 }
 
-func TestToolFeedbackExplanationFromResponse_UsesCurrentContentFirst(t *testing.T) {
-	response := &providers.LLMResponse{
-		Content:          "Read README.md first",
-		ReasoningContent: "current reasoning fallback",
-	}
-	messages := []providers.Message{
-		{Role: "user", Content: "check file"},
-		{Role: "assistant", Content: "Previous turn explanation"},
-		{Role: "tool", Content: "tool output", ToolCallID: "call_1"},
-	}
-
-	got := toolFeedbackExplanationFromResponse(response, messages)
-	if got != "Read README.md first" {
-		t.Fatalf("toolFeedbackExplanationFromResponse() = %q, want current content", got)
-	}
-}
-
 func TestSideQuestionResponseContent_FallsBackWhenContentIsWhitespace(t *testing.T) {
 	response := &providers.LLMResponse{
 		Content:          " \n\t ",
@@ -2704,28 +2620,6 @@ func TestResponseReasoningContent_FallsBackWhenReasoningIsWhitespace(t *testing.
 
 	if got := responseReasoningContent(response); got != "structured reasoning fallback" {
 		t.Fatalf("responseReasoningContent() = %q, want %q", got, "structured reasoning fallback")
-	}
-}
-
-func TestToolFeedbackExplanationFromResponse_UsesExplicitToolCallExtraContent(t *testing.T) {
-	response := &providers.LLMResponse{
-		ToolCalls: []providers.ToolCall{{
-			ID:   "call_1",
-			Name: "read_file",
-			ExtraContent: &providers.ExtraContent{
-				ToolFeedbackExplanation: "Read README.md first to confirm the current project structure.",
-			},
-		}},
-	}
-	messages := []providers.Message{
-		{Role: "user", Content: "check file"},
-		{Role: "assistant", Content: ""},
-		{Role: "tool", Content: "tool output", ToolCallID: "call_1"},
-	}
-
-	got := toolFeedbackExplanationFromResponse(response, messages)
-	if got != "Read README.md first to confirm the current project structure." {
-		t.Fatalf("toolFeedbackExplanationFromResponse() = %q, want explicit tool feedback explanation", got)
 	}
 }
 
@@ -2784,25 +2678,6 @@ func TestToolFeedbackExplanationForToolCall_DoesNotReuseAnotherToolCallExplanati
 	want := utils.ToolFeedbackContinuationHint + ": inspect the config and update the example"
 	if got != want {
 		t.Fatalf("toolFeedbackExplanationForToolCall() = %q, want %q", got, want)
-	}
-}
-
-func TestToolFeedbackExplanationFromResponse_DoesNotUseReasoningContent(t *testing.T) {
-	response := &providers.LLMResponse{
-		Content:          "",
-		ReasoningContent: "hidden reasoning should not be shown",
-	}
-	messages := []providers.Message{
-		{Role: "user", Content: "check file"},
-		{Role: "assistant", Content: "Previous turn explanation"},
-		{Role: "user", Content: "Inspect README.md and update the config example."},
-		{Role: "tool", Content: "tool output", ToolCallID: "call_1"},
-	}
-
-	got := toolFeedbackExplanationFromResponse(response, messages)
-	want := utils.ToolFeedbackContinuationHint + ": Inspect README.md and update the config example."
-	if got != want {
-		t.Fatalf("toolFeedbackExplanationFromResponse() = %q, want latest user content fallback", got)
 	}
 }
 
@@ -3605,7 +3480,7 @@ func TestProcessMessage_SwitchModelShowModelConsistency(t *testing.T) {
 		ChatID:   "chat1",
 		Content:  "/show model",
 	})
-	if !strings.Contains(showResp, "Current Model: deepseek (Provider: openrouter)") {
+	if !strings.Contains(showResp, "Current Model: deepseek/deepseek-v3.2 (Provider: openrouter)") {
 		t.Fatalf("unexpected /show model reply after switch: %q", showResp)
 	}
 
@@ -3662,7 +3537,7 @@ func TestProcessMessage_SwitchModelRejectsUnknownAlias(t *testing.T) {
 		ChatID:   "chat1",
 		Content:  "/show model",
 	})
-	if !strings.Contains(showResp, "Current Model: local (Provider: openai)") {
+	if !strings.Contains(showResp, "Current Model: local-model (Provider: openai)") {
 		t.Fatalf("unexpected /show model reply after rejected switch: %q", showResp)
 	}
 
@@ -7321,24 +7196,6 @@ func TestProcessMessage_NativeSearchHandlesHookClearingOptions(t *testing.T) {
 	}
 	if got := provider.lastOpts["native_search"]; got != true {
 		t.Fatalf("native_search option = %#v, want true", got)
-	}
-}
-
-func TestIsNativeSearchProvider_Supported(t *testing.T) {
-	if !isNativeSearchProvider(&nativeSearchProvider{supported: true}) {
-		t.Fatal("expected true for provider that supports native search")
-	}
-}
-
-func TestIsNativeSearchProvider_NotSupported(t *testing.T) {
-	if isNativeSearchProvider(&nativeSearchProvider{supported: false}) {
-		t.Fatal("expected false for provider that does not support native search")
-	}
-}
-
-func TestIsNativeSearchProvider_NoInterface(t *testing.T) {
-	if isNativeSearchProvider(&plainProvider{}) {
-		t.Fatal("expected false for provider that does not implement NativeSearchCapable")
 	}
 }
 

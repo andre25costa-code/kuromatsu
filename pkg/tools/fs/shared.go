@@ -8,10 +8,6 @@ import (
 
 type ToolResult = toolshared.ToolResult
 
-func WithToolContext(ctx context.Context, channel, chatID string) context.Context {
-	return toolshared.WithToolContext(ctx, channel, chatID)
-}
-
 func ToolChannel(ctx context.Context) string {
 	return toolshared.ToolChannel(ctx)
 }

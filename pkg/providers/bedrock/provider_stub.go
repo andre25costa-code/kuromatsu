@@ -36,11 +36,6 @@ func WithRegion(region string) Option {
 	return func(c *providerConfig) {}
 }
 
-// WithProfile is a no-op when Bedrock is not enabled.
-func WithProfile(profile string) Option {
-	return func(c *providerConfig) {}
-}
-
 // WithBaseEndpoint is a no-op when Bedrock is not enabled.
 func WithBaseEndpoint(endpoint string) Option {
 	return func(c *providerConfig) {}

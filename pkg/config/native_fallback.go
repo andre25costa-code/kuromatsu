@@ -3,6 +3,7 @@ package config
 import (
 	"slices"
 
+	providercommon "github.com/andre25costa-code/kuromatsu/pkg/providers/common"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers/localllm"
 )
 
@@ -51,6 +52,29 @@ func ApplyNativeFallback(cfg *Config) {
 	if !slices.Contains(cfg.Agents.Defaults.ModelFallbacks, nativeModelName) {
 		cfg.Agents.Defaults.ModelFallbacks = append(cfg.Agents.Defaults.ModelFallbacks, nativeModelName)
 	}
+}
+
+// NativeLimits reads the native-model runtime knobs (n_ctx, max_predict)
+// from a model config's ExtraBody — the same keys
+// pkg/providers/native_options.go's nativeOptionsFromModelConfig reads to
+// build localllm.Options, kept in sync deliberately so
+// ContextWindow/MaxTokens (FR-015/AC-015-6) never drift from what the
+// engine actually loaded with. ok is false when mc is nil or ExtraBody sets
+// neither key — nothing for the caller to apply, e.g. every non-native
+// model, which never sets extra_body.n_ctx/max_predict.
+func NativeLimits(mc *ModelConfig) (nCtx, maxPredict int, ok bool) {
+	if mc == nil || mc.ExtraBody == nil {
+		return 0, 0, false
+	}
+	if v, found := providercommon.AsInt(mc.ExtraBody["n_ctx"]); found {
+		nCtx = v
+		ok = true
+	}
+	if v, found := providercommon.AsInt(mc.ExtraBody["max_predict"]); found {
+		maxPredict = v
+		ok = true
+	}
+	return nCtx, maxPredict, ok
 }
 
 func findModelConfigByName(models []*ModelConfig, name string) *ModelConfig {

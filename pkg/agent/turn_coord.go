@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -12,6 +13,7 @@ import (
 	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 )
 
 func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipeline) (turnResult, error) {
@@ -37,6 +39,11 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 
 	turnStatus := TurnEndStatusCompleted
 	defer func() {
+		// AC-028-5: a turn cut by the caller's deadline (the time cap on
+		// heartbeat/cron turns) is a timeout, not a generic error.
+		if turnStatus != TurnEndStatusCompleted && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			turnStatus = TurnEndStatusTimeout
+		}
 		attemptedSkills := ts.attemptedSkillsSnapshot()
 		skillContextSnapshots := ts.skillContextSnapshotsSnapshot()
 		finalSuccessfulPath := []string(nil)
@@ -47,6 +54,7 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 				finalSuccessfulPath = append([]string(nil), attemptedSkills...)
 			}
 		}
+		usage := ts.turnUsageSnapshot()
 		al.emitEvent(
 			runtimeevents.KindAgentTurnEnd,
 			ts.eventMeta("runTurn", "turn.end"),
@@ -64,6 +72,16 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 				SkillContextSnapshots: skillContextSnapshots,
 				ToolKinds:             ts.toolKindsSnapshot(),
 				ToolExecutions:        ts.toolExecutionsSnapshot(),
+				FocusWindow:           ts.focusWindowSnapshot(),
+				FocusEscalations:      ts.focusEscalationsSnapshot(),
+				Origin:                ts.opts.Origin,
+				UnknownToolCalls:      ts.unknownToolCallsSnapshot(),
+				PromptTokens:          usage.PromptTokens,
+				CachedTokens:          usage.CachedTokens,
+				OutputTokens:          usage.OutputTokens,
+				PrefillMs:             usage.PrefillMs,
+				GenMs:                 usage.GenMs,
+				StealPct:              ts.stealPercent(),
 			},
 		)
 	}()
@@ -374,6 +392,22 @@ func (al *AgentLoop) askSideQuestion(
 	modelMu := agent.modelStateMutex()
 	modelMu.RLock()
 	defer modelMu.RUnlock()
+
+	// Trilho C Inference hook (ADR-016 point 7): /btw calls the LLM
+	// outside runAgentLoop's normal turn machinery, so it never goes
+	// through activeRequestsInc/Dec -- this is its own separate Inc/Dec
+	// pair, covering the whole call (including the vision-retry fallback
+	// below) so runstate sees it as busy for exactly as long as it is.
+	//
+	// rsTryEnter (not rsEnter): S09/ADR-016 point 6 vetoes a new Inference
+	// entry while Suspended -- /btw has no retry loop of its own (unlike
+	// retryLLMCall/callLLM), so a refusal here just surfaces immediately as
+	// an error the /btw command handler replies with verbatim.
+	release, ok := al.rsTryEnter(runstate.Inference)
+	if !ok {
+		return "", fmt.Errorf("askSideQuestion: %w", runstate.ErrBusy)
+	}
+	defer release()
 
 	question = strings.TrimSpace(question)
 	if question == "" {

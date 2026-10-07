@@ -50,10 +50,24 @@ func NewAgentLoop(
 		stateManager = state.NewManager(defaultAgent.Workspace)
 	}
 
-	bridge, err := newEvolutionBridge(registry, cfg, provider)
+	rs := runstateEngineForConfig(cfg)
+
+	// providers.CreateProviderFromConfig directly (not al.providerFactory):
+	// al doesn't exist yet at this point in construction -- this is the
+	// exact same default value al.providerFactory gets assigned below, so
+	// evolution's dedicated evolution.model provider resolves the same way
+	// sleep's does.
+	bridge, err := newEvolutionBridge(registry, cfg, providers.CreateProviderFromConfig, rs)
 	if err != nil {
 		logger.WarnCF("agent", "Failed to initialize evolution bridge", map[string]any{
 			"error": err.Error(),
+		})
+	}
+
+	telemetryBr, telemetryErr := newTelemetryBridge(cfg, rs)
+	if telemetryErr != nil {
+		logger.WarnCF("agent", "Failed to initialize telemetry bridge", map[string]any{
+			"error": telemetryErr.Error(),
 		})
 	}
 
@@ -74,6 +88,10 @@ func NewAgentLoop(
 		steering:          newSteeringQueue(parseSteeringMode(cfg.Agents.Defaults.SteeringMode)),
 		workerSem:         make(chan struct{}, workerPoolSize),
 		ownsRuntimeEvents: true,
+		focus:             newFocusRuntime(cfg),
+		reflexes:          newReflexRuntime(cfg),
+		runstate:          rs,
+		telemetry:         telemetryBr,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -92,15 +110,27 @@ func NewAgentLoop(
 			})
 		}
 	}
+	if telemetryBr != nil {
+		if err := telemetryBr.subscribeRuntimeEvents(al.runtimeEvents.Channel()); err != nil {
+			logger.WarnCF("agent", "Failed to subscribe telemetry bridge to runtime events", map[string]any{
+				"error": err.Error(),
+			})
+		}
+	}
 	al.activeReqCond = sync.NewCond(&al.activeReqMu)
 	al.refreshRuntimeEventLogger(cfg)
 	al.providerFactory = providers.CreateProviderFromConfig
+	al.sleep = newSleepScheduler(cfg, registry, al.providerFactory, rs)
 	al.hooks = NewHookManager(al.runtimeEvents.Channel())
 	configureHookManagerFromConfig(al.hooks, cfg)
 	al.contextManager = al.resolveContextManager()
 
 	// Register shared tools to all agents (now that al is created)
 	registerSharedTools(al, cfg, msgBus, registry, provider)
+
+	for key, agentID := range loadAgentPins() {
+		al.agentPins.Store(key, agentID)
+	}
 
 	return al
 }
@@ -331,16 +361,23 @@ func registerSharedTools(
 				// 4. Resolve Model
 				modelToUse := agent.Model
 				if targetAgentID != "" {
-					if targetAgent, ok := al.GetRegistry().GetAgent(targetAgentID); ok {
-						modelToUse = targetAgent.Model
+					if !registry.CanSpawnSubagent(agent.ID, targetAgentID) {
+						return nil, fmt.Errorf("not allowed to spawn agent %q", targetAgentID)
 					}
+					targetAgent, ok := registry.GetAgent(targetAgentID)
+					if !ok {
+						return nil, fmt.Errorf("target agent %q not found", targetAgentID)
+					}
+					modelToUse = targetAgent.Model
+					tlSlice = nil // The target agent owns its tool registry.
 				}
 
 				// 5. Build SubTurnConfig
 				cfg := SubTurnConfig{
-					Model:        modelToUse,
-					Tools:        tlSlice,
-					SystemPrompt: systemPrompt,
+					TargetAgentID: targetAgentID,
+					Model:         modelToUse,
+					Tools:         tlSlice,
+					SystemPrompt:  systemPrompt,
 				}
 				if hasMaxTokens {
 					cfg.MaxTokens = maxTokens

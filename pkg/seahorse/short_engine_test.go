@@ -1984,3 +1984,39 @@ func TestSelectShallowestCondensationWithNonConsecutiveDepths(t *testing.T) {
 		}
 	}
 }
+
+// Same pooled-connection bug as pkg/telemetry: PRAGMAs run once with
+// db.Exec reach a single connection, so concurrent writers on other
+// connections failed at once with SQLITE_BUSY instead of waiting.
+func TestNewEngine_ConcurrentWritesNeverBusy(t *testing.T) {
+	eng, err := NewEngine(Config{DBPath: filepath.Join(t.TempDir(), "short.db")}, nil)
+	if err != nil {
+		t.Fatalf("NewEngine: %v", err)
+	}
+	defer eng.Close()
+	ctx := context.Background()
+
+	errs := make(chan error, 400)
+	var wg sync.WaitGroup
+	for w := 0; w < 4; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			conv, err := eng.store.GetOrCreateConversation(ctx, fmt.Sprintf("session-%d", w))
+			if err != nil {
+				errs <- err
+				return
+			}
+			for i := 0; i < 50; i++ {
+				if _, err := eng.store.AddMessage(ctx, conv.ConversationID, "user", "mensagem", 3); err != nil {
+					errs <- err
+				}
+			}
+		}(w)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent write failed: %v", err)
+	}
+}

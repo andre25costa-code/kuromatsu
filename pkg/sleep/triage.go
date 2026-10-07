@@ -15,6 +15,7 @@ import (
 type SessionDigest struct {
 	SessionID string
 	Summary   string
+	Revision  string // Opaque snapshot acknowledged only after persistence.
 }
 
 // SessionSource supplies session digests for a workspace.
@@ -30,10 +31,8 @@ type ChatResult struct {
 	TotalTokens int
 }
 
-// ChatFunc issues one LLM call. Implementations resolve the model through
-// the agent's normal fallback chain, so any configured provider works,
-// including the native Bonsai model when no external key is configured
-// (ADR-006).
+// ChatFunc issues one LLM call to the explicitly configured external model.
+// Implementations must honor OutputTokenLimit from the call context.
 type ChatFunc func(ctx context.Context, systemPrompt, userPrompt string) (ChatResult, error)
 
 // digestsPerCall caps how many session digests go into a single
@@ -72,7 +71,11 @@ func runTriage(
 
 	budget := cfg.WithDefaults().MaxTokensBudget
 
-	for start := 0; start < len(digests); start += digestsPerCall {
+	for start := 0; start < len(digests); {
+		if err := ctx.Err(); err != nil {
+			report.Err = err
+			break
+		}
 		if report.TokensUsed >= budget {
 			report.BudgetHit = true
 			report.Notes = append(report.Notes, fmt.Sprintf(
@@ -83,17 +86,43 @@ func runTriage(
 
 		end := min(start+digestsPerCall, len(digests))
 		prompt := renderConsolidationPrompt(updatedMemory, digests[start:end])
-
-		result, err := chat(ctx, consolidationSystemPrompt, prompt)
+		callCtx := withTokenBudget(ctx, budget-report.TokensUsed)
+		// Reduce the batch to fit the available input reservation; never
+		// discard a digest merely because its neighbors made a large batch.
+		for end > start+1 {
+			if _, err := OutputTokenLimit(callCtx, consolidationSystemPrompt, prompt); err == nil {
+				break
+			}
+			end--
+			prompt = renderConsolidationPrompt(updatedMemory, digests[start:end])
+		}
+		if _, err := OutputTokenLimit(callCtx, consolidationSystemPrompt, prompt); err != nil {
+			report.BudgetHit = true
+			report.Err = err
+			break
+		}
+		result, err := chat(callCtx, consolidationSystemPrompt, prompt)
 		if err != nil {
-			report.Notes = append(report.Notes, fmt.Sprintf("lote %d: chamada ao modelo falhou: %v", report.BatchesRun+1, err))
+			report.Err = err
+			report.Notes = append(
+				report.Notes,
+				fmt.Sprintf("lote %d: chamada ao modelo falhou: %v", report.BatchesRun+1, err),
+			)
 			break
 		}
 		report.BatchesRun++
+		if result.TotalTokens <= 0 {
+			result.TotalTokens = len(consolidationSystemPrompt) + len(prompt) + len(result.Text) + 512
+		}
 		report.TokensUsed += result.TotalTokens
 		if text := strings.TrimSpace(result.Text); text != "" {
 			updatedMemory = text
+			report.ProcessedDigests = append(report.ProcessedDigests, digests[start:end]...)
+		} else {
+			report.Err = fmt.Errorf("sleep model returned empty memory")
+			break
 		}
+		start = end
 	}
 
 	report.MemoryUpdated = updatedMemory != currentMemory

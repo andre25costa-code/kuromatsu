@@ -81,20 +81,6 @@ func NewRegistryManagerFromToolsConfig(cfg config.SkillsToolsConfig) *RegistryMa
 	})
 }
 
-func LookupRegistryFromToolsConfig(cfg config.SkillsToolsConfig, name string) SkillRegistry {
-	for _, provider := range registryProvidersFromToolsConfig(cfg) {
-		if provider == nil {
-			continue
-		}
-		registry := provider.BuildRegistry()
-		if registry == nil || registry.Name() != name {
-			continue
-		}
-		return registry
-	}
-	return nil
-}
-
 func GitHubInstallDirNameFromToolsConfig(cfg config.SkillsToolsConfig, target string) (string, error) {
 	registryCfg, ok := cfg.Registries.Get("github")
 	if ok {
@@ -102,25 +88,6 @@ func GitHubInstallDirNameFromToolsConfig(cfg config.SkillsToolsConfig, target st
 		return githubInstallDirNameWithBaseURL(target, registryCfg.BaseURL)
 	}
 	return githubInstallDirNameWithBaseURL(target, cfg.Github.BaseURL)
-}
-
-func NormalizeInstallTargetForRegistry(cfg config.SkillsToolsConfig, registryName, target string) string {
-	if registryName == "" || target == "" {
-		return target
-	}
-	registry := LookupRegistryFromToolsConfig(cfg, registryName)
-	if registry == nil {
-		return target
-	}
-	ghRegistry, ok := registry.(*GitHubRegistry)
-	if !ok {
-		return target
-	}
-	normalized, err := canonicalGitHubRegistrySlugWithBaseURL(target, ghRegistry.webBase)
-	if err != nil || normalized == "" {
-		return target
-	}
-	return normalized
 }
 
 func BuildInstallMetadataForRegistryInstance(registry SkillRegistry, target, version string) (string, string) {

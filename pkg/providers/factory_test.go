@@ -23,7 +23,7 @@ func TestCreateProviderReturnsHTTPProviderForOpenRouter(t *testing.T) {
 		t.Fatalf("CreateProvider() error = %v", err)
 	}
 
-	if _, ok := provider.(*HTTPProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 		t.Fatalf("provider type = %T, want *HTTPProvider", provider)
 	}
 }
@@ -44,7 +44,7 @@ func TestCreateProviderResolvesRawDefaultFromProviderTemplate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProvider() error = %v", err)
 	}
-	if _, ok := provider.(*HTTPProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
 		t.Fatalf("provider type = %T, want *HTTPProvider", provider)
 	}
 	if modelID != "deepseek/deepseek-v3.2" {
@@ -201,7 +201,7 @@ func TestCreateProviderReturnsCodexCliProviderForCodexCode(t *testing.T) {
 		t.Fatalf("CreateProvider() error = %v", err)
 	}
 
-	if _, ok := provider.(*CodexCliProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*CodexCliProvider); !ok {
 		t.Fatalf("provider type = %T, want *CodexCliProvider", provider)
 	}
 }
@@ -222,7 +222,7 @@ func TestCreateProviderReturnsClaudeCliProviderForClaudeCli(t *testing.T) {
 		t.Fatalf("CreateProvider() error = %v", err)
 	}
 
-	if _, ok := provider.(*ClaudeCliProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*ClaudeCliProvider); !ok {
 		t.Fatalf("provider type = %T, want *ClaudeCliProvider", provider)
 	}
 }
@@ -255,7 +255,7 @@ func TestCreateProviderReturnsClaudeProviderForAnthropicOAuth(t *testing.T) {
 		t.Fatalf("CreateProvider() error = %v", err)
 	}
 
-	if _, ok := provider.(*ClaudeProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*ClaudeProvider); !ok {
 		t.Fatalf("provider type = %T, want *ClaudeProvider", provider)
 	}
 	// TODO: Test custom APIBase when createClaudeAuthProvider supports it

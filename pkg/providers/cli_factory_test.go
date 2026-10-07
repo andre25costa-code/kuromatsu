@@ -35,7 +35,7 @@ func TestCreateProvider_ClaudeCli(t *testing.T) {
 		t.Fatalf("CreateProvider(claude-cli) error = %v", err)
 	}
 
-	cliProvider, ok := provider.(*ClaudeCliProvider)
+	cliProvider, ok := unwrapSecretMask(provider).(*ClaudeCliProvider)
 	if !ok {
 		t.Fatalf("CreateProvider(claude-cli) returned %T, want *ClaudeCliProvider", provider)
 	}
@@ -55,7 +55,7 @@ func TestCreateProvider_ClaudeCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProvider(claude-code) error = %v", err)
 	}
-	if _, ok := provider.(*ClaudeCliProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*ClaudeCliProvider); !ok {
 		t.Fatalf("CreateProvider(claude-code) returned %T, want *ClaudeCliProvider", provider)
 	}
 }
@@ -71,7 +71,7 @@ func TestCreateProvider_ClaudeCodec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateProvider(claudecode) error = %v", err)
 	}
-	if _, ok := provider.(*ClaudeCliProvider); !ok {
+	if _, ok := unwrapSecretMask(provider).(*ClaudeCliProvider); !ok {
 		t.Fatalf("CreateProvider(claudecode) returned %T, want *ClaudeCliProvider", provider)
 	}
 }
@@ -89,7 +89,7 @@ func TestCreateProvider_ClaudeCliDefaultWorkspace(t *testing.T) {
 		t.Fatalf("CreateProvider error = %v", err)
 	}
 
-	cliProvider, ok := provider.(*ClaudeCliProvider)
+	cliProvider, ok := unwrapSecretMask(provider).(*ClaudeCliProvider)
 	if !ok {
 		t.Fatalf("returned %T, want *ClaudeCliProvider", provider)
 	}

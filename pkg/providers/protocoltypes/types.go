@@ -53,6 +53,15 @@ type UsageInfo struct {
 	PromptTokens     int `json:"prompt_tokens"`
 	CompletionTokens int `json:"completion_tokens"`
 	TotalTokens      int `json:"total_tokens"`
+
+	// CachedTokens, PrefillMs and GenerationMs are populated only by
+	// providers that expose KV-cache prefix reuse and prefill/generation
+	// timing (the native localllm provider, ADR-015/S21/FR-016); every
+	// other provider leaves them at the zero value, so they are omitted
+	// from JSON rather than emitted as a misleading 0.
+	CachedTokens int   `json:"cached_tokens,omitempty"`
+	PrefillMs    int64 `json:"prefill_ms,omitempty"`
+	GenerationMs int64 `json:"generation_ms,omitempty"`
 }
 
 // CacheControl marks a content block for LLM-side prefix caching.

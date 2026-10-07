@@ -1,0 +1,12 @@
+[Unit]
+Description=Kuromatsu — forca Transparent Huge Pages para madvise (evita inflar RSS em 1GB)
+DefaultDependencies=no
+Before=sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled'
+RemainAfterExit=true
+
+[Install]
+WantedBy=sysinit.target

@@ -30,10 +30,17 @@ func main() {
 	modelPath := flag.String("model", "models/Bonsai-1.7B-Q1_0.gguf", "path to the GGUF file")
 	nCtx := flag.Int("n-ctx", 2048, "context size")
 	maxPredict := flag.Int("max-predict", 128, "max tokens to generate per prompt")
+	nThreads := flag.Int("n-threads", 0, "number of decode threads (0 = engine default, min(runtime.NumCPU(),4) -- ADR-015)")
+	repeat := flag.Int("repeat", 1, "how many times to repeat the fixed prompt set; >1 shows the KV prefix-cache warming up across repetitions (cached_tokens, B1/ADR-015)")
 	flag.Parse()
 
 	if !localllm.Built() {
 		fmt.Fprintln(os.Stderr, "nativebench: this binary was built without the nativellm engine; rebuild with `make bench-native`")
+		os.Exit(1)
+	}
+
+	if *repeat < 1 {
+		fmt.Fprintln(os.Stderr, "nativebench: -repeat must be >= 1")
 		os.Exit(1)
 	}
 
@@ -46,6 +53,7 @@ func main() {
 		ModelPath:  *modelPath,
 		NCtx:       *nCtx,
 		MaxPredict: *maxPredict,
+		NThreads:   *nThreads,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "nativebench: %v\n", err)
@@ -53,51 +61,62 @@ func main() {
 	}
 
 	fmt.Printf("model: %s\n", *modelPath)
-	fmt.Printf("n_ctx: %d, max_predict: %d\n\n", *nCtx, *maxPredict)
+	fmt.Printf("n_ctx: %d, max_predict: %d, n_threads: %d, repeat: %d\n\n", *nCtx, *maxPredict, *nThreads, *repeat)
 	reportRSS("before load")
 
-	var totalPromptTok, totalOutputTok int
+	var totalPromptTok, totalOutputTok, totalCachedTok int
 	var totalGenTime time.Duration
+	firstPrompt := true
 
-	for i, prompt := range fixedPrompts {
-		messages := []protocoltypes.Message{
-			{Role: "system", Content: "Você é um assistente pessoal objetivo."},
-			{Role: "user", Content: prompt},
+	for rep := 0; rep < *repeat; rep++ {
+		if *repeat > 1 {
+			fmt.Printf("--- repetition %d/%d ---\n", rep+1, *repeat)
 		}
 
-		start := time.Now()
-		resp, err := provider.Chat(context.Background(), messages, nil, provider.GetDefaultModel(), nil)
-		elapsed := time.Since(start)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "prompt %d failed: %v\n", i+1, err)
-			continue
+		for i, prompt := range fixedPrompts {
+			messages := []protocoltypes.Message{
+				{Role: "system", Content: "Você é um assistente pessoal objetivo."},
+				{Role: "user", Content: prompt},
+			}
+
+			start := time.Now()
+			resp, err := provider.Chat(context.Background(), messages, nil, provider.GetDefaultModel(), nil)
+			elapsed := time.Since(start)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "prompt %d (rep %d) failed: %v\n", i+1, rep+1, err)
+				continue
+			}
+
+			promptTok := resp.Usage.PromptTokens
+			outputTok := resp.Usage.CompletionTokens
+			cachedTok := resp.Usage.CachedTokens
+			totalPromptTok += promptTok
+			totalOutputTok += outputTok
+			totalCachedTok += cachedTok
+
+			// First run pays the mmap/load cost; report it separately from
+			// generation speed to avoid skewing the tok/s figure.
+			if firstPrompt {
+				reportRSS("after first load")
+				firstPrompt = false
+			}
+
+			genToksPerSec := 0.0
+			if elapsed > 0 {
+				genToksPerSec = float64(outputTok) / elapsed.Seconds()
+			}
+			totalGenTime += elapsed
+
+			fmt.Printf("[%d] prompt_tok=%d cached_tok=%d output_tok=%d elapsed=%s tok/s=%.2f prefill_ms=%d gen_ms=%d\n",
+				i+1, promptTok, cachedTok, outputTok, elapsed.Round(time.Millisecond), genToksPerSec,
+				resp.Usage.PrefillMs, resp.Usage.GenerationMs)
 		}
-
-		promptTok := resp.Usage.PromptTokens
-		outputTok := resp.Usage.CompletionTokens
-		totalPromptTok += promptTok
-		totalOutputTok += outputTok
-
-		// First run pays the mmap/load cost; report it separately from
-		// generation speed to avoid skewing the tok/s figure.
-		if i == 0 {
-			reportRSS("after first load")
-		}
-
-		genToksPerSec := 0.0
-		if elapsed > 0 {
-			genToksPerSec = float64(outputTok) / elapsed.Seconds()
-		}
-		totalGenTime += elapsed
-
-		fmt.Printf("[%d] prompt_tok=%d output_tok=%d elapsed=%s tok/s=%.2f\n",
-			i+1, promptTok, outputTok, elapsed.Round(time.Millisecond), genToksPerSec)
 	}
 
 	fmt.Println()
 	if totalGenTime > 0 {
-		fmt.Printf("overall: prompt_tok=%d output_tok=%d avg_tok/s=%.2f\n",
-			totalPromptTok, totalOutputTok, float64(totalOutputTok)/totalGenTime.Seconds())
+		fmt.Printf("overall: prompt_tok=%d cached_tok=%d output_tok=%d avg_tok/s=%.2f\n",
+			totalPromptTok, totalCachedTok, totalOutputTok, float64(totalOutputTok)/totalGenTime.Seconds())
 	}
 	reportRSS("after all prompts")
 }

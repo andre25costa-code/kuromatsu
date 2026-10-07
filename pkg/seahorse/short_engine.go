@@ -106,23 +106,18 @@ func NewEngine(config Config, completeFn CompleteFn) (*Engine, error) {
 		}
 	}
 
-	db, err := sql.Open("sqlite", config.DBPath)
+	// Configure SQLite for concurrent access. The PRAGMAs go in the DSN so
+	// the driver applies them to EVERY pooled connection: run once with
+	// db.Exec they reached only one, and concurrent writers on other
+	// connections failed at once with SQLITE_BUSY instead of waiting.
+	dsn := config.DBPath + "?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
-
-	// Configure SQLite for concurrent access
-	if _, err := db.Exec("PRAGMA journal_mode = WAL;"); err != nil {
+	if err := db.Ping(); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("enable WAL: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA busy_timeout = 5000;"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set busy_timeout: %w", err)
-	}
-	if _, err := db.Exec("PRAGMA synchronous = NORMAL;"); err != nil {
-		_ = db.Close()
-		return nil, fmt.Errorf("set synchronous: %w", err)
+		return nil, fmt.Errorf("open db: %w", err)
 	}
 
 	if err := runSchema(db); err != nil {
@@ -302,9 +297,11 @@ func (e *Engine) Ingest(ctx context.Context, sessionKey string, messages []Messa
 // Close releases resources.
 func (e *Engine) Close() error {
 	// Signal compaction goroutines to stop
+	e.compactionMu.Lock()
 	if e.compaction != nil {
 		e.compaction.Close()
 	}
+	e.compactionMu.Unlock()
 	if e.store != nil && e.store.db != nil {
 		return e.store.db.Close()
 	}
@@ -364,30 +361,26 @@ func (e *Engine) CompactUntilUnder(ctx context.Context, sessionKey string, budge
 
 // initCompactionOnce lazily initializes the compaction engine.
 func (e *Engine) initCompactionOnce() {
+	e.compactionMu.Lock()
+	defer e.compactionMu.Unlock()
 	if e.compaction == nil {
-		e.compactionMu.Lock()
-		defer e.compactionMu.Unlock()
-		if e.compaction == nil {
-			shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-			e.compaction = &CompactionEngine{
-				store:          e.store,
-				config:         e.config,
-				complete:       e.complete,
-				shutdownCtx:    shutdownCtx,
-				shutdownCancel: shutdownCancel,
-			}
+		shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+		e.compaction = &CompactionEngine{
+			store:          e.store,
+			config:         e.config,
+			complete:       e.complete,
+			shutdownCtx:    shutdownCtx,
+			shutdownCancel: shutdownCancel,
 		}
 	}
 }
 
 // initAssemblerOnce lazily initializes the assembler.
 func (e *Engine) initAssemblerOnce() {
+	e.assemblerMu.Lock()
+	defer e.assemblerMu.Unlock()
 	if e.assembler == nil {
-		e.assemblerMu.Lock()
-		defer e.assemblerMu.Unlock()
-		if e.assembler == nil {
-			e.assembler = &Assembler{store: e.store, config: e.config}
-		}
+		e.assembler = &Assembler{store: e.store, config: e.config}
 	}
 }
 

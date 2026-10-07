@@ -29,7 +29,55 @@ type CronPayload struct {
 	Command string `json:"command,omitempty"`
 	Channel string `json:"channel,omitempty"`
 	To      string `json:"to,omitempty"`
+	// Window optionally names a focus window (ADR-014/FR-014) this job's
+	// "Message" kind should run in — pkg/tools/cron.go's ExecuteJob
+	// prefixes the dispatched message with "[foco:<Window>] " so the
+	// router (pkg/routing/focus.go) picks it up via the same inline-tag
+	// precedence a user typing that tag would get. Empty means "let the
+	// router's Origins["cron"] mapping decide" (or "chat" if focus is
+	// disabled — a no-op either way).
+	Window string `json:"window,omitempty"`
+	// AgentID optionally names a registered agent (Trilho G B.2) this
+	// job's "Message" kind must run on, bypassing agents.dispatch.rules
+	// entirely — pkg/tools/cron.go's ExecuteJob calls
+	// AgentLoop.ProcessDirectForAgent instead of ProcessDirectWithChannel
+	// when set. Empty (the default) means "route by Channel/To like any
+	// other message", which is already agent-aware today: a job whose
+	// Channel/To matches a dispatch rule already lands on that rule's
+	// agent with zero code changes. This field exists only for a job
+	// that wants a specific agent independent of channel/chat.
+	AgentID string `json:"agent_id,omitempty"`
+	// Quiet (AC-028-1) makes a Command job publish nothing when it
+	// succeeds: no message, no LLM turn. Only an anomaly -- non-zero exit,
+	// or output matching AnomalyRegex -- produces output.
+	Quiet bool `json:"quiet,omitempty"`
+	// AnomalyRegex (AC-028-2) flags an anomaly even on a zero exit code.
+	AnomalyRegex string `json:"anomaly_regex,omitempty"`
+	// OnAnomaly (AC-028-2/3) hands an anomaly to one LLM turn instead of
+	// publishing the raw output. Nil means "publish the raw output".
+	OnAnomaly *CronAnomaly `json:"on_anomaly,omitempty"`
 }
+
+// CronAnomaly configures the single LLM turn a Command job gets when its
+// check fails (ADR-020 P3: the model interprets anomalies, it doesn't run
+// the routine).
+type CronAnomaly struct {
+	// Message is the instruction the LLM gets ahead of the command output.
+	Message string `json:"message"`
+	// Window optionally names the focus window for that turn.
+	Window string `json:"window,omitempty"`
+	// MaxOutputChars truncates the command output sent to the LLM
+	// (default DefaultAnomalyMaxOutputChars).
+	MaxOutputChars int `json:"max_output_chars,omitempty"`
+	// MaxPerDay caps LLM turns per job per day; past it the raw output is
+	// published instead (default DefaultAnomalyMaxPerDay).
+	MaxPerDay int `json:"max_per_day,omitempty"`
+}
+
+const (
+	DefaultAnomalyMaxOutputChars = 2000
+	DefaultAnomalyMaxPerDay      = 3
+)
 
 type CronJobState struct {
 	NextRunAtMS *int64 `json:"nextRunAtMs,omitempty"`
@@ -413,6 +461,19 @@ func (cs *CronService) AddJob(
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
+	// AC-028-6: an identical job (same name, schedule, message and
+	// destination) is returned instead of duplicated -- a model repeating
+	// the same "cron add" on every heartbeat created 7 copies on 2026-09-21.
+	for i := range cs.store.Jobs {
+		existing := &cs.store.Jobs[i]
+		if existing.Name == name && sameSchedule(existing.Schedule, schedule) &&
+			existing.Payload.Message == message && existing.Payload.Channel == channel &&
+			existing.Payload.To == to {
+			jobCopy := cloneCronJob(*existing)
+			return &jobCopy, nil
+		}
+	}
+
 	now := time.Now().UnixMilli()
 
 	// One-time tasks (at) should be deleted after execution
@@ -504,6 +565,10 @@ func cloneCronJob(job CronJob) CronJob {
 	if job.State.LastRunAtMS != nil {
 		lastRunAtMS := *job.State.LastRunAtMS
 		clone.State.LastRunAtMS = &lastRunAtMS
+	}
+	if job.Payload.OnAnomaly != nil {
+		onAnomaly := *job.Payload.OnAnomaly
+		clone.Payload.OnAnomaly = &onAnomaly
 	}
 	return clone
 }

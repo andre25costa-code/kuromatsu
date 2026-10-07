@@ -24,10 +24,6 @@ type ColdPathRunner struct {
 	running   map[string]workspaceRunState
 }
 
-func NewColdPathRunner(runtime coldPathRuntime) *ColdPathRunner {
-	return NewColdPathRunnerWithErrorHandler(runtime, nil)
-}
-
 func NewColdPathRunnerWithErrorHandler(runtime coldPathRuntime, onError func(error)) *ColdPathRunner {
 	if onError == nil {
 		onError = func(error) {}

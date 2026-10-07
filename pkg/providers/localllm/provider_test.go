@@ -14,21 +14,24 @@ import (
 // inside engine_cgo.go's mutex (E5) and is tested there; this fake has no
 // locking of its own.
 type fakeEngine struct {
-	result     CompletionResult
-	err        error
-	calls      int
-	lastPrompt string
-	lastOpts   Options
+	result      CompletionResult
+	err         error
+	calls       int
+	lastPrompt  string
+	lastCoreEnd int
+	lastOpts    Options
+	unloadCalls int
 }
 
-func (f *fakeEngine) completion(_ context.Context, prompt string, opts Options) (CompletionResult, error) {
+func (f *fakeEngine) completion(_ context.Context, prompt string, coreEnd int, opts Options) (CompletionResult, error) {
 	f.calls++
 	f.lastPrompt = prompt
+	f.lastCoreEnd = coreEnd
 	f.lastOpts = opts
 	return f.result, f.err
 }
 
-func (f *fakeEngine) unload() {}
+func (f *fakeEngine) unload() { f.unloadCalls++ }
 
 func TestNewProvider_RequiresModelPath(t *testing.T) {
 	_, err := NewProvider(Options{})
@@ -149,6 +152,37 @@ func TestProvider_Chat_ZeroOrMissingOptions_KeepsConfiguredDefaults(t *testing.T
 	if fake.lastOpts.MaxPredict != 777 {
 		t.Fatalf("MaxPredict = %d, want unchanged 777", fake.lastOpts.MaxPredict)
 	}
+}
+
+// TestUnloadAll_CallsUnloadOnEveryRegisteredProvider covers ADR-017/C3:
+// memguard's PSI watchdog calls UnloadAll under sustained pressure and
+// expects every process-wide cached engine to actually unload. Manipulates
+// the package-level registry directly (same package) with a fake engine,
+// rather than going through NewProvider (which always constructs the real
+// engine via newEngine(), never a test double) -- unrelated entries other
+// tests may have left in the shared registry are untouched by this
+// assertion (UnloadAll calling unload() on them too is harmless, see the
+// no-panic test below).
+func TestUnloadAll_CallsUnloadOnEveryRegisteredProvider(t *testing.T) {
+	fake := &fakeEngine{}
+	path := filepath.Join(t.TempDir(), "unload-all-test.gguf")
+
+	registryMu.Lock()
+	registry[path] = &Provider{opts: Options{ModelPath: path}, eng: fake}
+	registryMu.Unlock()
+
+	UnloadAll()
+
+	if fake.unloadCalls != 1 {
+		t.Fatalf("unloadCalls = %d, want 1", fake.unloadCalls)
+	}
+}
+
+func TestUnloadAll_SafeRegardlessOfRegistryState(t *testing.T) {
+	// Not asserting an empty registry (other tests populate it with real/
+	// stub engines that were never actually loaded) -- just that calling
+	// UnloadAll never panics no matter what's in there.
+	UnloadAll()
 }
 
 func TestProvider_Chat_RendersToolsIntoPrompt(t *testing.T) {

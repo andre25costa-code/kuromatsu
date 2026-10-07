@@ -1,8 +1,6 @@
 package providers
 
 import (
-	"time"
-
 	cliprovider "github.com/andre25costa-code/kuromatsu/pkg/providers/cli"
 )
 
@@ -25,14 +23,6 @@ func NewCodexCliProvider(workspace string) *CodexCliProvider {
 
 func NewGitHubCopilotProvider(uri string, connectMode string, model string) (*GitHubCopilotProvider, error) {
 	return cliprovider.NewGitHubCopilotProvider(uri, connectMode, model)
-}
-
-func ReadCodexCliCredentials() (accessToken, accountID string, expiresAt time.Time, err error) {
-	return cliprovider.ReadCodexCliCredentials()
-}
-
-func CreateCodexCliTokenSource() func() (string, string, error) {
-	return cliprovider.CreateCodexCliTokenSource()
 }
 
 func NormalizeToolCall(tc ToolCall) ToolCall {

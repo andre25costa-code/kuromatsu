@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+
+	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
 func TestExpandToolByMessageIDs(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	conv, _ := s.GetOrCreateConversation(ctx, "test:expand-tool")
+	ctx = tools.WithToolSessionContext(ctx, "main", "test:expand-tool", nil)
 
 	msg1, _ := s.AddMessage(ctx, conv.ConversationID, "user", "first message", 10)
 	msg2, _ := s.AddMessage(ctx, conv.ConversationID, "assistant", "second message", 10)
@@ -63,6 +66,7 @@ func TestExpandToolWithParts(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	conv, _ := s.GetOrCreateConversation(ctx, "test:expand-parts")
+	ctx = tools.WithToolSessionContext(ctx, "main", "test:expand-parts", nil)
 
 	// Create message with parts
 	parts := []MessagePart{

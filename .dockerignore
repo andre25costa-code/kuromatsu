@@ -1,5 +1,3 @@
-# Do NOT exclude LICENSE or .github — scripts/copydir.go uses them as repo-root anchors
-# during `go generate`, which runs inside `make build` in the Dockerfile.
 .git
 .gitignore
 build/

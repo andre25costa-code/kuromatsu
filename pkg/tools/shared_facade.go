@@ -42,10 +42,6 @@ func WithToolContext(ctx context.Context, channel, chatID string) context.Contex
 	return toolshared.WithToolContext(ctx, channel, chatID)
 }
 
-func WithToolMessageContext(ctx context.Context, messageID, replyToMessageID string) context.Context {
-	return toolshared.WithToolMessageContext(ctx, messageID, replyToMessageID)
-}
-
 func WithToolInboundContext(
 	ctx context.Context,
 	channel, chatID, messageID, replyToMessageID string,
@@ -67,14 +63,6 @@ func ToolChannel(ctx context.Context) string {
 
 func ToolChatID(ctx context.Context) string {
 	return toolshared.ToolChatID(ctx)
-}
-
-func ToolMessageID(ctx context.Context) string {
-	return toolshared.ToolMessageID(ctx)
-}
-
-func ToolReplyToMessageID(ctx context.Context) string {
-	return toolshared.ToolReplyToMessageID(ctx)
 }
 
 func ToolAgentID(ctx context.Context) string {
@@ -101,16 +89,20 @@ func SilentResult(forLLM string) *ToolResult {
 	return toolshared.SilentResult(forLLM)
 }
 
-func DiffResult(path string, before, after []byte) *ToolResult {
-	return toolshared.DiffResult(path, before, after)
-}
-
 func AsyncResult(forLLM string) *ToolResult {
 	return toolshared.AsyncResult(forLLM)
 }
 
 func ErrorResult(message string) *ToolResult {
 	return toolshared.ErrorResult(message)
+}
+
+func ToolMessageID(ctx context.Context) string {
+	return toolshared.ToolMessageID(ctx)
+}
+
+func ToolReplyToMessageID(ctx context.Context) string {
+	return toolshared.ToolReplyToMessageID(ctx)
 }
 
 func UserResult(content string) *ToolResult {

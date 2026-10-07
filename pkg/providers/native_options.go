@@ -38,6 +38,11 @@ func nativeOptionsFromModelConfig(cfg *config.ModelConfig, modelID string) (loca
 		if v, ok := common.AsInt(cfg.ExtraBody["max_predict"]); ok {
 			opts.MaxPredict = v
 		}
+		// core_cache_parking (B2/ADR-015 point 8): off unless explicitly
+		// set to true -- see localllm.Options.CoreCacheParking.
+		if v, ok := cfg.ExtraBody["core_cache_parking"].(bool); ok {
+			opts.CoreCacheParking = v
+		}
 	}
 	return opts, nil
 }

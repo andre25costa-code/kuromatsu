@@ -124,48 +124,9 @@ func SelectAdaptiveLoopbackHost(hasIPv4, hasIPv6 bool) string {
 	}
 }
 
-func SelectAdaptiveAnyHost(hasIPv4, hasIPv6 bool) string {
-	switch {
-	case hasIPv4 && hasIPv6:
-		return "::"
-	case hasIPv6:
-		return "::"
-	case hasIPv4:
-		return "0.0.0.0"
-	default:
-		return "::"
-	}
-}
-
 func ResolveAdaptiveLoopbackHost() string {
 	hasIPv4, hasIPv6 := DetectIPFamilies()
 	return SelectAdaptiveLoopbackHost(hasIPv4, hasIPv6)
-}
-
-func ResolveAdaptiveAnyHost() string {
-	hasIPv4, hasIPv6 := DetectIPFamilies()
-	return SelectAdaptiveAnyHost(hasIPv4, hasIPv6)
-}
-
-func IsLoopbackHost(host string) bool {
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return false
-	}
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	return ip != nil && ip.IsLoopback()
-}
-
-func IsUnspecifiedHost(host string) bool {
-	host = strings.TrimSpace(host)
-	if host == "" {
-		return false
-	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	return ip != nil && ip.IsUnspecified()
 }
 
 func NormalizeHostInput(raw string) (string, error) {

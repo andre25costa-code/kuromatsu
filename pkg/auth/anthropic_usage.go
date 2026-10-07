@@ -17,8 +17,6 @@ const (
 // It is a var (not const) to allow overriding in tests.
 var anthropicUsageURL = "https://api.anthropic.com/api/oauth/usage"
 
-func setAnthropicUsageURL(url string) { anthropicUsageURL = url }
-
 type AnthropicUsage struct {
 	FiveHourUtilization float64
 	SevenDayUtilization float64

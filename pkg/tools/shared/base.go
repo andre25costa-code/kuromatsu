@@ -115,15 +115,6 @@ func ToolMessageID(ctx context.Context) string {
 	return v
 }
 
-// ToolReplyToMessageID extracts the current inbound reply target from ctx, or "" if unset.
-func ToolReplyToMessageID(ctx context.Context) string {
-	v, ok := ctx.Value(ctxKeyReplyToMessageID).(string)
-	if !ok {
-		return ""
-	}
-	return v
-}
-
 // ToolAgentID extracts the active turn's agent ID from ctx, or "" if unset.
 func ToolAgentID(ctx context.Context) string {
 	v, ok := ctx.Value(ctxKeyAgentID).(string)
@@ -197,4 +188,13 @@ func ToolToSchema(tool Tool) map[string]any {
 			"parameters":  tool.Parameters(),
 		},
 	}
+}
+
+// ToolReplyToMessageID extracts the current inbound reply target from ctx, or "" if unset.
+func ToolReplyToMessageID(ctx context.Context) string {
+	v, ok := ctx.Value(ctxKeyReplyToMessageID).(string)
+	if !ok {
+		return ""
+	}
+	return v
 }

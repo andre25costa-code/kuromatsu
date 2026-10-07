@@ -62,28 +62,12 @@ func NewSendTTSTool(provider tts.TTSProvider, store media.MediaStore) *SendTTSTo
 	return integrationtools.NewSendTTSTool(provider, store)
 }
 
-func NewAPIKeyPool(keys []string) *APIKeyPool {
-	return integrationtools.NewAPIKeyPool(keys)
-}
-
 func WebSearchToolOptionsFromConfig(cfg *config.Config) WebSearchToolOptions {
 	return integrationtools.WebSearchToolOptionsFromConfig(cfg)
 }
 
-func WebSearchProviderReady(opts WebSearchToolOptions, name string) bool {
-	return integrationtools.WebSearchProviderReady(opts, name)
-}
-
-func ResolveWebSearchProviderName(opts WebSearchToolOptions, query string) (string, error) {
-	return integrationtools.ResolveWebSearchProviderName(opts, query)
-}
-
 func NewWebSearchTool(opts WebSearchToolOptions) (*WebSearchTool, error) {
 	return integrationtools.NewWebSearchTool(opts)
-}
-
-func NewWebFetchTool(maxChars int, format string, fetchLimitBytes int64) (*WebFetchTool, error) {
-	return integrationtools.NewWebFetchTool(maxChars, format, fetchLimitBytes)
 }
 
 func NewWebFetchToolWithProxy(
@@ -94,14 +78,4 @@ func NewWebFetchToolWithProxy(
 	privateHostWhitelist []string,
 ) (*WebFetchTool, error) {
 	return integrationtools.NewWebFetchToolWithProxy(maxChars, proxy, format, fetchLimitBytes, privateHostWhitelist)
-}
-
-func NewWebFetchToolWithConfig(
-	maxChars int,
-	proxy string,
-	format string,
-	fetchLimitBytes int64,
-	privateHostWhitelist []string,
-) (*WebFetchTool, error) {
-	return integrationtools.NewWebFetchToolWithConfig(maxChars, proxy, format, fetchLimitBytes, privateHostWhitelist)
 }

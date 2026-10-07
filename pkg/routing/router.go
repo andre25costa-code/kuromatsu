@@ -41,15 +41,6 @@ func New(cfg RouterConfig) *Router {
 	}
 }
 
-// newWithClassifier creates a Router with a custom Classifier.
-// Intended for unit tests that need to inject a deterministic scorer.
-func newWithClassifier(cfg RouterConfig, c Classifier) *Router {
-	if cfg.Threshold <= 0 {
-		cfg.Threshold = defaultThreshold
-	}
-	return &Router{cfg: cfg, classifier: c}
-}
-
 // SelectModel returns the model to use for this conversation turn along with
 // the computed complexity score (for logging and debugging).
 //

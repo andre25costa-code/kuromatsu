@@ -28,15 +28,6 @@ func NewStore(paths Paths) *Store {
 
 var storeFileLocks sync.Map
 
-func (s *Store) AppendLearningRecord(ctx context.Context, record LearningRecord) error {
-	switch record.Kind {
-	case RecordKindPattern, legacyRecordKindRule:
-		return s.AppendPatternRecords([]LearningRecord{record})
-	default:
-		return s.AppendTaskRecord(ctx, record)
-	}
-}
-
 func (s *Store) AppendLearningRecords(records []LearningRecord) error {
 	taskRecords := make([]LearningRecord, 0, len(records))
 	patternRecords := make([]LearningRecord, 0, len(records))

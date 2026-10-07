@@ -65,9 +65,15 @@ func (al *AgentLoop) ProcessDirectWithChannel(
 	return al.processMessage(ctx, msg)
 }
 
-func (al *AgentLoop) ProcessHeartbeat(
+// ProcessDirectForAgent bypasses agents.dispatch.rules and targets agentID
+// directly (Trilho G B.2) -- used by a cron job with payload.agent_id set
+// explicitly, when the job wants a specific agent regardless of which
+// channel/chat it dispatches through. Returns an error (never falls back
+// to the default agent) if agentID isn't registered, matching
+// ProcessHeartbeatForAgent's stance.
+func (al *AgentLoop) ProcessDirectForAgent(
 	ctx context.Context,
-	content, channel, chatID string,
+	agentID, content, sessionKey, channel, chatID string,
 ) (string, error) {
 	if err := al.ensureHooksInitialized(ctx); err != nil {
 		return "", err
@@ -76,12 +82,80 @@ func (al *AgentLoop) ProcessHeartbeat(
 		return "", err
 	}
 
-	agent := al.GetRegistry().GetDefaultAgent()
+	agent, ok := al.GetRegistry().GetAgent(agentID)
+	if !ok {
+		return "", fmt.Errorf("cron: agent %q not found in registry", agentID)
+	}
+
+	dispatch := DispatchRequest{
+		SessionKey:  sessionKey,
+		UserMessage: content,
+		InboundContext: &bus.InboundContext{
+			Channel:  channel,
+			ChatID:   chatID,
+			ChatType: "direct",
+			SenderID: "cron",
+		},
+	}
+	return al.runAgentLoop(ctx, agent, processOptions{
+		Dispatch:        dispatch,
+		DefaultResponse: defaultResponse,
+		EnableSummary:   true,
+		SendResponse:    false,
+		Origin:          OriginCron,
+	})
+}
+
+// ProcessHeartbeat runs a heartbeat turn on the default agent. Kept as a
+// thin wrapper for backward compatibility (existing tests, any external
+// caller expecting this exact signature) -- production wiring
+// (gateway.go's per-agent HeartbeatServices, Trilho G B.1) calls
+// ProcessHeartbeatForAgent directly, once per agent that has heartbeat
+// enabled.
+func (al *AgentLoop) ProcessHeartbeat(
+	ctx context.Context,
+	content, channel, chatID string,
+) (string, error) {
+	return al.ProcessHeartbeatForAgent(ctx, "", content, channel, chatID)
+}
+
+// ProcessHeartbeatForAgent runs a heartbeat turn on agentID. Empty agentID
+// resolves to GetDefaultAgent() (ProcessHeartbeat's exact prior behavior).
+// A non-empty agentID that isn't registered is an error -- it never
+// silently falls back to the default agent, which would run that agent's
+// HEARTBEAT.md task against a different agent's model/workspace, exactly
+// the cross-agent leak per-agent isolation exists to prevent.
+func (al *AgentLoop) ProcessHeartbeatForAgent(
+	ctx context.Context,
+	agentID, content, channel, chatID string,
+) (string, error) {
+	if err := al.ensureHooksInitialized(ctx); err != nil {
+		return "", err
+	}
+	if err := al.ensureMCPInitialized(ctx); err != nil {
+		return "", err
+	}
+
+	var agent *AgentInstance
+	if agentID == "" {
+		agent = al.GetRegistry().GetDefaultAgent()
+	} else {
+		var ok bool
+		agent, ok = al.GetRegistry().GetAgent(agentID)
+		if !ok {
+			return "", fmt.Errorf("heartbeat: agent %q not found in registry", agentID)
+		}
+	}
 	if agent == nil {
 		return "", fmt.Errorf("no default agent for heartbeat")
 	}
+	// SessionKey is scoped per-agent (was the bare literal "heartbeat"):
+	// with multiple agents each running their own heartbeat, a shared key
+	// would make activeTurnStates' dedup (agent.go) treat concurrent
+	// heartbeats from different agents as the same in-flight turn and
+	// suppress one of them.
 	dispatch := DispatchRequest{
-		SessionKey:  "heartbeat",
+		SessionKey:  "heartbeat:" + agent.ID,
 		UserMessage: content,
 	}
 	if channel != "" || chatID != "" {
@@ -99,6 +173,7 @@ func (al *AgentLoop) ProcessHeartbeat(
 		SendResponse:         false,
 		SuppressToolFeedback: true,
 		NoHistory:            true, // Don't load session history for heartbeat
+		Origin:               OriginHeartbeat,
 	})
 }
 
@@ -118,6 +193,17 @@ func (al *AgentLoop) prepareInboundMessageForAgent(
 	}
 
 	return msg
+}
+
+// originForInboundMessage derives the focus origin (ADR-014/S16) for a
+// message flowing through processMessage. ProcessDirectWithChannel (used by
+// cron's "Message" job kind, pkg/tools/cron.go ExecuteJob) sets SenderID to
+// "cron"; every other inbound message here is a genuine user turn.
+func originForInboundMessage(msg bus.InboundMessage) string {
+	if msg.SenderID == OriginCron {
+		return OriginCron
+	}
+	return OriginUser
 }
 
 func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage) (string, error) {
@@ -192,6 +278,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		EnableSummary:           true,
 		SendResponse:            false,
 		AllowInterimPicoPublish: true,
+		Origin:                  originForInboundMessage(msg),
 	}
 	var err error
 	opts, err = resolveTurnProfileOptions(al.GetConfig(), opts)
@@ -203,6 +290,16 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	// "unavailable" when the required capability is nil.
 	if response, handled := al.handleCommand(ctx, msg, agent, &opts); handled {
 		return response, nil
+	}
+
+	// Reflexes (FR-013/ADR-014 point 6): a 0-token, deterministic shortcut
+	// checked after slash commands and before the focus router/LLM call,
+	// only for origin "user". With no reflexes configured (the default)
+	// al.reflexes is nil and this is a no-op (AC-013-5).
+	if opts.Origin == OriginUser {
+		if response, matched := al.tryReflex(ctx, agent, msg, &opts); matched {
+			return response, nil
+		}
 	}
 
 	if pending := al.takePendingSkills(opts.Dispatch.SessionKey); len(pending) > 0 {
@@ -221,6 +318,20 @@ func (al *AgentLoop) resolveMessageRoute(msg bus.InboundMessage) (routing.Resolv
 	registry := al.GetRegistry()
 	inboundCtx := normalizedInboundContext(msg)
 	route := registry.ResolveRoute(inboundCtx)
+
+	// /agent pin (Trilho G B.3) takes precedence over agents.dispatch.rules:
+	// pin > dispatch rules > default, exactly the "automatic by default,
+	// manual override when wanted" split the user asked for. A pin for an
+	// agent that no longer exists in the current config self-heals here
+	// rather than erroring the whole route.
+	if pinned, ok := al.pinnedAgentID(chatPinKey(inboundCtx)); ok {
+		if _, exists := registry.GetAgent(pinned); exists {
+			route.AgentID = pinned
+			route.MatchedBy = "agent.pin"
+		} else {
+			al.unpinAgentID(chatPinKey(inboundCtx))
+		}
+	}
 
 	agent, ok := registry.GetAgent(route.AgentID)
 	if !ok {
@@ -312,5 +423,6 @@ func (al *AgentLoop) processSystemMessage(
 		DefaultResponse: "Background task completed.",
 		EnableSummary:   false,
 		SendResponse:    true,
+		Origin:          OriginSystem,
 	})
 }

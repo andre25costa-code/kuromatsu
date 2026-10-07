@@ -82,6 +82,17 @@ func (t *ExpandTool) Execute(ctx context.Context, args map[string]any) *tools.To
 		}
 	}
 
+	conversationID, err := t.engine.toolConversation(ctx)
+	if err != nil {
+		return tools.ErrorResult(err.Error())
+	}
+	// Authorize the entire request before returning any content.
+	for _, id := range messageIDs {
+		msg, lookupErr := t.engine.store.GetMessageByID(ctx, id)
+		if lookupErr != nil || msg.ConversationID != conversationID {
+			return tools.ErrorResult("message is not available in the current session")
+		}
+	}
 	result, err := t.engine.ExpandMessages(ctx, messageIDs)
 	if err != nil {
 		return tools.ErrorResult("Expand failed: " + err.Error())

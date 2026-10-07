@@ -30,6 +30,14 @@ func turnProfileSystemPromptOff(profile config.EffectiveTurnProfile) bool {
 	return profile.Enabled && profile.SystemPromptMode == config.TurnProfileModeOff
 }
 
+// turnProfileSystemPromptCompact reports whether the active profile selects
+// the compact framework identity (ADR-014 point 3 / FR-015 AC-015-1). A
+// plain, non-focus AgentDefaults.TurnProfile can also set this directly via
+// system_prompt.mode: "compact" — focus windows aren't the only source.
+func turnProfileSystemPromptCompact(profile config.EffectiveTurnProfile) bool {
+	return profile.Enabled && profile.SystemPromptMode == config.TurnProfileModeCompact
+}
+
 func turnProfileSkillsOff(profile config.EffectiveTurnProfile) bool {
 	return profile.Enabled && profile.SkillsMode == config.TurnProfileModeOff
 }

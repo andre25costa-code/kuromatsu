@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
@@ -906,122 +905,6 @@ func TestWebFetch_RedirectToPrivateBlocked(t *testing.T) {
 
 	if !result.IsError {
 		t.Error("expected error when redirecting to private IP, got success")
-	}
-}
-
-func TestNewSafeDialContext_BlocksPrivateDNSResolutionWithoutWhitelist(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("failed to listen on loopback: %v", err)
-	}
-	defer listener.Close()
-
-	_, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		t.Fatalf("failed to split listener address: %v", err)
-	}
-
-	dialContext := newSafeDialContext(&net.Dialer{Timeout: time.Second}, nil)
-	_, err = dialContext(context.Background(), "tcp", net.JoinHostPort("localhost", port))
-	if err == nil {
-		t.Fatal("expected localhost DNS resolution to be blocked without whitelist")
-	}
-	if !strings.Contains(err.Error(), "private") && !strings.Contains(err.Error(), "whitelisted") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestNewSafeDialContext_AllowsWhitelistedPrivateDNSResolution(t *testing.T) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatalf("failed to listen on loopback: %v", err)
-	}
-	defer listener.Close()
-
-	accepted := make(chan struct{}, 1)
-	go func() {
-		conn, acceptErr := listener.Accept()
-		if acceptErr != nil {
-			return
-		}
-		conn.Close()
-		accepted <- struct{}{}
-	}()
-
-	_, port, err := net.SplitHostPort(listener.Addr().String())
-	if err != nil {
-		t.Fatalf("failed to split listener address: %v", err)
-	}
-
-	whitelist, err := newPrivateHostWhitelist([]string{"127.0.0.0/8"})
-	if err != nil {
-		t.Fatalf("failed to parse whitelist: %v", err)
-	}
-
-	dialContext := newSafeDialContext(&net.Dialer{Timeout: time.Second}, whitelist)
-	conn, err := dialContext(context.Background(), "tcp", net.JoinHostPort("localhost", port))
-	if err != nil {
-		t.Fatalf("expected localhost DNS resolution to succeed with whitelist, got %v", err)
-	}
-	conn.Close()
-
-	select {
-	case <-accepted:
-	case <-time.After(time.Second):
-		t.Fatal("expected localhost listener to accept a connection")
-	}
-}
-
-// TestIsPrivateOrRestrictedIP_Table tests IP classification logic
-func TestIsPrivateOrRestrictedIP_Table(t *testing.T) {
-	tests := []struct {
-		ip      string
-		blocked bool
-		desc    string
-	}{
-		{"127.0.0.1", true, "IPv4 loopback"},
-		{"10.0.0.1", true, "IPv4 private class A"},
-		{"172.16.0.1", true, "IPv4 private class B"},
-		{"192.168.1.1", true, "IPv4 private class C"},
-		{"169.254.169.254", true, "link-local / cloud metadata"},
-		{"100.64.0.1", true, "carrier-grade NAT"},
-		{"198.18.0.1", true, "RFC 2544 benchmark"},
-		{"198.19.255.1", true, "RFC 2544 benchmark end"},
-		{"198.17.0.1", false, "just before 198.18.0.0/15"},
-		{"198.20.0.1", false, "just after 198.19.255.255"},
-		{"0.0.0.0", true, "unspecified"},
-		{"8.8.8.8", false, "public DNS"},
-		{"1.1.1.1", false, "public DNS"},
-		{"::1", true, "IPv6 loopback"},
-		{"::ffff:127.0.0.1", true, "IPv4-mapped IPv6 loopback"},
-		{"::ffff:10.0.0.1", true, "IPv4-mapped IPv6 private"},
-		{"fc00::1", true, "IPv6 unique local"},
-		{"fd00::1", true, "IPv6 unique local"},
-		{"2002:7f00:0001::1", true, "6to4 with embedded 127.x (private)"},
-		{"2002:0a00:0001::1", true, "6to4 with embedded 10.0.0.1 (private)"},
-		{"2002:0801:0101::1", false, "6to4 with embedded 8.1.1.1 (public)"},
-		{"2001:db8:1234::5efe:127.0.0.1", true, "ISATAP with embedded 127.0.0.1 (private)"},
-		{"2001:db8:1234::5efe:10.0.0.1", true, "ISATAP with embedded 10.0.0.1 (private)"},
-		{"2001:db8:1234::5efe:8.8.8.8", false, "ISATAP with embedded 8.8.8.8 (public)"},
-		{"2001:db8:1234:0:0200:5efe:127.0.0.1", true, "ISATAP 0200 with embedded 127.0.0.1 (private)"},
-		{"2001:db8:1234:0:0200:5efe:10.0.0.1", true, "ISATAP 0200 with embedded 10.0.0.1 (private)"},
-		{"2001:db8:1234:0:0200:5efe:8.8.8.8", false, "ISATAP 0200 with embedded 8.8.8.8 (public)"},
-		{"2001:0000:4136:e378:8000:63bf:f5ff:fffe", true, "Teredo with client 10.0.0.1 (private)"},
-		{"2001:0000:4136:e378:8000:63bf:f7f6:fefe", false, "Teredo with client 8.9.1.1 (public)"},
-		{"2607:f8b0:4004:800::200e", false, "public IPv6 (Google)"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.desc, func(t *testing.T) {
-			ip := net.ParseIP(tt.ip)
-			if ip == nil {
-				t.Fatalf("failed to parse IP: %s", tt.ip)
-			}
-			got := isPrivateOrRestrictedIP(ip)
-			if got != tt.blocked {
-				t.Errorf("isPrivateOrRestrictedIP(%s) = %v, want %v", tt.ip, got, tt.blocked)
-			}
-		})
 	}
 }
 
@@ -2088,38 +1971,6 @@ func TestWebTool_AutoProviderPrefersConfiguredProvidersBeforeSogou(t *testing.T)
 	}
 }
 
-func TestWebTool_AutoProviderPrefersConfiguredProvidersBeforeGemini(t *testing.T) {
-	opts := WebSearchToolOptions{
-		GeminiEnabled:        true,
-		GeminiAPIKey:         "google-key",
-		GeminiModel:          "gemini-2.5-flash",
-		GeminiMaxResults:     5,
-		BraveEnabled:         true,
-		BraveAPIKeys:         []string{"brave-key"},
-		BraveMaxResults:      5,
-		SogouEnabled:         true,
-		SogouMaxResults:      5,
-		DuckDuckGoEnabled:    true,
-		DuckDuckGoMaxResults: 5,
-	}
-
-	name, err := ResolveWebSearchProviderName(opts, "best robotics companies")
-	if err != nil {
-		t.Fatalf("ResolveWebSearchProviderName() error: %v", err)
-	}
-	if name != "brave" {
-		t.Fatalf("provider = %q, want brave", name)
-	}
-
-	name, err = ResolveWebSearchProviderName(opts, "今天上海天气")
-	if err != nil {
-		t.Fatalf("ResolveWebSearchProviderName() error: %v", err)
-	}
-	if name != "brave" {
-		t.Fatalf("provider = %q, want brave", name)
-	}
-}
-
 func TestWebTool_GeminiRequiresAPIKey(t *testing.T) {
 	tool, err := NewWebSearchTool(WebSearchToolOptions{
 		Provider:        "gemini",
@@ -2318,21 +2169,6 @@ func TestWebTool_AutoProviderSkipsEnabledButUnreadyProviders(t *testing.T) {
 	}
 }
 
-func TestResolveWebSearchProviderName_FallsBackFromExplicitUnavailableProvider(t *testing.T) {
-	got, err := ResolveWebSearchProviderName(WebSearchToolOptions{
-		Provider:        "brave",
-		BraveEnabled:    true,
-		SogouEnabled:    true,
-		SogouMaxResults: 5,
-	}, "")
-	if err != nil {
-		t.Fatalf("ResolveWebSearchProviderName() error: %v", err)
-	}
-	if got != "sogou" {
-		t.Fatalf("ResolveWebSearchProviderName() = %q, want sogou", got)
-	}
-}
-
 func TestWebTool_UnknownExplicitProviderFallsBackToAuto(t *testing.T) {
 	tool, err := NewWebSearchTool(WebSearchToolOptions{
 		Provider:        "totally_unknown",
@@ -2344,20 +2180,6 @@ func TestWebTool_UnknownExplicitProviderFallsBackToAuto(t *testing.T) {
 	}
 	if _, ok := tool.provider.(*SogouSearchProvider); !ok {
 		t.Fatalf("expected SogouSearchProvider after fallback, got %T", tool.provider)
-	}
-}
-
-func TestResolveWebSearchProviderName_FallsBackFromUnknownProvider(t *testing.T) {
-	got, err := ResolveWebSearchProviderName(WebSearchToolOptions{
-		Provider:        "totally_unknown",
-		SogouEnabled:    true,
-		SogouMaxResults: 5,
-	}, "")
-	if err != nil {
-		t.Fatalf("ResolveWebSearchProviderName() error: %v", err)
-	}
-	if got != "sogou" {
-		t.Fatalf("ResolveWebSearchProviderName() = %q, want sogou", got)
 	}
 }
 

@@ -187,12 +187,12 @@ func TestEvolutionBridge_RuntimeBusOnlyCurrentBridgeConsumesTurnEnd(t *testing.T
 	eventBus := runtimeevents.NewBus()
 	defer eventBus.Close()
 
-	oldBridge, err := newEvolutionBridge(nil, cfg, nil)
+	oldBridge, err := newEvolutionBridge(nil, cfg, nil, nil)
 	if err != nil {
 		t.Fatalf("newEvolutionBridge(old): %v", err)
 	}
 	defer oldBridge.Close()
-	newBridge, err := newEvolutionBridge(nil, cfg, nil)
+	newBridge, err := newEvolutionBridge(nil, cfg, nil, nil)
 	if err != nil {
 		t.Fatalf("newEvolutionBridge(new): %v", err)
 	}
@@ -250,7 +250,11 @@ func TestEvolutionBridge_DirectDeliveryFailureFallsBackToCurrentRuntimeBridge(t 
 	}
 	defer oldBridge.Close()
 
-	newBridge, err := newEvolutionBridge(al.registry, al.cfg, &simpleMockProvider{response: "ok"})
+	// Mode is "observe" here (via al.cfg from newEvolutionTestLoop above),
+	// so the cold path never runs regardless -- nil providerFactory is
+	// safe (never invoked; falls back to providers.CreateProviderFromConfig
+	// internally only when resolution is actually attempted).
+	newBridge, err := newEvolutionBridge(al.registry, al.cfg, nil, nil)
 	if err != nil {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
@@ -491,26 +495,87 @@ func TestEvolutionBridge_ObserveDoesNotCreateDraftFile(t *testing.T) {
 	assertNotExists(t, filepath.Join(tmpDir, "state", "evolution", "skill-drafts.json"))
 }
 
+// AC-010-9/ADR-018: the cold path only runs against a valid external
+// evolution.model -- constructs the bridge directly (mirrors
+// sleep_bridge_test.go's testing style for the analogous sleep gate)
+// instead of driving it through a full NewAgentLoop turn, since
+// NewAgentLoop wires the bridge's real providers.CreateProviderFromConfig
+// factory and this test's provider must stay a fake (no live network).
 func TestEvolutionBridge_DraftModeAutomaticallyRunsColdPathAndCreatesDraftFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	seedReadyRule(t, tmpDir)
 
-	al := newEvolutionTestLoop(t, tmpDir, config.EvolutionConfig{
-		Enabled: true,
-		Mode:    "draft",
-	}, &simpleMockProvider{response: "ok"})
-	defer al.Close()
-
-	resp, err := al.ProcessDirectWithChannel(context.Background(), "hello", "session-auto-cold-path", "cli", "direct")
-	if err != nil {
-		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	cfg := &config.Config{
+		Agents:    config.AgentsConfig{Defaults: config.AgentDefaults{Workspace: tmpDir}},
+		Evolution: config.EvolutionConfig{Enabled: true, Mode: "draft", Model: "evo-cloud"},
+		ModelList: externalEvolutionModelList(),
 	}
-	if resp != "ok" {
-		t.Fatalf("response = %q, want %q", resp, "ok")
+	bridge, err := newEvolutionBridge(nil, cfg, evolutionTestProviderFactory(&simpleMockProvider{response: "ok"}), nil)
+	if err != nil {
+		t.Fatalf("newEvolutionBridge: %v", err)
+	}
+	defer bridge.Close()
+	if bridge.coldPathRunner == nil {
+		t.Fatal("expected cold path runner with a valid evolution.model")
+	}
+
+	if err := bridge.OnEvent(context.Background(), Event{
+		Kind: EventKindTurnEnd,
+		Meta: EventMeta{AgentID: "main", TurnID: "turn-auto-cold-path", SessionKey: "session-auto-cold-path"},
+		Payload: TurnEndPayload{
+			Status:       TurnEndStatusCompleted,
+			Workspace:    tmpDir,
+			UserMessage:  "hello",
+			FinalContent: "ok",
+		},
+	}); err != nil {
+		t.Fatalf("OnEvent: %v", err)
 	}
 
 	waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "task-records.jsonl"))
 	waitForDrafts(t, filepath.Join(tmpDir, "state", "evolution", "skill-drafts.json"), 1)
+}
+
+// AC-010-9/ADR-018: without a valid external evolution.model, the cold
+// path stays disabled entirely (coldPathRunner nil, no draft ever
+// created) even though it would otherwise be eligible to run (mode=draft,
+// a ready rule seeded) -- the exact scenario the reviewer's bug report
+// flagged as unguarded. FinalizeTurn (the non-LLM hot path) still runs.
+func TestEvolutionBridge_DraftModeWithoutValidExternalModelNeverRunsColdPath(t *testing.T) {
+	tmpDir := t.TempDir()
+	seedReadyRule(t, tmpDir)
+
+	cfg := &config.Config{
+		Agents:    config.AgentsConfig{Defaults: config.AgentDefaults{Workspace: tmpDir}},
+		Evolution: config.EvolutionConfig{Enabled: true, Mode: "draft"}, // no Model set
+	}
+	bridge, err := newEvolutionBridge(nil, cfg, evolutionTestProviderFactory(&simpleMockProvider{response: "ok"}), nil)
+	if err != nil {
+		t.Fatalf("newEvolutionBridge: %v", err)
+	}
+	defer bridge.Close()
+	if bridge.coldPathRunner != nil {
+		t.Fatal("expected no cold path runner without a valid evolution.model (AC-010-9)")
+	}
+
+	if err := bridge.OnEvent(context.Background(), Event{
+		Kind: EventKindTurnEnd,
+		Meta: EventMeta{AgentID: "main", TurnID: "turn-no-model", SessionKey: "session-no-model"},
+		Payload: TurnEndPayload{
+			Status:       TurnEndStatusCompleted,
+			Workspace:    tmpDir,
+			UserMessage:  "hello",
+			FinalContent: "ok",
+		},
+	}); err != nil {
+		t.Fatalf("OnEvent: %v", err)
+	}
+
+	// Hot path (FinalizeTurn) still records the case...
+	waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "task-records.jsonl"))
+	// ...but the cold path (LLM-driven drafting) never ran.
+	time.Sleep(150 * time.Millisecond)
+	assertNotExists(t, filepath.Join(tmpDir, "state", "evolution", "skill-drafts.json"))
 }
 
 func TestEvolutionBridge_DraftModeDoesNotRunColdPathForHeartbeat(t *testing.T) {
@@ -572,26 +637,31 @@ func TestEvolutionBridge_DraftModeUsesProviderBackedDraftGenerator(t *testing.T)
 	tmpDir := t.TempDir()
 	seedReadyRule(t, tmpDir)
 
-	al := newEvolutionTestLoop(t, tmpDir, config.EvolutionConfig{
-		Enabled: true,
-		Mode:    "draft",
-	}, &simpleMockProvider{
-		response: `{"target_skill_name":"weather","draft_type":"shortcut","change_kind":"append","human_summary":"Prefer native-name path first","body_or_patch":"## Start Here\nUse native-name query first."}`,
-	})
-	defer al.Close()
-
-	resp, err := al.ProcessDirectWithChannel(
-		context.Background(),
-		"hello",
-		"session-auto-cold-path-llm",
-		"cli",
-		"direct",
-	)
-	if err != nil {
-		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	cfg := &config.Config{
+		Agents:    config.AgentsConfig{Defaults: config.AgentDefaults{Workspace: tmpDir}},
+		Evolution: config.EvolutionConfig{Enabled: true, Mode: "draft", Model: "evo-cloud"},
+		ModelList: externalEvolutionModelList(),
 	}
-	if resp == "" {
-		t.Fatal("expected non-empty response")
+	provider := &simpleMockProvider{
+		response: `{"target_skill_name":"weather","draft_type":"shortcut","change_kind":"append","human_summary":"Prefer native-name path first","body_or_patch":"## Start Here\nUse native-name query first."}`,
+	}
+	bridge, err := newEvolutionBridge(nil, cfg, evolutionTestProviderFactory(provider), nil)
+	if err != nil {
+		t.Fatalf("newEvolutionBridge: %v", err)
+	}
+	defer bridge.Close()
+
+	if err := bridge.OnEvent(context.Background(), Event{
+		Kind: EventKindTurnEnd,
+		Meta: EventMeta{AgentID: "main", TurnID: "turn-auto-cold-path-llm", SessionKey: "session-auto-cold-path-llm"},
+		Payload: TurnEndPayload{
+			Status:       TurnEndStatusCompleted,
+			Workspace:    tmpDir,
+			UserMessage:  "hello",
+			FinalContent: "ok",
+		},
+	}); err != nil {
+		t.Fatalf("OnEvent: %v", err)
 	}
 
 	waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "task-records.jsonl"))
@@ -601,92 +671,64 @@ func TestEvolutionBridge_DraftModeUsesProviderBackedDraftGenerator(t *testing.T)
 	}
 }
 
-func TestEvolutionBridge_DraftModeUsesProviderDefaultModel(t *testing.T) {
+// AC-010-9/ADR-018 point 5: evolution's cold path must resolve its model
+// exclusively from cfg.Evolution.Model (via a dedicated providerFactory
+// call, same pattern as sleep's newSleepChatFunc) -- never from the
+// agent's default provider/model_name. Replaces the pre-fix
+// TestEvolutionBridge_DraftModeUsesProviderDefaultModel/
+// DraftModePrefersConfigDefaultModelName, which asserted the exact
+// fallback-to-agent-default behavior this fix removes (resolvedEvolutionModelID
+// no longer exists).
+func TestEvolutionBridge_DraftModeUsesEvolutionModelViaDedicatedProviderFactory(t *testing.T) {
 	tmpDir := t.TempDir()
 	seedReadyRule(t, tmpDir)
 
 	provider := &capturingEvolutionDraftProvider{
-		defaultModel: "provider-explicit-model",
+		defaultModel: "agent-default-model-must-not-be-used",
 		response:     `{"target_skill_name":"weather","draft_type":"shortcut","change_kind":"append","human_summary":"Prefer native-name path first","body_or_patch":"## Start Here\nUse native-name query first."}`,
 	}
 
 	cfg := &config.Config{
 		Agents: config.AgentsConfig{
 			Defaults: config.AgentDefaults{
-				Workspace:         tmpDir,
-				ModelName:         "",
-				MaxTokens:         4096,
-				MaxToolIterations: 3,
+				Workspace: tmpDir,
+				// A non-empty agent default model_name that must be
+				// ignored by evolution's cold path -- if resolution ever
+				// regresses to the old agent-default fallback, lastModel
+				// below would come back as this instead of "evo-cloud".
+				ModelName: "agent-default-model-name-must-not-be-used",
 			},
 		},
-		Evolution: config.EvolutionConfig{
-			Enabled: true,
-			Mode:    "draft",
-		},
+		Evolution: config.EvolutionConfig{Enabled: true, Mode: "draft", Model: "evo-cloud"},
+		ModelList: externalEvolutionModelList(),
 	}
 
-	al := NewAgentLoop(cfg, bus.NewMessageBus(), provider)
-	defer al.Close()
+	bridge, err := newEvolutionBridge(nil, cfg, evolutionTestProviderFactory(provider), nil)
+	if err != nil {
+		t.Fatalf("newEvolutionBridge: %v", err)
+	}
+	defer bridge.Close()
+	if bridge.coldPathRunner == nil {
+		t.Fatal("expected cold path runner with a valid evolution.model")
+	}
 
-	if _, err := al.ProcessDirectWithChannel(
-		context.Background(),
-		"hello",
-		"session-auto-cold-path-model",
-		"cli",
-		"direct",
-	); err != nil {
-		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	if err := bridge.OnEvent(context.Background(), Event{
+		Kind: EventKindTurnEnd,
+		Meta: EventMeta{AgentID: "main", TurnID: "turn-model", SessionKey: "session-model"},
+		Payload: TurnEndPayload{
+			Status:       TurnEndStatusCompleted,
+			Workspace:    tmpDir,
+			UserMessage:  "hello",
+			FinalContent: "ok",
+		},
+	}); err != nil {
+		t.Fatalf("OnEvent: %v", err)
 	}
 
 	waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "task-records.jsonl"))
 	waitForDrafts(t, filepath.Join(tmpDir, "state", "evolution", "skill-drafts.json"), 1)
-	if provider.lastModel != "provider-explicit-model" {
-		t.Fatalf("lastModel = %q, want provider-explicit-model", provider.lastModel)
-	}
-}
-
-func TestEvolutionBridge_DraftModePrefersConfigDefaultModelName(t *testing.T) {
-	tmpDir := t.TempDir()
-	seedReadyRule(t, tmpDir)
-
-	provider := &capturingEvolutionDraftProvider{
-		defaultModel: "provider-default-model",
-		response:     `{"target_skill_name":"weather","draft_type":"shortcut","change_kind":"append","human_summary":"Prefer native-name path first","body_or_patch":"## Start Here\nUse native-name query first."}`,
-	}
-
-	cfg := &config.Config{
-		Agents: config.AgentsConfig{
-			Defaults: config.AgentDefaults{
-				Workspace:         tmpDir,
-				ModelName:         "test-model",
-				MaxTokens:         4096,
-				MaxToolIterations: 3,
-			},
-		},
-		Evolution: config.EvolutionConfig{
-			Enabled: true,
-			Mode:    "draft",
-		},
-	}
-	cfg.Agents.Defaults.ModelName = "resolved-config-model"
-
-	al := NewAgentLoop(cfg, bus.NewMessageBus(), provider)
-	defer al.Close()
-
-	if _, err := al.ProcessDirectWithChannel(
-		context.Background(),
-		"hello",
-		"session-auto-cold-path-model-config",
-		"cli",
-		"direct",
-	); err != nil {
-		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
-	}
-
-	waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "task-records.jsonl"))
-	waitForDrafts(t, filepath.Join(tmpDir, "state", "evolution", "skill-drafts.json"), 1)
-	if provider.lastModel != "resolved-config-model" {
-		t.Fatalf("lastModel = %q, want resolved-config-model", provider.lastModel)
+	if provider.lastModel != "evo-cloud" {
+		t.Fatalf("lastModel = %q, want %q (evolution.model, never the agent default)", provider.lastModel, "evo-cloud")
 	}
 }
 
@@ -694,22 +736,31 @@ func TestEvolutionBridge_DraftModeKeepsCandidateDraft(t *testing.T) {
 	tmpDir := t.TempDir()
 	seedReadyRule(t, tmpDir)
 
-	al := newEvolutionTestLoop(t, tmpDir, config.EvolutionConfig{
-		Enabled: true,
-		Mode:    "draft",
-	}, &simpleMockProvider{
+	cfg := &config.Config{
+		Agents:    config.AgentsConfig{Defaults: config.AgentDefaults{Workspace: tmpDir}},
+		Evolution: config.EvolutionConfig{Enabled: true, Mode: "draft", Model: "evo-cloud"},
+		ModelList: externalEvolutionModelList(),
+	}
+	provider := &simpleMockProvider{
 		response: `{"target_skill_name":"weather","draft_type":"shortcut","change_kind":"create","human_summary":"Create weather helper","body_or_patch":"---\nname: weather\ndescription: weather helper\n---\n# Weather\n## Start Here\nUse native-name query first.\n"}`,
-	})
-	defer al.Close()
+	}
+	bridge, err := newEvolutionBridge(nil, cfg, evolutionTestProviderFactory(provider), nil)
+	if err != nil {
+		t.Fatalf("newEvolutionBridge: %v", err)
+	}
+	defer bridge.Close()
 
-	if _, err := al.ProcessDirectWithChannel(
-		context.Background(),
-		"hello",
-		"session-apply-no-auto-apply",
-		"cli",
-		"direct",
-	); err != nil {
-		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	if err := bridge.OnEvent(context.Background(), Event{
+		Kind: EventKindTurnEnd,
+		Meta: EventMeta{AgentID: "main", TurnID: "turn-apply-no-auto-apply", SessionKey: "session-apply-no-auto-apply"},
+		Payload: TurnEndPayload{
+			Status:       TurnEndStatusCompleted,
+			Workspace:    tmpDir,
+			UserMessage:  "hello",
+			FinalContent: "ok",
+		},
+	}); err != nil {
+		t.Fatalf("OnEvent: %v", err)
 	}
 
 	waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "task-records.jsonl"))
@@ -736,22 +787,31 @@ func TestEvolutionBridge_ApplyModeAutomaticallyRunsColdPathAndAppliesMergeDraft(
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	al := newEvolutionTestLoop(t, tmpDir, config.EvolutionConfig{
-		Enabled: true,
-		Mode:    "apply",
-	}, &simpleMockProvider{
+	cfg := &config.Config{
+		Agents:    config.AgentsConfig{Defaults: config.AgentDefaults{Workspace: tmpDir}},
+		Evolution: config.EvolutionConfig{Enabled: true, Mode: "apply", Model: "evo-cloud"},
+		ModelList: externalEvolutionModelList(),
+	}
+	provider := &simpleMockProvider{
 		response: `{"target_skill_name":"weather","draft_type":"shortcut","change_kind":"merge","human_summary":"Merge native-name path","body_or_patch":"Prefer native-name query first."}`,
-	})
-	defer al.Close()
+	}
+	bridge, err := newEvolutionBridge(nil, cfg, evolutionTestProviderFactory(provider), nil)
+	if err != nil {
+		t.Fatalf("newEvolutionBridge: %v", err)
+	}
+	defer bridge.Close()
 
-	if _, err := al.ProcessDirectWithChannel(
-		context.Background(),
-		"hello",
-		"session-apply-merge",
-		"cli",
-		"direct",
-	); err != nil {
-		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+	if err := bridge.OnEvent(context.Background(), Event{
+		Kind: EventKindTurnEnd,
+		Meta: EventMeta{AgentID: "main", TurnID: "turn-apply-merge", SessionKey: "session-apply-merge"},
+		Payload: TurnEndPayload{
+			Status:       TurnEndStatusCompleted,
+			Workspace:    tmpDir,
+			UserMessage:  "hello",
+			FinalContent: "ok",
+		},
+	}); err != nil {
+		t.Fatalf("OnEvent: %v", err)
 	}
 
 	waitForEvolutionRecord(t, filepath.Join(tmpDir, "state", "evolution", "task-records.jsonl"))
@@ -817,7 +877,7 @@ func TestEvolutionBridge_TurnEndUsesPayloadWorkspace(t *testing.T) {
 		},
 	}
 
-	bridge, err := newEvolutionBridge(nil, cfg, nil)
+	bridge, err := newEvolutionBridge(nil, cfg, nil, nil)
 	if err != nil {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
@@ -855,7 +915,7 @@ func TestEvolutionBridge_TurnEndUsesExplicitAttemptTrail(t *testing.T) {
 		},
 	}
 
-	bridge, err := newEvolutionBridge(nil, cfg, nil)
+	bridge, err := newEvolutionBridge(nil, cfg, nil, nil)
 	if err != nil {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
@@ -905,10 +965,12 @@ func TestEvolutionBridge_CloseStopsColdPathRunnerIdempotently(t *testing.T) {
 		Evolution: config.EvolutionConfig{
 			Enabled: true,
 			Mode:    "draft",
+			Model:   "evo-cloud",
 		},
+		ModelList: externalEvolutionModelList(),
 	}
 
-	bridge, err := newEvolutionBridge(nil, cfg, nil)
+	bridge, err := newEvolutionBridge(nil, cfg, evolutionTestProviderFactory(&simpleMockProvider{response: "ok"}), nil)
 	if err != nil {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
@@ -936,7 +998,7 @@ func TestEvolutionBridge_CloseRejectsLateTurnEndEvents(t *testing.T) {
 		},
 	}
 
-	bridge, err := newEvolutionBridge(nil, cfg, nil)
+	bridge, err := newEvolutionBridge(nil, cfg, nil, nil)
 	if err != nil {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
@@ -1095,14 +1157,19 @@ func TestEvolutionBridge_ScheduledColdPathSeedsConfiguredAgentWorkspaces(t *test
 			Mode:            "draft",
 			ColdPathTrigger: "scheduled",
 			ColdPathTimes:   []string{"03:00"},
+			Model:           "evo-cloud",
 		},
+		ModelList: externalEvolutionModelList(),
 	}
 	registry := NewAgentRegistry(cfg, &simpleMockProvider{response: "ok"})
-	bridge, err := newEvolutionBridge(registry, cfg, &simpleMockProvider{response: "ok"})
+	bridge, err := newEvolutionBridge(registry, cfg, evolutionTestProviderFactory(&simpleMockProvider{response: "ok"}), nil)
 	if err != nil {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
 	defer bridge.Close()
+	if bridge.coldPathRunner == nil {
+		t.Fatal("expected cold path runner with a valid evolution.model")
+	}
 
 	got := bridge.scheduledColdPathWorkspaces()
 	want := []string{defaultWorkspace, workerWorkspace}
@@ -1127,6 +1194,26 @@ func seedReadyRule(t *testing.T, workspace string) {
 	}
 	if err := store.AppendLearningRecords([]evolution.LearningRecord{rule}); err != nil {
 		t.Fatalf("AppendLearningRecords: %v", err)
+	}
+}
+
+// externalEvolutionModelList mirrors sleep_bridge_test.go's
+// externalSleepModelList: a model_list entry HasValidExternalModel accepts
+// (a real provider, never "native"), for AC-010-9/ADR-018 tests that need
+// cfg.Evolution.Model to resolve to something valid.
+func externalEvolutionModelList() config.SecureModelList {
+	return config.SecureModelList{{ModelName: "evo-cloud", Provider: "openai", Model: "gpt-5.4-evo"}}
+}
+
+// evolutionTestProviderFactory returns a newEvolutionBridge providerFactory
+// (3rd param) that always resolves to p regardless of which model_list
+// entry resolvedEvolutionProvider looked up -- lets tests inject a fake
+// provider the same way sleep_bridge_test.go's own factory closures do,
+// without newEvolutionBridge's real providers.CreateProviderFromConfig
+// default trying to reach a live network.
+func evolutionTestProviderFactory(p providers.LLMProvider) func(*config.ModelConfig) (providers.LLMProvider, string, error) {
+	return func(mc *config.ModelConfig) (providers.LLMProvider, string, error) {
+		return p, mc.ModelName, nil
 	}
 }
 

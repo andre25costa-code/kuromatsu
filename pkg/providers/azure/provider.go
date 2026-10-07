@@ -52,21 +52,6 @@ func WithRequestTimeout(timeout time.Duration) Option {
 	}
 }
 
-// WithUserAgent sets the User-Agent header for requests.
-func WithUserAgent(userAgent string) Option {
-	return func(p *Provider) {
-		p.userAgent = userAgent
-	}
-}
-
-// WithTokenSource sets a callback that returns a bearer token per request.
-// When set, it takes precedence over the static api key.
-func WithTokenSource(ts func(ctx context.Context) (string, error)) Option {
-	return func(p *Provider) {
-		p.tokenSource = ts
-	}
-}
-
 // NewProvider creates a new Azure OpenAI provider.
 func NewProvider(apiKey, apiBase, proxy, userAgent string, opts ...Option) *Provider {
 	p := &Provider{
@@ -91,30 +76,6 @@ func NewProviderWithTimeout(apiKey, apiBase, proxy, userAgent string, requestTim
 		apiKey, apiBase, proxy, userAgent,
 		WithRequestTimeout(time.Duration(requestTimeoutSeconds)*time.Second),
 	)
-}
-
-// NewProviderWithTokenSource creates a new Azure OpenAI provider that obtains its
-// bearer token from the supplied callback on every request. Used for Entra ID auth
-// where tokens are short-lived and refreshed by the underlying credential.
-func NewProviderWithTokenSource(
-	apiBase, proxy, userAgent string,
-	tokenSource func(ctx context.Context) (string, error),
-	opts ...Option,
-) *Provider {
-	p := &Provider{
-		apiBase:     strings.TrimRight(apiBase, "/"),
-		userAgent:   userAgent,
-		httpClient:  common.NewHTTPClient(proxy),
-		tokenSource: tokenSource,
-	}
-
-	for _, opt := range opts {
-		if opt != nil {
-			opt(p)
-		}
-	}
-
-	return p
 }
 
 // Chat sends a request to the Azure OpenAI Responses API endpoint.

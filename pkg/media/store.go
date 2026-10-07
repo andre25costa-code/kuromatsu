@@ -87,18 +87,6 @@ type FileMediaStore struct {
 	nowFunc    func() time.Time // for testing
 }
 
-// NewFileMediaStore creates a new FileMediaStore without background cleanup.
-func NewFileMediaStore() *FileMediaStore {
-	return &FileMediaStore{
-		refs:        make(map[string]mediaEntry),
-		scopeToRefs: make(map[string]map[string]struct{}),
-		refToScope:  make(map[string]string),
-		refToPath:   make(map[string]string),
-		pathStates:  make(map[string]pathRefState),
-		nowFunc:     time.Now,
-	}
-}
-
 // NewFileMediaStoreWithCleanup creates a FileMediaStore with TTL-based background cleanup.
 func NewFileMediaStoreWithCleanup(cfg MediaCleanerConfig) *FileMediaStore {
 	return &FileMediaStore{
@@ -353,4 +341,16 @@ func (s *FileMediaStore) Stop() {
 	s.stopOnce.Do(func() {
 		close(s.stop)
 	})
+}
+
+// NewFileMediaStore creates a new FileMediaStore without background cleanup.
+func NewFileMediaStore() *FileMediaStore {
+	return &FileMediaStore{
+		refs:        make(map[string]mediaEntry),
+		scopeToRefs: make(map[string]map[string]struct{}),
+		refToScope:  make(map[string]string),
+		refToPath:   make(map[string]string),
+		pathStates:  make(map[string]pathRefState),
+		nowFunc:     time.Now,
+	}
 }

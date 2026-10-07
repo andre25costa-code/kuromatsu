@@ -220,6 +220,87 @@ func TestBuildPrompt_DefaultTemplateStaysIdle(t *testing.T) {
 	}
 }
 
+// AC-017-2: with SetShouldSkip returning true, a heartbeat that would
+// otherwise fire (non-empty HEARTBEAT.md, a working handler) is skipped
+// entirely -- the handler must never be called.
+func TestExecuteHeartbeat_ShouldSkipPreventsDispatch(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "heartbeat-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	hs := NewHeartbeatService(tmpDir, 30, true)
+	hs.stopChan = make(chan struct{})
+
+	called := false
+	hs.SetHandler(func(prompt, channel, chatID string) *tools.ToolResult {
+		called = true
+		return &tools.ToolResult{Silent: true}
+	})
+	hs.SetShouldSkip(func() bool { return true })
+
+	os.WriteFile(filepath.Join(tmpDir, "HEARTBEAT.md"), []byte("Test task"), 0o644)
+	hs.executeHeartbeat()
+
+	if called {
+		t.Fatal("handler was called despite SetShouldSkip returning true")
+	}
+}
+
+// AC-017-7 (compat side): with no ShouldSkip hook installed (the default,
+// runstate.enabled=false), a heartbeat that would normally fire still
+// fires -- nothing about the pre-existing dispatch path changes.
+func TestExecuteHeartbeat_NoShouldSkipHookRunsNormally(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "heartbeat-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	hs := NewHeartbeatService(tmpDir, 30, true)
+	hs.stopChan = make(chan struct{})
+
+	called := false
+	hs.SetHandler(func(prompt, channel, chatID string) *tools.ToolResult {
+		called = true
+		return &tools.ToolResult{Silent: true}
+	})
+
+	os.WriteFile(filepath.Join(tmpDir, "HEARTBEAT.md"), []byte("Test task"), 0o644)
+	hs.executeHeartbeat()
+
+	if !called {
+		t.Fatal("handler was not called with no ShouldSkip hook installed")
+	}
+}
+
+// SetShouldSkip(nil) removes a previously installed hook.
+func TestSetShouldSkip_NilRemovesHook(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "heartbeat-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	hs := NewHeartbeatService(tmpDir, 30, true)
+	hs.stopChan = make(chan struct{})
+	hs.SetShouldSkip(func() bool { return true })
+	hs.SetShouldSkip(nil)
+
+	called := false
+	hs.SetHandler(func(prompt, channel, chatID string) *tools.ToolResult {
+		called = true
+		return &tools.ToolResult{Silent: true}
+	})
+	os.WriteFile(filepath.Join(tmpDir, "HEARTBEAT.md"), []byte("Test task"), 0o644)
+	hs.executeHeartbeat()
+
+	if !called {
+		t.Fatal("handler was not called after SetShouldSkip(nil) removed the hook")
+	}
+}
+
 func TestBuildPrompt_UserTasksAfterMarkerProducePrompt(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "heartbeat-test-*")
 	if err != nil {
@@ -246,5 +327,46 @@ func TestBuildPrompt_UserTasksAfterMarkerProducePrompt(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "Check unread Feishu messages") {
 		t.Fatalf("prompt = %q, want user task content", prompt)
+	}
+}
+
+// FR-021 (AC-021-1): two ticks with the same HEARTBEAT.md must produce
+// prompts identical up to the final line -- the time stamp used to open
+// the prompt and changed every tick, defeating prefix caching for all of
+// HEARTBEAT.md. It now closes the prompt (still present when focus
+// windows, and so the NeedsTime "[now: HH:MM]" suffix, are off).
+func TestBuildPrompt_TimeOnlyInLastLine(t *testing.T) {
+	tmpDir := t.TempDir()
+	hs := NewHeartbeatService(tmpDir, 30, true)
+	hs.createDefaultHeartbeatTemplate()
+
+	path := filepath.Join(tmpDir, "HEARTBEAT.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("Failed to read HEARTBEAT.md: %v", err)
+	}
+	if err := os.WriteFile(path, append(data, []byte("\n- Check disk usage\n")...), 0o644); err != nil {
+		t.Fatalf("Failed to update HEARTBEAT.md: %v", err)
+	}
+
+	hs.now = func() time.Time { return time.Date(2026, 10, 5, 9, 0, 0, 0, time.UTC) }
+	first := hs.buildPrompt()
+	hs.now = func() time.Time { return time.Date(2026, 10, 5, 10, 1, 0, 0, time.UTC) }
+	second := hs.buildPrompt()
+
+	withoutLastLine := func(s string) string {
+		s = strings.TrimRight(s, "\n")
+		return s[:strings.LastIndex(s, "\n")]
+	}
+	if first == second {
+		t.Fatal("prompts are identical across different times, want the time in the last line")
+	}
+	if withoutLastLine(first) != withoutLastLine(second) {
+		t.Fatalf("prompt prefix changes with the clock (breaks prefix cache):\n%q\n%q", first, second)
+	}
+	// The VM runs in UTC while the user does not: the zone must be explicit
+	// or the model has to guess it (adversarial review, 2026-10-05).
+	if !strings.HasSuffix(strings.TrimRight(second, "\n"), "10:01 UTC") {
+		t.Fatalf("last line = %q, want it to end with the HH:MM time and its zone", second[strings.LastIndex(strings.TrimRight(second, "\n"), "\n"):])
 	}
 }

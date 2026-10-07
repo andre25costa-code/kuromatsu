@@ -45,11 +45,6 @@ type Provider struct {
 	userAgent  string
 }
 
-// NewProvider creates a new Anthropic Messages API provider.
-func NewProvider(apiKey, apiBase, userAgent string) *Provider {
-	return NewProviderWithTimeout(apiKey, apiBase, userAgent, 0)
-}
-
 // NewProviderWithTimeout creates a provider with custom request timeout.
 func NewProviderWithTimeout(apiKey, apiBase, userAgent string, timeoutSeconds int) *Provider {
 	baseURL := common.NormalizeBaseURL(apiBase, defaultBaseURL, true)

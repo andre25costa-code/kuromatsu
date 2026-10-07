@@ -57,34 +57,6 @@ var (
 	builtinHookRegistry   = map[string]BuiltinHookFactory{}
 )
 
-// RegisterBuiltinHook registers a named in-process hook factory for config-driven mounting.
-func RegisterBuiltinHook(name string, factory BuiltinHookFactory) error {
-	if name == "" {
-		return fmt.Errorf("builtin hook name is required")
-	}
-	if factory == nil {
-		return fmt.Errorf("builtin hook %q factory is nil", name)
-	}
-
-	builtinHookRegistryMu.Lock()
-	defer builtinHookRegistryMu.Unlock()
-
-	if _, exists := builtinHookRegistry[name]; exists {
-		return fmt.Errorf("builtin hook %q is already registered", name)
-	}
-	builtinHookRegistry[name] = factory
-	return nil
-}
-
-func unregisterBuiltinHook(name string) {
-	if name == "" {
-		return
-	}
-	builtinHookRegistryMu.Lock()
-	delete(builtinHookRegistry, name)
-	builtinHookRegistryMu.Unlock()
-}
-
 func lookupBuiltinHook(name string) (BuiltinHookFactory, bool) {
 	builtinHookRegistryMu.RLock()
 	defer builtinHookRegistryMu.RUnlock()
