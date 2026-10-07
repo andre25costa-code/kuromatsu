@@ -1,6 +1,6 @@
 module github.com/andre25costa-code/kuromatsu
 
-go 1.25.13
+go 1.26.0
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
@@ -133,7 +133,7 @@ require (
 	golang.org/x/crypto v0.53.0
 	golang.org/x/net v0.55.0
 	golang.org/x/sync v0.21.0 // indirect
-	golang.org/x/sys v0.46.0
+	golang.org/x/sys v0.48.0
 )
 
 replace github.com/bwmarrin/discordgo => github.com/yeongaori/discordgo-fork v0.0.0-20260319072544-e8e546f5d532
