@@ -564,9 +564,16 @@ type GroupTriggerConfig struct {
 	Prefixes    []string `json:"prefixes,omitempty"`
 }
 
-// TypingConfig controls typing indicator behavior (Phase 10).
+// TypingConfig controls the typing indicator a channel shows while the agent
+// works. A config that does not set "enabled" keeps it on; "enabled": false
+// turns it off.
 type TypingConfig struct {
-	Enabled bool `json:"enabled,omitempty"`
+	Enabled *bool `json:"enabled,omitempty"`
+}
+
+// IsEnabled reports whether the typing indicator is on (the default).
+func (t TypingConfig) IsEnabled() bool {
+	return t.Enabled == nil || *t.Enabled
 }
 
 // PlaceholderConfig controls placeholder message behavior (Phase 10).
@@ -688,10 +695,13 @@ type DevicesConfig struct {
 }
 
 type VoiceConfig struct {
-	ModelName         string `json:"model_name,omitempty"         env:"KUROMATSU_VOICE_MODEL_NAME"`
-	TTSModelName      string `json:"tts_model_name,omitempty"     env:"KUROMATSU_VOICE_TTS_MODEL_NAME"`
-	EchoTranscription bool   `json:"echo_transcription"           env:"KUROMATSU_VOICE_ECHO_TRANSCRIPTION"`
-	ElevenLabsAPIKey  string `json:"elevenlabs_api_key,omitempty" env:"KUROMATSU_VOICE_ELEVENLABS_API_KEY"`
+	ModelName         string `json:"model_name,omitempty"     env:"KUROMATSU_VOICE_MODEL_NAME"`
+	TTSModelName      string `json:"tts_model_name,omitempty" env:"KUROMATSU_VOICE_TTS_MODEL_NAME"`
+	EchoTranscription bool   `json:"echo_transcription"       env:"KUROMATSU_VOICE_ECHO_TRANSCRIPTION"`
+	// Deprecated: ignored -- ElevenLabs transcription takes its key from the
+	// model_list entry (provider "elevenlabs"). Kept so configs that still
+	// carry it load; LoadConfig warns when it is set.
+	ElevenLabsAPIKey string `json:"elevenlabs_api_key,omitempty" env:"KUROMATSU_VOICE_ELEVENLABS_API_KEY"`
 }
 
 type ModelStreamingConfig struct {
@@ -1465,6 +1475,13 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	applySkillsRegistryEnvCompat(cfg)
+	if cfg.Voice.ElevenLabsAPIKey != "" {
+		logger.WarnCF(
+			"config",
+			"voice.elevenlabs_api_key is ignored; put the key in the model_list entry with provider \"elevenlabs\"",
+			nil,
+		)
+	}
 
 	if err = InitChannelList(cfg.Channels); err != nil {
 		return nil, err
@@ -1677,10 +1694,10 @@ func SaveConfig(path string, cfg *Config) error {
 }
 
 func (c *Config) WorkspacePath() string {
-	return expandHome(c.Agents.Defaults.Workspace)
+	return ExpandHome(c.Agents.Defaults.Workspace)
 }
 
-func expandHome(path string) string {
+func ExpandHome(path string) string {
 	if path == "" {
 		return path
 	}

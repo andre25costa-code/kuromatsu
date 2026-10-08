@@ -1438,3 +1438,30 @@ func TestResolveAgentFallbacks_NilAgentModelFallsBackToGlobalDefaults(t *testing
 		t.Fatalf(`resolveAgentFallbacks() = %v, want ["bonsai-local"] from the global defaults`, got)
 	}
 }
+
+// N15 (audit round 2): maxTurns in the AGENT.md frontmatter was parsed and
+// never applied. It caps this agent's tool iterations per turn, overriding
+// agents.defaults.max_tool_iterations; a missing or non-positive value keeps
+// the default.
+func TestNewAgentInstance_FrontmatterMaxTurnsCapsIterations(t *testing.T) {
+	for _, tc := range []struct {
+		frontmatter string
+		want        int
+	}{
+		{"maxTurns: 3\n", 3},
+		{"maxTurns: 0\n", 10},
+		{"", 10},
+	} {
+		workspace := setupWorkspace(t, map[string]string{
+			"AGENT.md": "---\nname: capped\n" + tc.frontmatter + "---\n# Agent\n",
+		})
+		cfg := &config.Config{Agents: config.AgentsConfig{Defaults: config.AgentDefaults{
+			Workspace: workspace, ModelName: "test-model", MaxToolIterations: 10,
+		}}}
+		agent := NewAgentInstance(nil, &cfg.Agents.Defaults, cfg, &mockProvider{})
+		cleanupWorkspace(t, workspace)
+		if agent.MaxIterations != tc.want {
+			t.Errorf("frontmatter %q: MaxIterations = %d, want %d", tc.frontmatter, agent.MaxIterations, tc.want)
+		}
+	}
+}

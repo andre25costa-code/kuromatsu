@@ -21,6 +21,7 @@ import (
 
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	toolshared "github.com/andre25costa-code/kuromatsu/pkg/tools/shared"
 	"github.com/andre25costa-code/kuromatsu/pkg/utils"
 )
 
@@ -1959,7 +1960,7 @@ func (t *WebSearchTool) Execute(ctx context.Context, args map[string]any) *ToolR
 		return ErrorResult("search provider is not configured")
 	}
 
-	count64, err := getInt64Arg(args, "count", int64(maxResults))
+	count64, err := toolshared.GetInt64Arg(args, "count", int64(maxResults))
 	if err != nil {
 		return ErrorResult(err.Error())
 	}

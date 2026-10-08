@@ -115,10 +115,10 @@ func (o *OpenclawHandler) ExecuteConfigMigration(srcConfigPath, dstConfigPath st
 
 func resolveSourceHome(override string) (string, error) {
 	if override != "" {
-		return internal.ExpandHome(override), nil
+		return config.ExpandHome(override), nil
 	}
 	if envHome := os.Getenv(OpenclawHomeEnvVar); envHome != "" {
-		return internal.ExpandHome(envHome), nil
+		return config.ExpandHome(envHome), nil
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {

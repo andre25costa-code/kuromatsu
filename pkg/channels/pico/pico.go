@@ -34,6 +34,10 @@ type picoConn struct {
 	writeMu   sync.Mutex
 	closed    atomic.Bool
 	cancel    context.CancelFunc // cancels per-connection goroutines (e.g. pingLoop)
+
+	// writeTimeout bounds each write (pico write_timeout): a client that
+	// stops reading must not block the writer, which holds writeMu.
+	writeTimeout time.Duration
 }
 
 var allowedInlineImageMIMETypes = map[string]struct{}{
@@ -78,7 +82,16 @@ func (pc *picoConn) writeJSON(v any) error {
 	}
 	pc.writeMu.Lock()
 	defer pc.writeMu.Unlock()
+	pc.setWriteDeadline()
 	return pc.conn.WriteJSON(v)
+}
+
+// setWriteDeadline arms the deadline for the next write. Must be called
+// with writeMu held.
+func (pc *picoConn) setWriteDeadline() {
+	if pc.writeTimeout > 0 {
+		_ = pc.conn.SetWriteDeadline(time.Now().Add(pc.writeTimeout))
+	}
 }
 
 // close closes the connection.
@@ -119,7 +132,7 @@ func NewPicoChannel(
 		return nil, fmt.Errorf("pico token is required")
 	}
 
-	base := channels.NewBaseChannel("pico", cfg, messageBus, bc.AllowFrom)
+	base := channels.NewBaseChannel("pico", cfg, messageBus, bc.AllowFrom, channels.WithTyping(bc.Typing))
 
 	allowOrigins := cfg.AllowOrigins
 	checkOrigin := func(r *http.Request) bool {
@@ -168,10 +181,15 @@ func (c *PicoChannel) createAndAddConnection(conn *websocket.Conn, sessionID str
 		}
 	}
 
+	writeTimeout := time.Duration(c.config.WriteTimeout) * time.Second
+	if writeTimeout <= 0 {
+		writeTimeout = 10 * time.Second
+	}
 	pc := &picoConn{
-		id:        connID,
-		conn:      conn,
-		sessionID: sessionID,
+		id:           connID,
+		conn:         conn,
+		sessionID:    sessionID,
+		writeTimeout: writeTimeout,
 	}
 
 	c.connections[pc.id] = pc
@@ -1163,6 +1181,7 @@ func (c *PicoChannel) pingLoop(pc *picoConn, interval time.Duration) {
 				return
 			}
 			pc.writeMu.Lock()
+			pc.setWriteDeadline()
 			err := pc.conn.WriteMessage(websocket.PingMessage, nil)
 			pc.writeMu.Unlock()
 			if err != nil {

@@ -5,6 +5,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"golang.org/x/term"
 
@@ -110,7 +112,9 @@ func promptPassphrase() (string, error) {
 	return string(p1), nil
 }
 
-// setupSSHKey generates the kuromatsu-specific SSH key at ~/.ssh/kuromatsu_ed25519.key.
+// setupSSHKey generates the credential-encryption SSH key at
+// ~/.ssh/picoclaw_ed25519.key (name kept from PicoClaw so existing encrypted
+// credentials keep working; see credential.DefaultSSHKeyPath).
 // If the key already exists the user is warned and asked to confirm overwrite.
 // Answering anything other than "y" keeps the existing key (not an error).
 func setupSSHKey() error {
@@ -139,20 +143,40 @@ func setupSSHKey() error {
 }
 
 func createWorkspaceTemplates(workspace string, force bool) {
-	kept, err := copyEmbeddedToTarget(workspace, force)
+	res, err := copyEmbeddedToTarget(workspace, force)
 	if err != nil {
 		fmt.Printf("Error copying workspace templates: %v\n", err)
 	}
-	if len(kept) > 0 {
+	if len(res.kept) > 0 {
 		fmt.Printf("Kept %d existing workspace file(s) in %s (use --force to restore the templates).\n",
-			len(kept), workspace)
+			len(res.kept), workspace)
+	}
+	if len(res.skipped) > 0 {
+		names := make([]string, 0, len(res.skipped))
+		for name := range res.skipped {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		fmt.Println("Skills not installed (this machine lacks what they need):")
+		for _, name := range names {
+			fmt.Printf("  %s: %s\n", name, strings.Join(res.skipped[name], ", "))
+		}
+		fmt.Println("Install the tools, then run `kuromatsu skills install-builtin`.")
 	}
 }
 
-func copyEmbeddedToTarget(targetDir string, overwrite bool) (kept []string, err error) {
+// copyResult reports what copyEmbeddedToTarget left alone: workspace files
+// that already existed (kept), and builtin skills not installed because this
+// machine lacks what they need (skipped: skill -> missing tools/OS).
+type copyResult struct {
+	kept    []string
+	skipped map[string][]string
+}
+
+func copyEmbeddedToTarget(targetDir string, overwrite bool) (res copyResult, err error) {
 	// Ensure target directory exists
 	if mkErr := os.MkdirAll(targetDir, 0o755); mkErr != nil {
-		return nil, fmt.Errorf("Failed to create target directory: %w", mkErr)
+		return res, fmt.Errorf("Failed to create target directory: %w", mkErr)
 	}
 
 	// Walk through all files in embed.FS
@@ -161,8 +185,21 @@ func copyEmbeddedToTarget(targetDir string, overwrite bool) (kept []string, err 
 			return err
 		}
 
-		// Skip directories
 		if d.IsDir() {
+			// A builtin skill whose tools are missing here is not installed
+			// (unless the user already has it); `skills install-builtin`
+			// installs it on request.
+			if filepath.ToSlash(filepath.Dir(path)) == "workspace/skills" {
+				if _, statErr := os.Stat(filepath.Join(targetDir, "skills", d.Name())); statErr != nil {
+					if missing := skillMissing(embeddedFiles, path); len(missing) > 0 {
+						if res.skipped == nil {
+							res.skipped = map[string][]string{}
+						}
+						res.skipped[d.Name()] = missing
+						return fs.SkipDir
+					}
+				}
+			}
 			return nil
 		}
 
@@ -193,7 +230,7 @@ func copyEmbeddedToTarget(targetDir string, overwrite bool) (kept []string, err 
 		// or memory/MEMORY.md with the templates. Only --force does.
 		if !overwrite {
 			if _, statErr := os.Stat(targetPath); statErr == nil {
-				kept = append(kept, filepath.ToSlash(new_path))
+				res.kept = append(res.kept, filepath.ToSlash(new_path))
 				return nil
 			}
 		}
@@ -205,5 +242,5 @@ func copyEmbeddedToTarget(targetDir string, overwrite bool) (kept []string, err 
 		return nil
 	})
 
-	return kept, err
+	return res, err
 }

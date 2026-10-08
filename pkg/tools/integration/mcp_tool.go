@@ -80,61 +80,6 @@ func (t *MCPTool) SetEventPublisher(eventBus runtimeevents.Bus) {
 
 const maxMCPInlineTextRunes = 16 * 1024
 
-// sanitizeIdentifierComponent normalizes a string so it can be safely used
-// as part of a tool/function identifier for downstream providers.
-// It:
-//   - lowercases the string
-//   - replaces any character not in [a-z0-9_-] with '_'
-//   - collapses multiple consecutive '_' into a single '_'
-//   - trims leading/trailing '_'
-//   - falls back to "unnamed" if the result is empty
-//   - truncates overly long components to a reasonable length
-func sanitizeIdentifierComponent(s string) string {
-	const maxLen = 64
-
-	s = strings.ToLower(s)
-	var b strings.Builder
-	b.Grow(len(s))
-
-	prevUnderscore := false
-	for _, r := range s {
-		isAllowed := (r >= 'a' && r <= 'z') ||
-			(r >= '0' && r <= '9') ||
-			r == '_' || r == '-'
-
-		if !isAllowed {
-			// Normalize any disallowed character to '_'
-			if !prevUnderscore {
-				b.WriteRune('_')
-				prevUnderscore = true
-			}
-			continue
-		}
-
-		if r == '_' {
-			if prevUnderscore {
-				continue
-			}
-			prevUnderscore = true
-		} else {
-			prevUnderscore = false
-		}
-
-		b.WriteRune(r)
-	}
-
-	result := strings.Trim(b.String(), "_")
-	if result == "" {
-		result = "unnamed"
-	}
-
-	if len(result) > maxLen {
-		result = result[:maxLen]
-	}
-
-	return result
-}
-
 // Name returns the tool name, prefixed with the server name.
 // The total length is capped at 64 characters (OpenAI-compatible API limit).
 // A short hash of the original (unsanitized) server and tool names is appended
@@ -142,8 +87,8 @@ func sanitizeIdentifierComponent(s string) string {
 // names which differ only in disallowed characters remain distinct after sanitization.
 func (t *MCPTool) Name() string {
 	// Prefix with server name to avoid conflicts, and sanitize components
-	sanitizedServer := sanitizeIdentifierComponent(t.serverName)
-	sanitizedTool := sanitizeIdentifierComponent(t.tool.Name)
+	sanitizedServer := toolshared.SanitizeIdentifierComponent(t.serverName)
+	sanitizedTool := toolshared.SanitizeIdentifierComponent(t.tool.Name)
 	full := fmt.Sprintf("mcp_%s_%s", sanitizedServer, sanitizedTool)
 
 	// Check if sanitization was lossless (only lowercasing, no char replacement/truncation)
@@ -182,7 +127,7 @@ func (t *MCPTool) PromptMetadata() toolshared.PromptMetadata {
 	return toolshared.PromptMetadata{
 		Layer:  toolshared.ToolPromptLayerCapability,
 		Slot:   toolshared.ToolPromptSlotMCP,
-		Source: "mcp:" + sanitizeIdentifierComponent(t.serverName),
+		Source: "mcp:" + toolshared.SanitizeIdentifierComponent(t.serverName),
 	}
 }
 
@@ -341,7 +286,7 @@ func extractContentText(content []mcp.Content) string {
 	for _, c := range content {
 		switch v := c.(type) {
 		case *mcp.TextContent:
-			parts = append(parts, sanitizeToolLLMContent(v.Text))
+			parts = append(parts, toolshared.SanitizeToolLLMContent(v.Text))
 		case *mcp.ImageContent:
 			parts = append(parts, fmt.Sprintf("[Image: %s]", normalizedMIMEType(v.MIMEType)))
 		case *mcp.AudioContent:
@@ -355,7 +300,7 @@ func extractContentText(content []mcp.Content) string {
 			parts = append(parts, fmt.Sprintf("[Content: %T]", v))
 		}
 	}
-	return sanitizeToolLLMContent(strings.Join(parts, "\n"))
+	return toolshared.SanitizeToolLLMContent(strings.Join(parts, "\n"))
 }
 
 func (t *MCPTool) normalizeResultContent(ctx context.Context, content []mcp.Content) *ToolResult {
@@ -370,7 +315,7 @@ func (t *MCPTool) normalizeResultContent(ctx context.Context, content []mcp.Cont
 			if rawText != "" {
 				rawTextParts = append(rawTextParts, rawText)
 			}
-			safeText := strings.TrimSpace(sanitizeToolLLMContent(v.Text))
+			safeText := strings.TrimSpace(toolshared.SanitizeToolLLMContent(v.Text))
 			if safeText != "" {
 				llmParts = append(llmParts, safeText)
 			}
@@ -453,8 +398,8 @@ func (t *MCPTool) persistLargeTextArtifact(text string) *ToolResult {
 
 	pattern := fmt.Sprintf(
 		"%s_%s_*.txt",
-		sanitizeIdentifierComponent(t.serverName),
-		sanitizeIdentifierComponent(t.tool.Name),
+		toolshared.SanitizeIdentifierComponent(t.serverName),
+		toolshared.SanitizeIdentifierComponent(t.tool.Name),
 	)
 	tmpFile, err := os.CreateTemp(dir, pattern)
 	if err != nil {
@@ -515,7 +460,7 @@ func (t *MCPTool) storeEmbeddedResource(ctx context.Context, content *mcp.Embedd
 
 	rawText := strings.TrimSpace(resource.Text)
 	if rawText != "" {
-		return "", sanitizeToolLLMContent(resource.Text), rawText
+		return "", toolshared.SanitizeToolLLMContent(resource.Text), rawText
 	}
 
 	return "", summarizeEmbeddedResource(content), ""
@@ -561,7 +506,7 @@ func (t *MCPTool) storeBinaryContent(
 		return "", fmt.Sprintf("[MCP returned %s content (%s) but it could not be stored.]", kind, mimeType)
 	}
 
-	ext := extensionForMIMEType(mimeType)
+	ext := toolshared.ExtensionForMIMEType(mimeType)
 	tmpFile, err := os.CreateTemp(dir, "mcp-*"+ext)
 	if err != nil {
 		return "", fmt.Sprintf("[MCP returned %s content (%s) but it could not be stored.]", kind, mimeType)
@@ -579,15 +524,15 @@ func (t *MCPTool) storeBinaryContent(
 
 	scope := fmt.Sprintf(
 		"tool:mcp:%s:%s:%s:%d",
-		sanitizeIdentifierComponent(t.serverName),
+		toolshared.SanitizeIdentifierComponent(t.serverName),
 		channel,
 		chatID,
 		time.Now().UnixNano(),
 	)
 	filename := fmt.Sprintf(
 		"%s_%s%s",
-		sanitizeIdentifierComponent(t.serverName),
-		sanitizeIdentifierComponent(t.tool.Name),
+		toolshared.SanitizeIdentifierComponent(t.serverName),
+		toolshared.SanitizeIdentifierComponent(t.tool.Name),
 		ext,
 	)
 
@@ -596,8 +541,8 @@ func (t *MCPTool) storeBinaryContent(
 		ContentType: mimeType,
 		Source: fmt.Sprintf(
 			"tool:mcp:%s:%s",
-			sanitizeIdentifierComponent(t.serverName),
-			sanitizeIdentifierComponent(t.tool.Name),
+			toolshared.SanitizeIdentifierComponent(t.serverName),
+			toolshared.SanitizeIdentifierComponent(t.tool.Name),
 		),
 	}, scope)
 	if err != nil {

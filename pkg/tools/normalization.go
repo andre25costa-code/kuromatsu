@@ -3,27 +3,15 @@ package tools
 import (
 	"encoding/base64"
 	"fmt"
-	"mime"
 	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/media"
+	toolshared "github.com/andre25costa-code/kuromatsu/pkg/tools/shared"
 )
 
-const (
-	largeBase64OmittedMessage = "[Tool returned a large base64-like payload; omitted from model context.]"
-	inlineMediaOmittedMessage = "[Tool returned inline media content; omitted from model context.]"
-	inlineMediaStoredMessage  = "[Tool returned inline media content (%s); omitted from model context and registered as a media attachment.]"
-)
-
-var (
-	inlineMarkdownDataURLRe = regexp.MustCompile(`!\[[^\]]*\]\((data:[^)]+)\)`)
-	inlineRawDataURLRe      = regexp.MustCompile(`data:[^;\s]+;base64,[A-Za-z0-9+/=\r\n]+`)
-)
+const inlineMediaStoredMessage = "[Tool returned inline media content (%s); omitted from model context and registered as a media attachment.]"
 
 func normalizeToolResult(
 	result *ToolResult,
@@ -66,7 +54,7 @@ func normalizeToolResult(
 		notes = append(notes, extractedNotes...)
 	}
 
-	result.ForLLM = sanitizeToolLLMContent(result.ForLLM)
+	result.ForLLM = toolshared.SanitizeToolLLMContent(result.ForLLM)
 
 	if len(result.Media) > 0 && len(notes) > 0 {
 		if strings.TrimSpace(result.ForLLM) == "" {
@@ -82,58 +70,6 @@ func normalizeToolResult(
 	return result
 }
 
-func sanitizeToolLLMContent(text string) string {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return text
-	}
-	if inlineMarkdownDataURLRe.MatchString(trimmed) || inlineRawDataURLRe.MatchString(trimmed) {
-		cleaned := inlineMarkdownDataURLRe.ReplaceAllString(trimmed, "")
-		cleaned = inlineRawDataURLRe.ReplaceAllString(cleaned, "")
-		cleaned = strings.TrimSpace(cleaned)
-		if cleaned == "" {
-			return inlineMediaOmittedMessage
-		}
-		return cleaned + "\n" + inlineMediaOmittedMessage
-	}
-	if looksLikeLargeBase64Payload(trimmed) {
-		return largeBase64OmittedMessage
-	}
-	return text
-}
-
-func looksLikeLargeBase64Payload(text string) bool {
-	trimmed := strings.TrimSpace(text)
-	if len(trimmed) < 1024 {
-		return false
-	}
-
-	nonSpace := 0
-	base64Like := 0
-	spaceCount := 0
-
-	for _, r := range trimmed {
-		if unicode.IsSpace(r) {
-			spaceCount++
-			continue
-		}
-		nonSpace++
-		if (r >= 'A' && r <= 'Z') ||
-			(r >= 'a' && r <= 'z') ||
-			(r >= '0' && r <= '9') ||
-			r == '+' || r == '/' || r == '=' {
-			base64Like++
-		}
-	}
-
-	if nonSpace == 0 {
-		return false
-	}
-
-	ratio := float64(base64Like) / float64(nonSpace)
-	return ratio >= 0.97 && spaceCount <= len(trimmed)/128
-}
-
 func extractInlineMediaRefs(
 	text string,
 	toolName string,
@@ -144,7 +80,7 @@ func extractInlineMediaRefs(
 ) (cleaned string, refs []string, notes []string) {
 	cleaned = text
 
-	matches := inlineMarkdownDataURLRe.FindAllStringSubmatch(cleaned, -1)
+	matches := toolshared.InlineMarkdownDataURLRe.FindAllStringSubmatch(cleaned, -1)
 	for _, match := range matches {
 		if len(match) < 2 {
 			continue
@@ -160,7 +96,7 @@ func extractInlineMediaRefs(
 		cleaned = strings.ReplaceAll(cleaned, match[0], "")
 	}
 
-	rawMatches := inlineRawDataURLRe.FindAllString(cleaned, -1)
+	rawMatches := toolshared.InlineRawDataURLRe.FindAllString(cleaned, -1)
 	for _, dataURL := range rawMatches {
 		ref, note := storeInlineDataURL(toolName, store, channel, chatID, dataURL, seen)
 		if ref != "" {
@@ -223,7 +159,7 @@ func storeInlineDataURL(
 		return "", fmt.Sprintf("[Tool returned inline media content (%s) but it could not be stored.]", mimeType)
 	}
 
-	ext := extensionForMIMEType(mimeType)
+	ext := toolshared.ExtensionForMIMEType(mimeType)
 	tmpFile, err := os.CreateTemp(dir, "tool-inline-*"+ext)
 	if err != nil {
 		return "", fmt.Sprintf("[Tool returned inline media content (%s) but it could not be stored.]", mimeType)
@@ -239,10 +175,10 @@ func storeInlineDataURL(
 		return "", fmt.Sprintf("[Tool returned inline media content (%s) but it could not be stored.]", mimeType)
 	}
 
-	filename := sanitizeIdentifierComponent(toolName) + ext
+	filename := toolshared.SanitizeIdentifierComponent(toolName) + ext
 	scope := fmt.Sprintf(
 		"tool:inline:%s:%s:%s:%d",
-		sanitizeIdentifierComponent(toolName),
+		toolshared.SanitizeIdentifierComponent(toolName),
 		channel,
 		chatID,
 		time.Now().UnixNano(),
@@ -251,7 +187,7 @@ func storeInlineDataURL(
 	ref, err = store.Store(tmpPath, media.MediaMeta{
 		Filename:    filename,
 		ContentType: mimeType,
-		Source:      fmt.Sprintf("tool:inline:%s", sanitizeIdentifierComponent(toolName)),
+		Source:      fmt.Sprintf("tool:inline:%s", toolshared.SanitizeIdentifierComponent(toolName)),
 	}, scope)
 	if err != nil {
 		_ = os.Remove(tmpPath)
@@ -259,34 +195,4 @@ func storeInlineDataURL(
 	}
 
 	return ref, fmt.Sprintf(inlineMediaStoredMessage, mimeType)
-}
-
-func extensionForMIMEType(mimeType string) string {
-	if mimeType == "" {
-		return ".bin"
-	}
-	if exts, err := mime.ExtensionsByType(mimeType); err == nil && len(exts) > 0 {
-		return exts[0]
-	}
-
-	switch strings.ToLower(mimeType) {
-	case "image/jpeg":
-		return ".jpg"
-	case "image/png":
-		return ".png"
-	case "image/gif":
-		return ".gif"
-	case "image/webp":
-		return ".webp"
-	case "audio/wav", "audio/x-wav":
-		return ".wav"
-	case "audio/mpeg":
-		return ".mp3"
-	case "audio/ogg":
-		return ".ogg"
-	case "video/mp4":
-		return ".mp4"
-	default:
-		return filepath.Ext(mimeType)
-	}
 }

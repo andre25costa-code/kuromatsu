@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/andre25costa-code/kuromatsu/pkg/fileutil"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	toolshared "github.com/andre25costa-code/kuromatsu/pkg/tools/shared"
 )
 
 const MaxReadFileSize = 64 * 1024 // 64KB limit to avoid context overflow
@@ -399,7 +399,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 	}
 
 	// offset (optional, default 0)
-	offset, err := getInt64Arg(args, "offset", 0)
+	offset, err := toolshared.GetInt64Arg(args, "offset", 0)
 	if err != nil {
 		return ErrorResult(err.Error())
 	}
@@ -408,7 +408,7 @@ func (t *ReadFileTool) Execute(ctx context.Context, args map[string]any) *ToolRe
 	}
 
 	// length (optional, capped at MaxReadFileSize)
-	length, err := getInt64Arg(args, "length", t.maxSize)
+	length, err := toolshared.GetInt64Arg(args, "length", t.maxSize)
 	if err != nil {
 		return ErrorResult(err.Error())
 	}
@@ -539,7 +539,7 @@ func (t *ReadFileLinesTool) Execute(ctx context.Context, args map[string]any) *T
 		return ErrorResult("path is required")
 	}
 
-	startLine, err := getInt64Arg(args, "start_line", 1)
+	startLine, err := toolshared.GetInt64Arg(args, "start_line", 1)
 	if err != nil {
 		return ErrorResult(err.Error())
 	}
@@ -558,7 +558,7 @@ func (t *ReadFileLinesTool) Execute(ctx context.Context, args map[string]any) *T
 
 	limit := int64(-1)
 	if raw, exists := args["max_lines"]; exists && raw != nil {
-		limit, err = getInt64Arg(args, "max_lines", -1)
+		limit, err = toolshared.GetInt64Arg(args, "max_lines", -1)
 		if err != nil {
 			return ErrorResult(err.Error())
 		}
@@ -826,38 +826,6 @@ func readerHasMoreContent(reader *bufio.Reader) (bool, error) {
 		return false, nil
 	default:
 		return false, err
-	}
-}
-
-// getInt64Arg extracts an integer argument from the args map, returning the
-// provided default if the key is absent.
-func getInt64Arg(args map[string]any, key string, defaultVal int64) (int64, error) {
-	raw, exists := args[key]
-	if !exists {
-		return defaultVal, nil
-	}
-
-	switch v := raw.(type) {
-	case float64:
-		if v != math.Trunc(v) {
-			return 0, fmt.Errorf("%s must be an integer, got float %v", key, v)
-		}
-		if v > math.MaxInt64 || v < math.MinInt64 {
-			return 0, fmt.Errorf("%s value %v overflows int64", key, v)
-		}
-		return int64(v), nil
-	case int:
-		return int64(v), nil
-	case int64:
-		return v, nil
-	case string:
-		parsed, err := strconv.ParseInt(v, 10, 64)
-		if err != nil {
-			return 0, fmt.Errorf("invalid integer format for %s parameter: %w", key, err)
-		}
-		return parsed, nil
-	default:
-		return 0, fmt.Errorf("unsupported type %T for %s parameter", raw, key)
 	}
 }
 

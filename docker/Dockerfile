@@ -20,9 +20,9 @@ RUN make build
 # ============================================================
 FROM alpine:3.23
 
-RUN apk add --no-cache ca-certificates tzdata curl python3 py3-pip bash \
-  && ln -sf /usr/bin/python3 /usr/bin/python \
-  && pip install --no-cache-dir --break-system-packages pypdf
+# curl is used by the builtin weather skill. Python, pip and bash are not
+# used by the binary or by the builtin skills; docker/Dockerfile.full has them.
+RUN apk add --no-cache ca-certificates tzdata curl
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

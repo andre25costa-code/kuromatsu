@@ -70,6 +70,11 @@ func WithGroupTrigger(gt config.GroupTriggerConfig) BaseChannelOption {
 	return func(c *BaseChannel) { c.groupTrigger = gt }
 }
 
+// WithTyping applies the channel's typing config (typing.enabled).
+func WithTyping(tc config.TypingConfig) BaseChannelOption {
+	return func(c *BaseChannel) { c.typingDisabled = !tc.IsEnabled() }
+}
+
 // WithReasoningChannelID sets the reasoning channel ID where thoughts should be sent.
 func WithReasoningChannelID(id string) BaseChannelOption {
 	return func(c *BaseChannel) { c.reasoningChannelID = id }
@@ -92,6 +97,7 @@ type BaseChannel struct {
 	groupTrigger        config.GroupTriggerConfig
 	mediaStore          media.MediaStore
 	placeholderRecorder PlaceholderRecorder
+	typingDisabled      bool    // typing.enabled: false
 	owner               Channel // the concrete channel that embeds this BaseChannel
 	reasoningChannelID  string
 }
@@ -320,7 +326,7 @@ func (c *BaseChannel) HandleMessageWithContext(
 	// checks incorrectly skipping indicators when streaming may not work at runtime.
 	if c.owner != nil && c.placeholderRecorder != nil {
 		// Typing
-		if tc, ok := c.owner.(TypingCapable); ok {
+		if tc, ok := c.owner.(TypingCapable); ok && !c.typingDisabled {
 			if stop, err := tc.StartTyping(ctx, deliveryChatID); err == nil {
 				c.placeholderRecorder.RecordTypingStop(c.name, deliveryChatID, stop)
 			}

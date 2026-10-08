@@ -25,6 +25,7 @@ name: kuro
 description: Assistente pessoal
 model: gemma-cloud          # opcional
 tools: [read_file, web_search, message]   # opcional
+maxTurns: 8                               # opcional
 skills: [weather, summarize]              # opcional
 mcpServers: [github]                      # opcional
 ---
@@ -37,7 +38,7 @@ Você é ... (instruções do agente)
 | `tools` | Lista de tools permitidas. **Campo ausente** = todas; **lista vazia** = nenhuma. Nomes desconhecidos geram aviso no log. |
 | `skills` | Filtro de skills visíveis ao agente. Ausente = todas; vence `agents.list[].skills`. |
 | `mcpServers` | Servidores MCP permitidos (nomes de `tools.mcp.servers`). Ausente = todos; lista vazia = nenhum. |
-| `maxTurns` | Lido, mas **ainda não aplicado** pelo runtime. |
+| `maxTurns` | Máximo de iterações de tools por turno deste agente; vence `agents.defaults.max_tool_iterations`. Ausente ou ≤ 0 = o padrão. |
 
 Frontmatter com YAML inválido falha fechado: o agente fica **sem tools e sem
 MCP** até o arquivo ser corrigido (o erro aparece no log).
@@ -61,5 +62,7 @@ se definido.
 
 As skills embutidas no binário são copiadas para o workspace por `onboard` e
 por `kuromatsu skills install-builtin` (só as que faltam; uma skill existente,
-mesmo editada, não é tocada). `kuromatsu skills list-builtin` mostra quais
+mesmo editada, não é tocada). O `onboard` pula as skills cujas ferramentas
+(`metadata.nanobot.requires.bins`) não estão no PATH ou cujo `os` não inclui
+este sistema, e lista o que faltou; `install-builtin` instala todas. `kuromatsu skills list-builtin` mostra quais
 existem e quais já estão instaladas.

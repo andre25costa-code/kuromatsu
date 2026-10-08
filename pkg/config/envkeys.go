@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/andre25costa-code/kuromatsu/pkg"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
 var legacyEnvCompatOnce sync.Once
@@ -18,14 +19,14 @@ var legacyEnvCompatOnce sync.Once
 // Runtime environment variable keys for the kuromatsu process.
 // These control the location of files and binaries at runtime and are read
 // directly via os.Getenv / os.LookupEnv. All kuromatsu-specific keys use the
-// KUROMATSU_ prefix (legacy KUROMATSU_* values are honored via
+// KUROMATSU_ prefix (legacy PICOCLAW_* values are honored via
 // applyLegacyEnvCompat, ADR-005). Reference these constants instead of
 // inline string literals to keep all supported knobs visible in one place
 // and to prevent typos.
 const (
 	// EnvHome overrides the base directory for all kuromatsu data
 	// (config, workspace, skills, auth store, …).
-	// Default: ~/.kuromatsu (or ~/.kuromatsu, read in place, if only that exists)
+	// Default: ~/.kuromatsu (or ~/.picoclaw, read in place, if only that exists)
 	EnvHome = "KUROMATSU_HOME"
 
 	// EnvConfig overrides the full path to the JSON config file.
@@ -63,15 +64,25 @@ func GetHome() string {
 	}
 
 	newHome := filepath.Join(userHome, pkg.DefaultKuromatsuHome)
-	oldHome := filepath.Join(userHome, ".kuromatsu")
+	oldHome := filepath.Join(userHome, legacyHomeDir)
 	if !dirExists(newHome) && dirExists(oldHome) {
 		// Read the pre-rebrand home in place rather than copying it: cheap,
 		// and correct for a 1GB-RAM deploy target (S32). A dedicated
 		// migration command can do a real move later if the user wants one.
+		legacyHomeWarnOnce.Do(func() {
+			logger.WarnF("using the PicoClaw home "+oldHome+"; rename it to "+newHome+" (or set "+EnvHome+")",
+				map[string]any{"old_home": oldHome, "new_home": newHome})
+		})
 		return oldHome
 	}
 	return newHome
 }
+
+// legacyHomeDir is the PicoClaw home that Kuromatsu still reads in place
+// when ~/.kuromatsu does not exist (AC-008-2).
+const legacyHomeDir = ".picoclaw"
+
+var legacyHomeWarnOnce sync.Once
 
 func dirExists(path string) bool {
 	info, err := os.Stat(path)

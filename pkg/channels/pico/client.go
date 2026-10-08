@@ -39,7 +39,7 @@ func NewPicoClientChannel(
 		return nil, fmt.Errorf("pico_client url is required")
 	}
 
-	base := channels.NewBaseChannel("pico_client", cfg, messageBus, bc.AllowFrom)
+	base := channels.NewBaseChannel("pico_client", cfg, messageBus, bc.AllowFrom, channels.WithTyping(bc.Typing))
 
 	return &PicoClientChannel{
 		BaseChannel: base,
@@ -97,10 +97,11 @@ func (c *PicoClientChannel) dial() error {
 	connCtx, connCancel := context.WithCancel(c.ctx)
 
 	pc := &picoConn{
-		id:        uuid.New().String(),
-		conn:      ws,
-		sessionID: c.config.SessionID,
-		cancel:    connCancel,
+		id:           uuid.New().String(),
+		conn:         ws,
+		sessionID:    c.config.SessionID,
+		cancel:       connCancel,
+		writeTimeout: 10 * time.Second, // same bound as the Pico server default
 	}
 	if pc.sessionID == "" {
 		pc.sessionID = uuid.New().String()

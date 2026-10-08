@@ -8,7 +8,9 @@ if [ ! -d "${HOME}/.kuromatsu/workspace" ] && [ ! -f "${HOME}/.kuromatsu/config.
     kuromatsu onboard
     echo ""
     echo "First-run setup complete."
-    echo "Edit ${HOME}/.kuromatsu/config.json (add your API key, etc.) then restart the container."
+    echo "Add a model, then restart the container:"
+    echo "  kuromatsu model add -b <api-base> -k <api-key>   (e.g. via docker compose exec)"
+    echo "or edit ${HOME}/.kuromatsu/config.json."
     exit 0
 fi
 

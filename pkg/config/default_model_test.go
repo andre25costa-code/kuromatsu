@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
 // N12/M01 (audit round 2): after onboard, model_name is empty. A user who
@@ -174,4 +177,32 @@ func TestLoadConfig_MigrationSavesNeitherEnvNorInvalidConfigs(t *testing.T) {
 			t.Fatalf("config.json rewritten although LoadConfig failed:\n%s", data)
 		}
 	})
+}
+
+// N15 (audit round 2): voice.elevenlabs_api_key was accepted and never read
+// -- ElevenLabs transcription takes its key from the model_list entry. The
+// strict decoder rejects unknown fields, so the field stays (a config that
+// carries it keeps loading) and a warning says where the key belongs.
+func TestLoadConfig_WarnsAboutIgnoredElevenLabsKey(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "voice.log")
+	if err := logger.EnableFileLogging(logPath); err != nil {
+		t.Fatal(err)
+	}
+	defer logger.DisableFileLogging()
+
+	path := filepath.Join(t.TempDir(), "config.json")
+	body := `{"version":3,"voice":{"elevenlabs_api_key":"sk-old","echo_transcription":true}}`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadConfig(path)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.Voice.EchoTranscription {
+		t.Fatal("the rest of the voice section was not loaded")
+	}
+	if logged, _ := os.ReadFile(logPath); !strings.Contains(string(logged), "elevenlabs_api_key") {
+		t.Fatalf("no warning about the ignored key: %s", logged)
+	}
 }

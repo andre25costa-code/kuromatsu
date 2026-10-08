@@ -11,23 +11,9 @@ import (
 
 func ResolveTargetHome(override string) (string, error) {
 	if override != "" {
-		return ExpandHome(override), nil
+		return config.ExpandHome(override), nil
 	}
 	return config.GetHome(), nil
-}
-
-func ExpandHome(path string) string {
-	if path == "" {
-		return path
-	}
-	if path[0] == '~' {
-		home, _ := os.UserHomeDir()
-		if len(path) > 1 && path[1] == '/' {
-			return home + path[1:]
-		}
-		return home
-	}
-	return path
 }
 
 func ResolveWorkspace(homeDir string) string {
