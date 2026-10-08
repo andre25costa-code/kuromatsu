@@ -9,7 +9,7 @@ import (
 var embeddedFiles = kuromatsu.OnboardWorkspace
 
 func NewOnboardCommand() *cobra.Command {
-	var encrypt bool
+	var encrypt, force bool
 
 	cmd := &cobra.Command{
 		Use:     "onboard",
@@ -18,7 +18,7 @@ func NewOnboardCommand() *cobra.Command {
 		// Run without subcommands → original onboard flow
 		Run: func(cmd *cobra.Command, args []string) {
 			if len(args) == 0 {
-				onboard(encrypt)
+				onboard(encrypt, force)
 			} else {
 				_ = cmd.Help()
 			}
@@ -27,6 +27,8 @@ func NewOnboardCommand() *cobra.Command {
 
 	cmd.Flags().BoolVar(&encrypt, "enc", false,
 		"Enable credential encryption (generates SSH key and prompts for passphrase)")
+	cmd.Flags().BoolVar(&force, "force", false,
+		"Overwrite existing workspace files (AGENT.md, SOUL.md, USER.md, memory...) with the templates")
 
 	return cmd
 }

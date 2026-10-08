@@ -1444,6 +1444,7 @@ func LoadConfig(path string) (*Config, error) {
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("failed to load security config: %w", err)
 		}
+		inferModelEnabledFromKeys(data, cfg)
 
 	default:
 		return nil, fmt.Errorf("unsupported config version: %d", versionInfo.Version)
@@ -1492,6 +1493,9 @@ func LoadConfig(path string) (*Config, error) {
 	if err = cfg.ValidateModelList(); err != nil {
 		return nil, err
 	}
+
+	// No default set and a single model with a key: use it (N12).
+	applySoleKeyedDefault(cfg)
 
 	// Wire the native in-process model as default/fallback when no API key
 	// is configured and the GGUF is present (FR-003).

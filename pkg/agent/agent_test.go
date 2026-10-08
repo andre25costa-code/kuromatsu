@@ -7680,3 +7680,44 @@ func TestRunWorkerPanicReleasesSessionTurnState(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 }
+
+// The reasoning of a non-pico turn was published by a goroutine that got the
+// turn context; runTurn cancels that context on return (defer turnCancel), so
+// on a fast turn the goroutine saw a canceled context and dropped the
+// reasoning in silence. A turn that ends normally must still publish it; a
+// turn already aborted when the reasoning arrives must not.
+func TestPublishTurnReasoning_SurvivesTurnTeardown(t *testing.T) {
+	newLoop := func() (*AgentLoop, *bus.MessageBus) {
+		cfg := &config.Config{Agents: config.AgentsConfig{Defaults: config.AgentDefaults{
+			Workspace: t.TempDir(), ModelName: "test-model", MaxTokens: 4096, MaxToolIterations: 10,
+		}}}
+		msgBus := bus.NewMessageBus()
+		return NewAgentLoop(cfg, msgBus, &mockProvider{}), msgBus
+	}
+
+	for i := 0; i < 20; i++ {
+		al, msgBus := newLoop()
+		turnCtx, turnCancel := context.WithCancel(context.Background())
+		al.publishTurnReasoning(turnCtx, "thinking trace", "telegram", "reason-chat")
+		turnCancel() // the turn returns right away, as a turn without tool calls does
+
+		select {
+		case msg := <-msgBus.OutboundChan():
+			if msg.Content != "thinking trace" || msg.ChatID != "reason-chat" {
+				t.Fatalf("unexpected reasoning message: %+v", msg)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("run %d: reasoning dropped when the turn ended", i)
+		}
+	}
+
+	al, msgBus := newLoop()
+	aborted, abort := context.WithCancel(context.Background())
+	abort()
+	al.publishTurnReasoning(aborted, "aborted trace", "telegram", "reason-chat")
+	select {
+	case msg := <-msgBus.OutboundChan():
+		t.Fatalf("reasoning of an aborted turn was published: %+v", msg)
+	case <-time.After(300 * time.Millisecond):
+	}
+}

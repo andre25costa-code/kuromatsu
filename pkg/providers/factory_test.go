@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/auth"
@@ -265,4 +266,22 @@ func TestCreateProviderReturnsCodexProviderForOpenAIOAuth(t *testing.T) {
 	// TODO: This test requires openai protocol to support auth_method: "oauth"
 	// which is not yet implemented in the new factory_provider.go
 	t.Skip("OpenAI OAuth via model_list not yet implemented")
+}
+
+// N12/M01: with no default model the error was `model "" not found in
+// model_list: model is required`, which does not say what to do. It names the
+// commands that fix it.
+func TestCreateProvider_NoDefaultModelSaysHowToFixIt(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Agents.Defaults.ModelName = ""
+
+	_, _, err := CreateProvider(cfg)
+	if err == nil {
+		t.Fatal("expected an error without a default model")
+	}
+	for _, hint := range []string{"kuromatsu model add", "kuromatsu model <name>"} {
+		if !strings.Contains(err.Error(), hint) {
+			t.Errorf("error does not mention %q: %v", hint, err)
+		}
+	}
 }

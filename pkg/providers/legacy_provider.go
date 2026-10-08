@@ -156,6 +156,12 @@ func CreateProvider(cfg *config.Config) (LLMProvider, string, error) {
 		return nil, "", fmt.Errorf("no providers configured. Please add entries to model_list in your config")
 	}
 
+	if strings.TrimSpace(model) == "" {
+		return nil, "", fmt.Errorf("no default model is set: add one with " +
+			"`kuromatsu model add --api-base <url> --api-key <key>`, or pick a configured one with " +
+			"`kuromatsu model <name>` (see `kuromatsu model` for the list)")
+	}
+
 	modelCfg, err := ResolveModelConfig(cfg, model)
 	if err != nil {
 		return nil, "", fmt.Errorf("model %q not found in model_list: %w", model, err)

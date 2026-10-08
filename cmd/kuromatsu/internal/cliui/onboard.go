@@ -19,26 +19,12 @@ func PrintOnboardComplete(logo string, encrypt bool, configPath string) {
 func printOnboardPlain(logo string, encrypt bool, configPath string) {
 	fmt.Printf("\n%s kuromatsu is ready!\n", logo)
 	fmt.Println("\nNext steps:")
-	if encrypt {
-		fmt.Println("  1. Set your encryption passphrase before starting kuromatsu:")
-		fmt.Println("       export KUROMATSU_KEY_PASSPHRASE=<your-passphrase>   # Linux/macOS")
-		fmt.Println("       set KUROMATSU_KEY_PASSPHRASE=<your-passphrase>      # Windows cmd")
-		fmt.Println("")
-		fmt.Println("  2. Add your API key to", configPath)
-	} else {
-		fmt.Println("  1. Add your API key to", configPath)
-	}
-	fmt.Println("")
-	fmt.Println("     Recommended:")
-	fmt.Println("     - OpenRouter: https://openrouter.ai/keys (access 100+ models)")
-	fmt.Println("     - Ollama:     https://ollama.com (local, free)")
-	fmt.Println("")
-	fmt.Println("     See README.md for 17+ supported providers.")
-	fmt.Println("")
-	if encrypt {
-		fmt.Println("  3. Chat: kuromatsu agent -m \"Hello!\"")
-	} else {
-		fmt.Println("  2. Chat: kuromatsu agent -m \"Hello!\"")
+	fmt.Println()
+	for _, block := range []string{buildOnboardingSteps(encrypt, configPath), recommendedBlock(), chatStep(encrypt)} {
+		for _, line := range strings.Split(strings.TrimRight(block, "\n"), "\n") {
+			fmt.Println("  " + line)
+		}
+		fmt.Println()
 	}
 }
 
@@ -85,14 +71,18 @@ func buildOnboardingSteps(encrypt bool, configPath string) string {
 		b.WriteString("1. Set your encryption passphrase before starting kuromatsu:\n")
 		b.WriteString("   export KUROMATSU_KEY_PASSPHRASE=<your-passphrase>   # Linux/macOS\n")
 		b.WriteString("   set KUROMATSU_KEY_PASSPHRASE=<your-passphrase>      # Windows cmd\n\n")
-		b.WriteString("2. Add your API key to\n   ")
-		b.WriteString(configPath)
-		b.WriteString("\n")
+		b.WriteString("2. ")
 	} else {
-		b.WriteString("1. Add your API key to\n   ")
-		b.WriteString(configPath)
-		b.WriteString("\n")
+		b.WriteString("1. ")
 	}
+	// `model add` writes the entry, enables it and sets it as the default:
+	// the one step that makes the first message work without editing JSON.
+	b.WriteString("Add a model (lists the endpoint's models to pick from):\n")
+	b.WriteString("   kuromatsu model add -b https://openrouter.ai/api/v1 -k <your-key>\n")
+	b.WriteString("   kuromatsu model add -b http://localhost:11434/v1 -k ollama   # Ollama\n")
+	b.WriteString("   (or edit model_list in ")
+	b.WriteString(configPath)
+	b.WriteString(")\n")
 	return b.String()
 }
 

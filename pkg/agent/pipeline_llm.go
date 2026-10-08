@@ -597,7 +597,7 @@ func (p *Pipeline) CallLLM(
 			al.publishPicoReasoning(turnCtx, reasoningContent, ts.chatID, ts.sessionKey, exec.llmModelName)
 		}
 	} else {
-		go al.handleReasoning(
+		al.publishTurnReasoning(
 			turnCtx,
 			reasoningContent,
 			ts.channel,

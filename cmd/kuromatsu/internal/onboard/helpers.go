@@ -14,7 +14,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/credential"
 )
 
-func onboard(encrypt bool) {
+func onboard(encrypt, force bool) {
 	configPath := internal.GetConfigPath()
 
 	configExists := false
@@ -78,7 +78,7 @@ func onboard(encrypt bool) {
 	}
 
 	workspace := cfg.WorkspacePath()
-	createWorkspaceTemplates(workspace)
+	createWorkspaceTemplates(workspace, force)
 
 	cliui.PrintOnboardComplete(internal.Logo, encrypt, configPath)
 }
@@ -138,21 +138,25 @@ func setupSSHKey() error {
 	return nil
 }
 
-func createWorkspaceTemplates(workspace string) {
-	err := copyEmbeddedToTarget(workspace)
+func createWorkspaceTemplates(workspace string, force bool) {
+	kept, err := copyEmbeddedToTarget(workspace, force)
 	if err != nil {
 		fmt.Printf("Error copying workspace templates: %v\n", err)
 	}
+	if len(kept) > 0 {
+		fmt.Printf("Kept %d existing workspace file(s) in %s (use --force to restore the templates).\n",
+			len(kept), workspace)
+	}
 }
 
-func copyEmbeddedToTarget(targetDir string) error {
+func copyEmbeddedToTarget(targetDir string, overwrite bool) (kept []string, err error) {
 	// Ensure target directory exists
-	if err := os.MkdirAll(targetDir, 0o755); err != nil {
-		return fmt.Errorf("Failed to create target directory: %w", err)
+	if mkErr := os.MkdirAll(targetDir, 0o755); mkErr != nil {
+		return nil, fmt.Errorf("Failed to create target directory: %w", mkErr)
 	}
 
 	// Walk through all files in embed.FS
-	err := fs.WalkDir(embeddedFiles, "workspace", func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(embeddedFiles, "workspace", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -184,7 +188,16 @@ func copyEmbeddedToTarget(targetDir string) error {
 			return fmt.Errorf("Failed to create directory %s: %w", filepath.Dir(targetPath), err)
 		}
 
-		// Write file
+		// The workspace belongs to the user once it exists: re-running
+		// onboard (e.g. `onboard --enc`) must not replace SOUL.md, USER.md
+		// or memory/MEMORY.md with the templates. Only --force does.
+		if !overwrite {
+			if _, statErr := os.Stat(targetPath); statErr == nil {
+				kept = append(kept, filepath.ToSlash(new_path))
+				return nil
+			}
+		}
+
 		if err := os.WriteFile(targetPath, data, 0o644); err != nil {
 			return fmt.Errorf("Failed to write file %s: %w", targetPath, err)
 		}
@@ -192,5 +205,5 @@ func copyEmbeddedToTarget(targetDir string) error {
 		return nil
 	})
 
-	return err
+	return kept, err
 }

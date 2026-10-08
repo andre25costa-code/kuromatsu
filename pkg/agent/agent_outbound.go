@@ -265,6 +265,22 @@ func (al *AgentLoop) publishPicoToolCallInterim(
 	}
 }
 
+// publishTurnReasoning publishes a turn's reasoning in the background. The
+// decision is taken now, while the turn is alive: an aborted turn publishes
+// nothing. The goroutine must not get the turn context itself, because
+// runTurn cancels it on return and a fast turn would drop the reasoning
+// before the goroutine runs; handleReasoning still bounds the publish with
+// its own timeout.
+func (al *AgentLoop) publishTurnReasoning(
+	turnCtx context.Context,
+	reasoningContent, channelName, channelID string,
+) {
+	if turnCtx.Err() != nil {
+		return
+	}
+	go al.handleReasoning(context.WithoutCancel(turnCtx), reasoningContent, channelName, channelID)
+}
+
 func (al *AgentLoop) handleReasoning(
 	ctx context.Context,
 	reasoningContent, channelName, channelID string,
