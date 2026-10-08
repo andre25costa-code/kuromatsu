@@ -23,6 +23,7 @@ func (t *namedNoopTool) Description() string { return "test tool " + t.name }
 func (t *namedNoopTool) Parameters() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{}}
 }
+
 func (t *namedNoopTool) Execute(_ context.Context, _ map[string]any) *tools.ToolResult {
 	return tools.SilentResult("ok")
 }

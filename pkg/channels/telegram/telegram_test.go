@@ -800,9 +800,14 @@ func TestSend_HTMLFallback_PerChunk(t *testing.T) {
 }
 
 func TestSend_HTMLFallback_BothFail(t *testing.T) {
+	callCount := 0
 	caller := &stubCaller{
 		callFn: func(ctx context.Context, url string, data *ta.RequestData) (*ta.Response, error) {
-			return nil, errors.New("send failed")
+			callCount++
+			if callCount == 1 {
+				return nil, errors.New("Bad Request: can't parse entities")
+			}
+			return nil, errors.New("plain text send failed")
 		},
 	}
 	ch := newTestChannel(t, caller)
@@ -814,12 +819,14 @@ func TestSend_HTMLFallback_BothFail(t *testing.T) {
 
 	assert.Error(t, err)
 	assert.True(t, errors.Is(err, channels.ErrTemporary), "error should wrap ErrTemporary")
+	assert.Contains(t, err.Error(), "plain text send failed", "the real cause must survive the wrapping")
 	assert.Equal(t, 2, len(caller.calls), "should have HTML attempt + plain text attempt")
 }
 
-func TestSend_LongMessage_HTMLFallback_StopsOnError(t *testing.T) {
-	// With a long message that gets split into 2 chunks, if both HTML and
-	// plain text fail on the first chunk, Send should return early.
+func TestSend_LongMessage_StopsOnError(t *testing.T) {
+	// With a long message that gets split into 2 chunks, a failure on the
+	// first chunk returns early: no plain-text resend (not a parse error) and
+	// the second chunk is never sent.
 	caller := &stubCaller{
 		callFn: func(ctx context.Context, url string, data *ta.RequestData) (*ta.Response, error) {
 			return nil, errors.New("send failed")
@@ -835,8 +842,49 @@ func TestSend_LongMessage_HTMLFallback_StopsOnError(t *testing.T) {
 	})
 
 	assert.Error(t, err)
-	// Should fail on the first chunk (2 calls: HTML + fallback), never reaching the second chunk.
-	assert.Equal(t, 2, len(caller.calls), "should stop after first chunk fails both HTML and plain text")
+	assert.Equal(t, 1, len(caller.calls), "should stop after the first chunk fails")
+}
+
+// A network error is not a formatting problem: resending the same text as
+// plain text would duplicate it whenever the first request actually landed.
+func TestSend_NetworkErrorDoesNotResendAsPlainText(t *testing.T) {
+	caller := &stubCaller{
+		callFn: func(ctx context.Context, url string, data *ta.RequestData) (*ta.Response, error) {
+			return nil, errors.New("Post \"https://api.telegram.org/bot/sendMessage\": i/o timeout")
+		},
+	}
+	ch := newTestChannel(t, caller)
+
+	_, err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "12345",
+		Content: "Hello **world**",
+	})
+
+	assert.Error(t, err)
+	assert.True(t, errors.Is(err, channels.ErrTemporary), "error should wrap ErrTemporary")
+	assert.Contains(t, err.Error(), "i/o timeout", "the real cause must survive the wrapping")
+	assert.Equal(t, 1, len(caller.calls), "a network error must not trigger the plain-text resend")
+}
+
+// When the connection drops after the request was written, the message most
+// likely reached the chat; resending (here or via the manager's retry on an
+// error) would duplicate it. Same policy as editMessage.
+func TestSend_PostConnectErrorIsNotResent(t *testing.T) {
+	caller := &stubCaller{
+		callFn: func(ctx context.Context, url string, data *ta.RequestData) (*ta.Response, error) {
+			return nil, errors.New("read tcp 10.0.0.2:443: connection reset by peer")
+		},
+	}
+	ch := newTestChannel(t, caller)
+
+	ids, err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:  "12345",
+		Content: "Hello",
+	})
+
+	assert.NoError(t, err, "a likely-delivered message must not be reported as failed (the manager would retry it)")
+	assert.Equal(t, 1, len(caller.calls), "no plain-text resend after a post-connect error")
+	assert.NotContains(t, ids, "", "an unknown message ID must not be returned as an empty ID")
 }
 
 func TestSend_MarkdownShortButHTMLLong_MultipleCalls(t *testing.T) {

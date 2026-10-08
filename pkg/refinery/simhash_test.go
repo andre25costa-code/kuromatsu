@@ -72,3 +72,22 @@ func TestSimHash64_PunctuationInsensitive(t *testing.T) {
 		t.Fatal("a changed digit no longer moves the fingerprint")
 	}
 }
+
+// Texts shorter than the 3-rune n-gram produce no n-grams; they must still
+// get distinct fingerprints, otherwise every short text collides at 0 and the
+// first one absorbs all the others in dedupe.
+func TestSimHash64_ShortTextsDoNotCollide(t *testing.T) {
+	ok, no := SimHash64("ok"), SimHash64("no")
+	if ok == no {
+		t.Fatalf("SimHash64(\"ok\") == SimHash64(\"no\") == %#x", ok)
+	}
+	if ok == 0 || no == 0 {
+		t.Fatalf("short text fingerprinted as 0: ok=%#x no=%#x", ok, no)
+	}
+	if SimHash64("OK!") != ok {
+		t.Fatal("normalization (case, punctuation) must still apply to short texts")
+	}
+	if SimHash64("") != 0 || SimHash64("  ...  ") != 0 {
+		t.Fatal("empty text (after normalization) keeps fingerprint 0")
+	}
+}

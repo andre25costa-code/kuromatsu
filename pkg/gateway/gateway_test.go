@@ -302,7 +302,11 @@ func TestCreateHeartbeatHandlerForAgent_PropagatesGatewayContext(t *testing.T) {
 		t.Fatal("provider.Chat was never called")
 	}
 	if got, _ := fake.capturedCtx.Value(ctxProbeKey{}).(string); got != "gateway-ctx-marker" {
-		t.Fatalf("ctx observed by provider.Chat carries marker %q, want %q -- createHeartbeatHandlerForAgent must propagate the gateway's own ctx, not context.Background()", got, "gateway-ctx-marker")
+		t.Fatalf(
+			"ctx observed by provider.Chat carries marker %q, want %q -- createHeartbeatHandlerForAgent must propagate the gateway's own ctx, not context.Background()",
+			got,
+			"gateway-ctx-marker",
+		)
 	}
 }
 
@@ -348,7 +352,10 @@ func TestInitiateShutdown_CancelsContextBeforeShutdownSequence(t *testing.T) {
 		t.Fatal("provider.Close() was never called -- shutdownGateway's fullShutdown path did not run")
 	}
 	if !errors.Is(spy.closedWith, context.Canceled) {
-		t.Fatalf("ctx.Err() at provider.Close() time = %v, want context.Canceled (cancel() must run before shutdownGateway's internals, not just before initiateShutdown returns)", spy.closedWith)
+		t.Fatalf(
+			"ctx.Err() at provider.Close() time = %v, want context.Canceled (cancel() must run before shutdownGateway's internals, not just before initiateShutdown returns)",
+			spy.closedWith,
+		)
 	}
 }
 

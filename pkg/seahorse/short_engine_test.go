@@ -251,6 +251,49 @@ func TestEngineIngest(t *testing.T) {
 	}
 }
 
+// A failure partway through a batch must leave nothing behind: no orphan
+// messages without context items, and nothing a retry would duplicate.
+func TestEngineIngestIsAtomic(t *testing.T) {
+	eng := newTestEngine(t)
+	ctx := context.Background()
+
+	if _, err := eng.store.db.ExecContext(ctx, `CREATE TRIGGER fail_on_boom BEFORE INSERT ON messages
+		WHEN NEW.content = 'BOOM' BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
+		t.Fatalf("create trigger: %v", err)
+	}
+
+	msgs := []Message{
+		{Role: "user", Content: "hello", TokenCount: 2},
+		{Role: "assistant", Content: "BOOM", TokenCount: 2},
+	}
+	if _, err := eng.Ingest(ctx, "agent:atomic", msgs); err == nil {
+		t.Fatal("Ingest succeeded although the second insert was aborted")
+	}
+
+	conv, err := eng.store.GetOrCreateConversation(ctx, "agent:atomic")
+	if err != nil {
+		t.Fatalf("GetOrCreateConversation: %v", err)
+	}
+	stored, _ := eng.store.GetMessages(ctx, conv.ConversationID, 10, 0)
+	if len(stored) != 0 {
+		t.Fatalf("stored messages = %d after a failed batch, want 0", len(stored))
+	}
+	items, _ := eng.store.GetContextItems(ctx, conv.ConversationID)
+	if len(items) != 0 {
+		t.Fatalf("context items = %d after a failed batch, want 0", len(items))
+	}
+
+	// The same batch without the failing message goes through in full.
+	if _, err := eng.Ingest(ctx, "agent:atomic", msgs[:1]); err != nil {
+		t.Fatalf("Ingest retry: %v", err)
+	}
+	stored, _ = eng.store.GetMessages(ctx, conv.ConversationID, 10, 0)
+	items, _ = eng.store.GetContextItems(ctx, conv.ConversationID)
+	if len(stored) != 1 || len(items) != 1 {
+		t.Fatalf("after retry: messages=%d items=%d, want 1 and 1", len(stored), len(items))
+	}
+}
+
 func TestEngineIngestIgnoresSession(t *testing.T) {
 	eng := newTestEngine(t)
 	eng.ignorePatterns = compileSessionPatterns([]string{"cron:**"})

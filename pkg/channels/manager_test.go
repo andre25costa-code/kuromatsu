@@ -3436,3 +3436,42 @@ func TestSplitMarkerStreamerForwardsTurnUsage(t *testing.T) {
 		t.Errorf("inner usage = (%d, %d), want (1234, 567)", inner.inputTokens, inner.outputTokens)
 	}
 }
+
+// T36: every Reload starts the workers of the channels it added on a fresh
+// dispatch context, while channels that did not change keep the workers (and
+// context) they already had. So a reload must not cancel the earlier context,
+// and StopAll must cancel every one of them -- before, each reload overwrote
+// dispatchTask and only the last context was ever canceled.
+func TestReload_KeepsEarlierDispatchContextsAndStopAllCancelsAll(t *testing.T) {
+	m := newTestManager()
+	m.config = &config.Config{}
+	rootCtx, rootCancel := context.WithCancel(context.Background())
+	m.dispatchTask = &asyncTask{ctx: rootCtx, cancel: rootCancel}
+
+	for i := 0; i < 2; i++ {
+		if err := m.Reload(context.Background(), &config.Config{}); err != nil {
+			t.Fatalf("Reload %d: %v", i+1, err)
+		}
+	}
+	if rootCtx.Err() != nil {
+		t.Fatal("Reload canceled the dispatch context of channels that did not change")
+	}
+	m.mu.RLock()
+	reloads := append([]*asyncTask(nil), m.reloadDispatchTasks...)
+	m.mu.RUnlock()
+	if len(reloads) != 2 {
+		t.Fatalf("reload dispatch contexts tracked = %d, want 2", len(reloads))
+	}
+
+	if err := m.StopAll(context.Background()); err != nil {
+		t.Fatalf("StopAll: %v", err)
+	}
+	if rootCtx.Err() == nil {
+		t.Fatal("StopAll left the StartAll dispatch context running")
+	}
+	for i, task := range reloads {
+		if task.ctx.Err() == nil {
+			t.Fatalf("StopAll left reload %d's dispatch context running", i+1)
+		}
+	}
+}

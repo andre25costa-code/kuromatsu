@@ -138,6 +138,7 @@ func promptBuildRequestForProcessOptions(
 		req.AllowedTools = append([]string(nil), profile.AllowedTools...)
 	}
 	applyFocusPromptFields(&req, profile)
+	warnIfRetrievedOnNativeModel(req.MemoryMode, agent)
 	return req
 }
 

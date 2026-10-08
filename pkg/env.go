@@ -8,5 +8,5 @@ const (
 	AppName = "Kuromatsu"
 
 	DefaultKuromatsuHome = ".kuromatsu"
-	WorkspaceName       = "workspace"
+	WorkspaceName        = "workspace"
 )

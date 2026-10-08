@@ -39,7 +39,12 @@ func TestSecretMask_OutboundCredentialsReplaced(t *testing.T) {
 	_, err := p.Chat(context.Background(), []Message{
 		{Role: "system", Content: "sys", SystemParts: []ContentBlock{{Type: "text", Text: "token=" + testKey}}},
 		{Role: "user", Content: "minha chave é " + testKey + " e o header é Bearer abcdefghijklmnopqrstuvwx"},
-		{Role: "assistant", ToolCalls: []ToolCall{{ID: "1", Function: &FunctionCall{Name: "exec", Arguments: `{"env":"` + testKey + `"}`}}}},
+		{
+			Role: "assistant",
+			ToolCalls: []ToolCall{
+				{ID: "1", Function: &FunctionCall{Name: "exec", Arguments: `{"env":"` + testKey + `"}`}},
+			},
+		},
 	}, nil, "m", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +88,8 @@ func TestSecretMask_ResponsePlaceholdersRestored(t *testing.T) {
 	if resp.Content != "vou usar "+testKey {
 		t.Fatalf("content = %q, want the real key restored", resp.Content)
 	}
-	if !strings.Contains(resp.ToolCalls[0].Function.Arguments, testKey) || resp.ToolCalls[0].Arguments["cmd"] != "echo "+testKey {
+	if !strings.Contains(resp.ToolCalls[0].Function.Arguments, testKey) ||
+		resp.ToolCalls[0].Arguments["cmd"] != "echo "+testKey {
 		t.Fatalf("tool call arguments not restored: %+v / %+v", resp.ToolCalls[0].Function, resp.ToolCalls[0].Arguments)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -121,7 +122,7 @@ func NewCronService(storePath string, onJob JobHandler) *CronService {
 		storePath: storePath,
 		onJob:     onJob,
 		gronx:     gronx.New(),
-		wakeChan:  make(chan struct{}),
+		wakeChan:  make(chan struct{}, 1),
 	}
 	// Initialize and load store on creation
 	cs.loadStore()
@@ -147,7 +148,7 @@ func (cs *CronService) Start() error {
 
 	cs.stopChan = make(chan struct{})
 	if cs.wakeChan == nil {
-		cs.wakeChan = make(chan struct{})
+		cs.wakeChan = make(chan struct{}, 1)
 	}
 	cs.running = true
 	go cs.runLoop(cs.stopChan)
@@ -387,7 +388,8 @@ func (cs *CronService) notify() {
 	select {
 	case cs.wakeChan <- struct{}{}:
 	default:
-		// if the channel is full, it means the loop will wake up soon anyway, so we can skip sending
+		// The 1-slot buffer already holds a pending wake-up, which the loop
+		// consumes on its next select; a second one adds nothing.
 	}
 }
 
@@ -452,12 +454,40 @@ func (cs *CronService) saveStoreUnsafe() error {
 	return fileutil.WriteFileAtomic(cs.storePath, data, 0o600)
 }
 
+// ErrJobExistsWithDifferentCommand is returned by AddJobWithPayload when an
+// identical job (same name, schedule, message and destination) already exists
+// with another command: "add" never rewrites an existing job.
+var ErrJobExistsWithDifferentCommand = errors.New("cron: job already exists with a different command")
+
 func (cs *CronService) AddJob(
 	name string,
 	schedule CronSchedule,
 	message string,
 	channel, to string,
 ) (*CronJob, error) {
+	job, _, err := cs.addJob(name, schedule, CronPayload{Message: message, Channel: channel, To: to}, false)
+	return job, err
+}
+
+// AddJobWithPayload creates a job with its full payload (command, quiet,
+// anomaly handling, window...) in one locked, single save. An identical job
+// (AC-028-6: same name, schedule, message and destination) is returned with
+// created=false instead of being duplicated; if it has a different command
+// the call fails with ErrJobExistsWithDifferentCommand and nothing changes.
+func (cs *CronService) AddJobWithPayload(
+	name string,
+	schedule CronSchedule,
+	payload CronPayload,
+) (job *CronJob, created bool, err error) {
+	return cs.addJob(name, schedule, payload, true)
+}
+
+func (cs *CronService) addJob(
+	name string,
+	schedule CronSchedule,
+	payload CronPayload,
+	checkCommand bool,
+) (*CronJob, bool, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -467,10 +497,13 @@ func (cs *CronService) AddJob(
 	for i := range cs.store.Jobs {
 		existing := &cs.store.Jobs[i]
 		if existing.Name == name && sameSchedule(existing.Schedule, schedule) &&
-			existing.Payload.Message == message && existing.Payload.Channel == channel &&
-			existing.Payload.To == to {
+			existing.Payload.Message == payload.Message && existing.Payload.Channel == payload.Channel &&
+			existing.Payload.To == payload.To {
 			jobCopy := cloneCronJob(*existing)
-			return &jobCopy, nil
+			if checkCommand && existing.Payload.Command != payload.Command {
+				return &jobCopy, false, ErrJobExistsWithDifferentCommand
+			}
+			return &jobCopy, false, nil
 		}
 	}
 
@@ -479,17 +512,15 @@ func (cs *CronService) AddJob(
 	// One-time tasks (at) should be deleted after execution
 	deleteAfterRun := (schedule.Kind == "at")
 
+	if payload.Kind == "" {
+		payload.Kind = "agent_turn"
+	}
 	job := CronJob{
 		ID:       generateID(),
 		Name:     name,
 		Enabled:  true,
 		Schedule: schedule,
-		Payload: CronPayload{
-			Kind:    "agent_turn",
-			Message: message,
-			Channel: channel,
-			To:      to,
-		},
+		Payload:  payload,
 		State: CronJobState{
 			NextRunAtMS: cs.computeNextRun(&schedule, now),
 		},
@@ -500,12 +531,13 @@ func (cs *CronService) AddJob(
 
 	cs.store.Jobs = append(cs.store.Jobs, job)
 	if err := cs.saveStoreUnsafe(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	cs.notify()
 
-	return &job, nil
+	jobCopy := cloneCronJob(job)
+	return &jobCopy, true, nil
 }
 
 func (cs *CronService) GetJob(jobID string) (*CronJob, bool) {

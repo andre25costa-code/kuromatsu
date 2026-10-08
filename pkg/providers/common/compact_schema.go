@@ -61,15 +61,15 @@ func CompactToolDescription(desc string) string {
 	return truncateRunes(desc, maxCompactDescriptionChars)
 }
 
-func truncateRunes(s string, max int) string {
-	if max <= 0 {
+func truncateRunes(s string, limit int) string {
+	if limit <= 0 {
 		return ""
 	}
 	r := []rune(s)
-	if len(r) <= max {
+	if len(r) <= limit {
 		return s
 	}
-	return string(r[:max])
+	return string(r[:limit])
 }
 
 // CompactToolSchema reduces a JSON Schema tool-parameter definition to the

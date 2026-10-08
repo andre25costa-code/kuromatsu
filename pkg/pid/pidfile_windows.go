@@ -43,11 +43,11 @@ func isProcessRunning(pid int) bool {
 	return exitCode == stillActive
 }
 
-// isPicoclawProcess uses QueryFullProcessImageNameW to confirm the
+// isKuromatsuProcess uses QueryFullProcessImageNameW to confirm the
 // process image name contains "kuromatsu". Returns false when the name
 // clearly does not match. Returns true if the query fails, falling
 // back to trusting the liveness check alone.
-func isPicoclawProcess(pid int) bool {
+func isKuromatsuProcess(pid int) bool {
 	handle, _, _ := procOpenProcess.Call(
 		uintptr(processQueryLimitedInformation),
 		0,

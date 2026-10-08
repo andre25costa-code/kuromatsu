@@ -13,8 +13,8 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 )
 
-func TestNewPicoclawCommand(t *testing.T) {
-	cmd := NewPicoclawCommand()
+func TestNewKuromatsuCommand(t *testing.T) {
+	cmd := NewKuromatsuCommand()
 
 	require.NotNil(t, cmd)
 

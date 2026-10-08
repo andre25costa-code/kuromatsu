@@ -169,7 +169,13 @@ func replaceEditContent(content []byte, oldText, newText string) ([]byte, error)
 		return nil, fmt.Errorf("old_text not found in file. Make sure it matches exactly")
 	}
 
+	// strings.Count skips overlapping matches ("aa" in "aaa" counts once),
+	// so also look for a second match starting one byte after the first.
 	count := strings.Count(contentStr, oldText)
+	first := strings.Index(contentStr, oldText)
+	if count == 1 && strings.Contains(contentStr[first+1:], oldText) {
+		count = 2
+	}
 	if count > 1 {
 		return nil, fmt.Errorf("old_text appears %d times. Please provide more context to make it unique", count)
 	}

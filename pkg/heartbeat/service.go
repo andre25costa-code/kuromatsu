@@ -94,7 +94,7 @@ func (hs *HeartbeatService) SetHandler(handler HeartbeatHandler) {
 
 // SetShouldSkip installs the Trilho C runstate hook (AC-017-2): fn is
 // called at the top of every executeHeartbeat, and a true result skips
-// that disptach entirely (logged, not enqueued for later -- a missed
+// that dispatch entirely (logged, not enqueued for later -- a missed
 // heartbeat is just a missed heartbeat, S17/S30). Pass nil to remove the
 // hook and go back to always running (the default).
 func (hs *HeartbeatService) SetShouldSkip(fn func() bool) {
@@ -232,10 +232,12 @@ func (hs *HeartbeatService) executeHeartbeat() {
 	}
 
 	// Send result to user
+	// Reply to the chat the turn was built for (resolved above), not to
+	// whichever chat is last when the turn finishes (T14).
 	if result.ForUser != "" {
-		hs.sendResponse(result.ForUser)
+		hs.sendResponse(result.ForUser, channel, chatID)
 	} else if result.ForLLM != "" {
-		hs.sendResponse(result.ForLLM)
+		hs.sendResponse(result.ForLLM, channel, chatID)
 	}
 
 	hs.logInfof("Heartbeat completed: %s", result.ForLLM)
@@ -338,7 +340,7 @@ func heartbeatHasUserTasks(content string) bool {
 }
 
 // sendResponse sends the heartbeat response to the last channel
-func (hs *HeartbeatService) sendResponse(response string) {
+func (hs *HeartbeatService) sendResponse(response, platform, userID string) {
 	hs.mu.RLock()
 	msgBus := hs.bus
 	hs.mu.RUnlock()
@@ -348,17 +350,9 @@ func (hs *HeartbeatService) sendResponse(response string) {
 		return
 	}
 
-	// Get last channel from state
-	lastChannel := hs.state.GetLastChannel()
-	if lastChannel == "" {
-		hs.logInfof("No last channel recorded, heartbeat result not sent")
-		return
-	}
-
-	platform, userID := hs.parseLastChannel(lastChannel)
-
-	// Skip internal channels that can't receive messages
+	// No recorded (or an internal) channel: nowhere to deliver.
 	if platform == "" || userID == "" {
+		hs.logInfof("No deliverable last channel recorded, heartbeat result not sent")
 		return
 	}
 

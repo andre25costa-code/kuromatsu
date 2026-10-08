@@ -33,6 +33,12 @@ const (
 	FlagOriginTool      uint32 = 1 << 10
 	FlagOriginImport    uint32 = 1 << 11
 	FlagOriginSleep     uint32 = 1 << 12
+
+	// FlagInFile marks an atom that is currently a line of MEMORY.md (rendered
+	// by WriteMemoryFile, or imported/seen by SyncMemoryFile). Only these
+	// mirror the file: a manual edit that drops their line supersedes them,
+	// while atoms other writers added since the last render are left alone.
+	FlagInFile uint32 = 1 << 13
 )
 
 // DefaultDedupeHamming is the SimHash distance at or below which a new
@@ -47,8 +53,12 @@ const DefaultDedupeHamming = 0
 
 // Category patterns from context-refinery's exporters.py, plus English.
 var (
-	rulePattern       = regexp.MustCompile(`(?i)\b(deve|não deve|sempre|nunca|proibid[oa]|exigid[oa]|obrigatóri[oa]|regra|always|never|must|rule)\b`)
-	preferencePattern = regexp.MustCompile(`(?i)\b(prefere|preferência|gosta|odeia|evita|quer|deseja|prefers?|likes?|hates?|avoids?)\b`)
+	rulePattern = regexp.MustCompile(
+		`(?i)\b(deve|não deve|sempre|nunca|proibid[oa]|exigid[oa]|obrigatóri[oa]|regra|always|never|must|rule)\b`,
+	)
+	preferencePattern = regexp.MustCompile(
+		`(?i)\b(prefere|preferência|gosta|odeia|evita|quer|deseja|prefers?|likes?|hates?|avoids?)\b`,
+	)
 	listMarkerPattern = regexp.MustCompile(`^(?:[-*+]|\d+[.)])\s+`)
 	entityPattern     = regexp.MustCompile(`^\[([^\]]+)\]\s+(.+)$`)
 )
@@ -100,11 +110,32 @@ func OpenStore(path string) (*Store, error) {
 			superseded_at INTEGER
 		);`,
 		`CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);`,
+		// Full-text index over entity+fact for retrieval (FR-022). Triggers
+		// keep it in sync for every writer -- this process, the sleep
+		// subprocess and rule imports alike -- without Go-side bookkeeping.
+		`CREATE VIRTUAL TABLE IF NOT EXISTS atoms_fts USING fts5(
+			entity, fact, content='atoms', content_rowid='id',
+			tokenize='unicode61 remove_diacritics 2'
+		);`,
+		`CREATE TRIGGER IF NOT EXISTS atoms_fts_ai AFTER INSERT ON atoms BEGIN
+			INSERT INTO atoms_fts(rowid, entity, fact) VALUES (new.id, new.entity, new.fact);
+		END;`,
+		`CREATE TRIGGER IF NOT EXISTS atoms_fts_ad AFTER DELETE ON atoms BEGIN
+			INSERT INTO atoms_fts(atoms_fts, rowid, entity, fact) VALUES ('delete', old.id, old.entity, old.fact);
+		END;`,
+		`CREATE TRIGGER IF NOT EXISTS atoms_fts_au AFTER UPDATE OF entity, fact ON atoms BEGIN
+			INSERT INTO atoms_fts(atoms_fts, rowid, entity, fact) VALUES ('delete', old.id, old.entity, old.fact);
+			INSERT INTO atoms_fts(rowid, entity, fact) VALUES (new.id, new.entity, new.fact);
+		END;`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			db.Close()
 			return nil, fmt.Errorf("refinery: init %s: %w", path, err)
 		}
+	}
+	if err := ensureFTSBuilt(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("refinery: build index %s: %w", path, err)
 	}
 	s := &Store{db: db, DedupeHamming: DefaultDedupeHamming}
 	if err := s.loadFingerprints(); err != nil {
@@ -134,8 +165,13 @@ func (s *Store) readDataVersion(ctx context.Context) (int64, error) {
 
 func (s *Store) loadFingerprints() error {
 	s.activeIDs, s.activeFPs = s.activeIDs[:0], s.activeFPs[:0]
-	if v, err := s.readDataVersion(context.Background()); err == nil {
-		s.dataVersion = v
+	// Until the index is fully loaded it is invalid: on any failure below a
+	// version no connection reports (-1) forces the next refresh to reload,
+	// instead of treating the empty index as current.
+	s.dataVersion = -1
+	v, err := s.readDataVersion(context.Background())
+	if err != nil {
+		return err
 	}
 	rows, err := s.db.Query(`SELECT id, simhash FROM atoms WHERE superseded_at IS NULL ORDER BY id`)
 	if err != nil {
@@ -150,7 +186,11 @@ func (s *Store) loadFingerprints() error {
 		s.activeIDs = append(s.activeIDs, id)
 		s.activeFPs = append(s.activeFPs, uint64(fp))
 	}
-	return rows.Err()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	s.dataVersion = v
+	return nil
 }
 
 // Add cleans and classifies a fact and stores it, unless a near duplicate
@@ -169,7 +209,7 @@ func (s *Store) Add(ctx context.Context, entity, fact string, flags uint32) (id 
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if err := s.refreshIfChangedElsewhere(ctx); err != nil {
+	if err = s.refreshIfChangedElsewhere(ctx); err != nil {
 		return 0, false, err
 	}
 	if i, d := Nearest(s.activeFPs, fp); i >= 0 && d <= s.DedupeHamming {
@@ -184,9 +224,10 @@ func (s *Store) Add(ctx context.Context, entity, fact string, flags uint32) (id 
 	if id, err = res.LastInsertId(); err != nil {
 		return 0, false, err
 	}
-	if s.dataVersion, err = s.readDataVersion(ctx); err != nil {
-		return 0, false, err
-	}
+	// dataVersion is left as read by refreshIfChangedElsewhere: this
+	// connection's own commit does not change data_version, and re-reading it
+	// here would silently accept another process's commit made since the
+	// refresh without reloading the index.
 	s.activeIDs = append(s.activeIDs, id)
 	s.activeFPs = append(s.activeFPs, fp)
 	return id, false, nil
@@ -211,8 +252,12 @@ func classify(fact string) uint32 {
 func (s *Store) Supersede(ctx context.Context, id int64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, err := s.db.ExecContext(ctx,
-		`UPDATE atoms SET superseded_at = ? WHERE id = ? AND superseded_at IS NULL`, time.Now().Unix(), id); err != nil {
+	if _, err := s.db.ExecContext(
+		ctx,
+		`UPDATE atoms SET superseded_at = ? WHERE id = ? AND superseded_at IS NULL`,
+		time.Now().Unix(),
+		id,
+	); err != nil {
 		return err
 	}
 	for i, activeID := range s.activeIDs {
@@ -264,7 +309,9 @@ func RenderMarkdown(atoms []Atom) string {
 	}
 
 	var b strings.Builder
-	b.WriteString("# Memória\n\n_(Gerado a partir dos átomos da memória; edições manuais neste arquivo são importadas automaticamente.)_\n")
+	b.WriteString(
+		"# Memória\n\n_(Gerado a partir dos átomos da memória; edições manuais neste arquivo são importadas automaticamente.)_\n",
+	)
 	for _, section := range []struct {
 		title string
 		lines []string
@@ -295,12 +342,18 @@ func (s *Store) WriteMemoryFile(ctx context.Context, path string) error {
 	if err := fileutil.WriteFileAtomic(path, []byte(content), 0o600); err != nil {
 		return err
 	}
+	for _, a := range atoms {
+		if err := s.addFlag(ctx, a, FlagInFile); err != nil {
+			return err
+		}
+	}
 	return s.setMeta(ctx, "rendered_hash", contentHash(content))
 }
 
 // SyncMemoryFile imports manual edits from MEMORY.md before the next render
-// (AC-022-7): lines removed from the file supersede their atoms, new lines
-// become user-authored atoms. An untouched file (same hash as the last
+// (AC-022-7): lines removed from the file supersede the atoms that were in
+// it (FlagInFile), new lines become user-authored atoms; atoms from other
+// writers added since the last render are left alone. An untouched file (same hash as the last
 // render or sync) is a no-op.
 func (s *Store) SyncMemoryFile(ctx context.Context, path string) error {
 	data, err := os.ReadFile(path)
@@ -336,11 +389,20 @@ func (s *Store) SyncMemoryFile(ctx context.Context, path string) error {
 	}
 	known := map[string]bool{}
 	// Deletions first, so an edited line (old removed, new added) is not
-	// absorbed back into the atom it replaces.
+	// absorbed back into the atom it replaces. Only atoms that were in the
+	// file (FlagInFile) mirror it: atoms other writers -- rule import, sleep
+	// -- added since the last render were never in it, and a manual edit
+	// must not wipe them.
 	for _, a := range atoms {
 		key := atomLine(a.Entity, a.Fact)
 		known[key] = true
-		if !inFile[key] {
+		if inFile[key] {
+			if err := s.addFlag(ctx, a, FlagInFile); err != nil {
+				return err
+			}
+			continue
+		}
+		if a.Flags&FlagInFile != 0 {
 			if err := s.Supersede(ctx, a.ID); err != nil {
 				return err
 			}
@@ -350,7 +412,7 @@ func (s *Store) SyncMemoryFile(ctx context.Context, path string) error {
 		if known[atomLine(ef[0], ef[1])] {
 			continue
 		}
-		if _, _, err := s.Add(ctx, ef[0], ef[1], FlagUserAuthored|FlagOriginImport); err != nil {
+		if _, _, err := s.Add(ctx, ef[0], ef[1], FlagUserAuthored|FlagOriginImport|FlagInFile); err != nil {
 			return err
 		}
 	}
@@ -376,6 +438,15 @@ func parseAtomLine(line string) (entity, fact string, ok bool) {
 func contentHash(s string) string {
 	sum := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(sum[:])
+}
+
+// addFlag sets flag on an atom (no-op if it is already set).
+func (s *Store) addFlag(ctx context.Context, a Atom, flag uint32) error {
+	if a.Flags&flag != 0 {
+		return nil
+	}
+	_, err := s.db.ExecContext(ctx, `UPDATE atoms SET flags = flags | ? WHERE id = ?`, flag, a.ID)
+	return err
 }
 
 func (s *Store) setMeta(ctx context.Context, key, value string) error {

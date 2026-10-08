@@ -84,7 +84,9 @@ func TestRecorder_NeverBlocksWhenChannelIsFull(t *testing.T) {
 	}
 
 	if got := rec.Dropped(); got == 0 {
-		t.Fatal("Dropped() = 0, want > 0 after writing far more records than the channel holds with nothing draining it")
+		t.Fatal(
+			"Dropped() = 0, want > 0 after writing far more records than the channel holds with nothing draining it",
+		)
 	}
 }
 

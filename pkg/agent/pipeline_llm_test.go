@@ -80,9 +80,15 @@ func TestPipelineLLM_ErrBusy_UsesOwnWaitBudget_NotGenericBackoff(t *testing.T) {
 		t.Fatalf("response = %q, want %q", resp, "ok")
 	}
 	if elapsed >= 2*time.Second {
-		t.Fatalf("elapsed = %v, want well under the 2s generic backoff -- the ErrBusy branch should have resolved via Resume() at ~300ms, not the generic path", elapsed)
+		t.Fatalf(
+			"elapsed = %v, want well under the 2s generic backoff -- the ErrBusy branch should have resolved via Resume() at ~300ms, not the generic path",
+			elapsed,
+		)
 	}
 	if elapsed < 250*time.Millisecond {
-		t.Fatalf("elapsed = %v, want close to the ~300ms Resume() delay (too fast suggests it didn't actually wait on the suspension)", elapsed)
+		t.Fatalf(
+			"elapsed = %v, want close to the ~300ms Resume() delay (too fast suggests it didn't actually wait on the suspension)",
+			elapsed,
+		)
 	}
 }

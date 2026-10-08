@@ -8,6 +8,7 @@ import (
 	"maps"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/bus"
@@ -516,14 +517,14 @@ var errRuntimeSuspendedOverloaded = fmt.Errorf("runstate: system overloaded (sus
 // through to the generic classification path in that case, which keeps
 // agents.defaults.runstate_resume_wait_secs=0 byte-identical to before
 // this existed.
-func waitForRunstateResume(ctx context.Context, engine *runstate.Engine, max time.Duration) bool {
-	if engine == nil || max <= 0 {
+func waitForRunstateResume(ctx context.Context, engine *runstate.Engine, maxWait time.Duration) bool {
+	if engine == nil || maxWait <= 0 {
 		return false
 	}
 	ch, cancel := engine.Subscribe()
 	defer cancel()
 
-	timer := time.NewTimer(max)
+	timer := time.NewTimer(maxWait)
 	defer timer.Stop()
 
 	for {
@@ -545,41 +546,44 @@ func waitForRunstateResume(ctx context.Context, engine *runstate.Engine, max tim
 // (S09/ADR-016 point 6: "enquanto Suspended está ativo, nenhuma nova
 // entrada de Inference/ToolExec/Dream é aceita"). Returns ok=false when
 // refused -- callers must not proceed to call the provider, and must NOT
-// call activeRequestsDec in that case (nothing was incremented, on either
+// call its release func in that case (nothing was incremented, on either
 // counter).
 //
 // This is also the Trilho C Inference hook (ADR-016 point 7): every real
 // LLM call goes through here (pipeline_llm.go's CallLLM, context_legacy.go)
-// paired with activeRequestsDec below, so runstate.Inference tracks the
+// and releases through the func it returns, so runstate.Inference tracks the
 // exact same set of "an active request is in flight" moments the pre-
 // existing activeReqCount refcount already tracked -- no new call site,
 // no new invariant to keep in sync. A nil al.runstate (runstate.enabled=
 // false, the default) makes this always succeed, exactly as before C3.
-func (al *AgentLoop) activeRequestsInc() (ok bool) {
+func (al *AgentLoop) activeRequestsInc() (release func(), ok bool) {
+	// TryEnter's release is bound to this engine: a reload swaps
+	// al.runstate, and looking the engine up again at release time would
+	// clear the Inference bit of a request running on the new one (T35).
+	exitRunstate := func() {}
 	if rs := al.rsSnapshot(); rs != nil {
-		if _, entered := rs.TryEnter(runstate.Inference); !entered {
-			return false
+		exit, entered := rs.TryEnter(runstate.Inference)
+		if !entered {
+			return func() {}, false
 		}
+		exitRunstate = exit
 	}
 	al.activeReqMu.Lock()
 	al.activeReqCount++
 	al.activeReqMu.Unlock()
-	return true
-}
 
-// activeRequestsDec atomically decrements the active request count
-// and wakes any goroutine blocked in waitForActiveRequests when the
-// count reaches zero.
-func (al *AgentLoop) activeRequestsDec() {
-	al.activeReqMu.Lock()
-	al.activeReqCount--
-	if al.activeReqCount == 0 {
-		al.activeReqCond.Broadcast()
-	}
-	al.activeReqMu.Unlock()
-	if rs := al.rsSnapshot(); rs != nil {
-		rs.Dec(runstate.Inference)
-	}
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			al.activeReqMu.Lock()
+			al.activeReqCount--
+			if al.activeReqCount == 0 {
+				al.activeReqCond.Broadcast()
+			}
+			al.activeReqMu.Unlock()
+			exitRunstate()
+		})
+	}, true
 }
 
 func (al *AgentLoop) waitForActiveRequests(ctx context.Context, timeout time.Duration) bool {

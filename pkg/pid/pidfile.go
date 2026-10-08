@@ -68,7 +68,7 @@ func WritePidFile(homePath, host string, port int) (*PidFileData, error) {
 				// If the PID was reused by an unrelated process
 				// (e.g. systemd-resolved after a kill -9), treat
 				// the PID file as stale and proceed with startup.
-				if isPicoclawProcess(data.PID) {
+				if isKuromatsuProcess(data.PID) {
 					return nil, fmt.Errorf("gateway is already running (PID: %d, version: %s)", data.PID, data.Version)
 				}
 				logger.Warnf("found pid file (PID: %d) but process is not kuromatsu", data.PID)

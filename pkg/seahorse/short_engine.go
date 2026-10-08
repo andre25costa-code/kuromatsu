@@ -244,43 +244,14 @@ func (e *Engine) Ingest(ctx context.Context, sessionKey string, messages []Messa
 	}
 
 	var totalTokens int
-	var msgIDs []int64
 	for _, msg := range messages {
-		var added *Message
-		var err error
-		if len(msg.Parts) > 0 {
-			added, err = e.store.AddMessageWithPartsAndReasoning(
-				ctx,
-				conv.ConversationID,
-				msg.Role,
-				msg.Parts,
-				msg.ModelName,
-				msg.ReasoningContent,
-				msg.TokenCount,
-				msg.CreatedAt,
-			)
-		} else {
-			added, err = e.store.AddMessageWithReasoning(
-				ctx,
-				conv.ConversationID,
-				msg.Role,
-				msg.Content,
-				msg.ModelName,
-				msg.ReasoningContent,
-				msg.TokenCount,
-				msg.CreatedAt,
-			)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("add message: %w", err)
-		}
 		totalTokens += msg.TokenCount
-		msgIDs = append(msgIDs, added.ID)
 	}
 
-	// Append to context_items using actual inserted IDs
-	if err := e.store.AppendContextMessages(ctx, conv.ConversationID, msgIDs); err != nil {
-		return nil, fmt.Errorf("append context: %w", err)
+	// One transaction for the messages and their context items: a failure
+	// partway through leaves nothing behind for a retry to duplicate.
+	if _, err := e.store.IngestMessages(ctx, conv.ConversationID, messages); err != nil {
+		return nil, fmt.Errorf("ingest messages: %w", err)
 	}
 
 	logger.InfoCF("seahorse", "ingest", map[string]any{

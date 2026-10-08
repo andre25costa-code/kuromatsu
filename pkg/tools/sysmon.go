@@ -141,12 +141,16 @@ func (t *SysmonTool) executeProc(args map[string]any) *ToolResult {
 	switch strings.TrimSpace(op) {
 	case "kill":
 		if !t.allowDestructive {
-			return ErrorResult("ação desabilitada: defina tools.sysmon.allow_destructive=true no config para permitir proc kill")
+			return ErrorResult(
+				"ação desabilitada: defina tools.sysmon.allow_destructive=true no config para permitir proc kill",
+			)
 		}
 		return sysmonKillResult(pid)
 	case "renice":
 		if !t.allowDestructive {
-			return ErrorResult("ação desabilitada: defina tools.sysmon.allow_destructive=true no config para permitir proc renice")
+			return ErrorResult(
+				"ação desabilitada: defina tools.sysmon.allow_destructive=true no config para permitir proc renice",
+			)
 		}
 		niceness := 0
 		if v, ok := args["niceness"]; ok {

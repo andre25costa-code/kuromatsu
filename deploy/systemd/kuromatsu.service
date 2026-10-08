@@ -21,6 +21,8 @@ Environment=KUROMATSU_CONFIG=/var/lib/kuromatsu/config.json
 Environment=KUROMATSU_MODELS_DIR=/var/lib/kuromatsu/models
 Environment=GOMEMLIMIT=450MiB
 Environment=GOGC=50
+# Cron schedules and heartbeat timestamps follow this zone (any IANA name).
+Environment=TZ=America/Sao_Paulo
 ExecStart=/opt/kuromatsu/bin/kuromatsu gateway
 Restart=on-failure
 RestartSec=10

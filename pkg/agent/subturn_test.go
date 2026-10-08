@@ -888,24 +888,25 @@ func TestSpawnSubTurn_PanicRecovery(t *testing.T) {
 		t.Error("expected error from panic recovery")
 	}
 
-	// Result should be nil because panic occurred before runTurn could return
-	if result != nil {
-		t.Error("expected nil result after panic")
+	// T34: the panic becomes an error result, like the ordinary error path,
+	// so the parent model learns the subagent failed instead of silently
+	// receiving nothing (the parent drops nil results).
+	if result == nil || result.Err == nil || !strings.Contains(result.ForLLM, "SubTurn failed") {
+		t.Fatalf("result after panic = %+v, want an error ToolResult", result)
+	}
+	select {
+	case delivered := <-parent.pendingResults:
+		if delivered == nil || !strings.Contains(delivered.ForLLM, "panicked") {
+			t.Fatalf("parent received %+v, want the panic reported", delivered)
+		}
+	default:
+		t.Fatal("async panic result was not delivered to the parent")
 	}
 
 	time.Sleep(10 * time.Millisecond) // let event goroutine flush
 	// SubTurnEndEvent should still be emitted
 	if !collector.hasEventOfKind(runtimeevents.KindAgentSubTurnEnd) {
 		t.Error("SubTurnEndEvent not emitted after panic")
-	}
-
-	// For async call, result should still be delivered to channel (even if nil)
-	select {
-	case res := <-parent.pendingResults:
-		// Result was delivered (nil due to panic)
-		_ = res
-	default:
-		t.Error("async result should be delivered to channel even after panic")
 	}
 }
 

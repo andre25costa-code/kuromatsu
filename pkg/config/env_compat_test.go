@@ -28,7 +28,11 @@ func TestApplyLegacyEnvCompat_NewNameWins(t *testing.T) {
 	applyLegacyEnvCompat()
 
 	if got := os.Getenv("KUROMATSU_TEST_ENV_COMPAT_B"); got != "new-value" {
-		t.Fatalf("KUROMATSU_TEST_ENV_COMPAT_B = %q, want unchanged %q (new name must win over legacy PICOCLAW_TEST_ENV_COMPAT_B)", got, "new-value")
+		t.Fatalf(
+			"KUROMATSU_TEST_ENV_COMPAT_B = %q, want unchanged %q (new name must win over legacy PICOCLAW_TEST_ENV_COMPAT_B)",
+			got,
+			"new-value",
+		)
 	}
 }
 

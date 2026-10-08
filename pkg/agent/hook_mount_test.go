@@ -10,36 +10,6 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 )
 
-type builtinAutoHookConfig struct {
-	Model  string `json:"model"`
-	Suffix string `json:"suffix"`
-}
-
-type builtinAutoHook struct {
-	model  string
-	suffix string
-}
-
-func (h *builtinAutoHook) BeforeLLM(
-	ctx context.Context,
-	req *LLMHookRequest,
-) (*LLMHookRequest, HookDecision, error) {
-	next := req.Clone()
-	next.Model = h.model
-	return next, HookDecision{Action: HookActionModify}, nil
-}
-
-func (h *builtinAutoHook) AfterLLM(
-	ctx context.Context,
-	resp *LLMHookResponse,
-) (*LLMHookResponse, HookDecision, error) {
-	next := resp.Clone()
-	if next.Response != nil {
-		next.Response.Content += h.suffix
-	}
-	return next, HookDecision{Action: HookActionModify}, nil
-}
-
 func newConfiguredHookLoop(t *testing.T, provider *llmHookTestProvider, hooks config.HooksConfig) *AgentLoop {
 	t.Helper()
 

@@ -296,7 +296,9 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 				if err != nil {
 					return nil, err
 				}
-				messageIDs = append(messageIDs, msgID)
+				if msgID != "" { // empty when delivery is likely but unconfirmed
+					messageIDs = append(messageIDs, msgID)
+				}
 				replyToID = ""
 				continue
 			}
@@ -336,7 +338,9 @@ func (c *TelegramChannel) Send(ctx context.Context, msg bus.OutboundMessage) ([]
 		if err != nil {
 			return nil, err
 		}
-		messageIDs = append(messageIDs, msgID)
+		if msgID != "" { // empty when delivery is likely but unconfirmed
+			messageIDs = append(messageIDs, msgID)
+		}
 		// Only the first chunk should be a reply; subsequent chunks are normal messages.
 		replyToID = ""
 	}
@@ -382,18 +386,36 @@ func (c *TelegramChannel) sendChunk(
 	}
 
 	pMsg, err := c.bot.SendMessage(ctx, tgMsg)
-	if err != nil {
+	if err != nil && isParseError(err) {
 		logParseFailed(err, params.useMarkdownV2)
 
 		tgMsg.Text = params.mdFallback
 		tgMsg.ParseMode = ""
 		pMsg, err = c.bot.SendMessage(ctx, tgMsg)
-		if err != nil {
-			return "", fmt.Errorf("telegram send: %w", channels.ErrTemporary)
+	}
+	if err != nil {
+		if isPostConnectError(err) {
+			logger.WarnCF(
+				"telegram",
+				"SendMessage likely landed but result is unknown; not reporting failure to prevent a duplicate",
+				map[string]any{
+					"chat_id": params.chatID,
+					"error":   err.Error(),
+				},
+			)
+			return "", nil
 		}
+		return "", fmt.Errorf("telegram send: %w: %w", channels.ErrTemporary, err)
 	}
 
 	return strconv.Itoa(pMsg.MessageID), nil
+}
+
+// isParseError reports whether Telegram rejected the message's HTML or
+// MarkdownV2 markup ("Bad Request: can't parse entities: ..."), the only
+// failure a plain-text resend can fix.
+func isParseError(err error) bool {
+	return err != nil && strings.Contains(strings.ToLower(err.Error()), "can't parse entities")
 }
 
 // maxTypingDuration limits how long the typing indicator can run.
@@ -897,7 +919,9 @@ func (c *TelegramChannel) sendCaptionText(
 		if err != nil {
 			return nil, err
 		}
-		messageIDs = append(messageIDs, msgID)
+		if msgID != "" { // empty when delivery is likely but unconfirmed
+			messageIDs = append(messageIDs, msgID)
+		}
 	}
 	return messageIDs, nil
 }

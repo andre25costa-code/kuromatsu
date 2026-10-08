@@ -292,11 +292,11 @@ func migrateV1ToV2(m map[string]any) error {
 				if mVal["model_name"] == "local-model" {
 					mVal["enabled"] = true
 				}
-				logger.Infof("model: %v", mVal)
 			}
 		}
-	} else {
-		logger.Warnf("model_list is not a slice: %#v", m["model_list"])
+	} else if raw, present := m["model_list"]; present {
+		// A config without model_list is valid; only a wrong type is a problem.
+		logger.Warnf("model_list is not a slice: %#v", raw)
 	}
 
 	m["version"] = 2

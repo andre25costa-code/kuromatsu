@@ -132,7 +132,9 @@ func TestBudgetMemoryContext_HeaderStableAcrossAppends(t *testing.T) {
 // rule lines from the end of the file.
 func TestBudgetMemoryContext_IdentityKeptBeforeLaterRules(t *testing.T) {
 	var b strings.Builder
-	b.WriteString("# Memória\n\nO usuário se chama Ana, mora em Recife, trabalha com infraestrutura e estuda agentes de IA e LLMs.\n\n## Regras\n\n")
+	b.WriteString(
+		"# Memória\n\nO usuário se chama Ana, mora em Recife, trabalha com infraestrutura e estuda agentes de IA e LLMs.\n\n## Regras\n\n",
+	)
 	for i := 0; i < 300; i++ {
 		fmt.Fprintf(&b, "- Regra %d: sempre confirme antes de agir.\n", i)
 	}
@@ -148,7 +150,12 @@ func TestBudgetMemoryContext_SingleHugeLineKeepsItsTail(t *testing.T) {
 	huge := strings.Repeat("fato ", 3000) + "FIM"
 	got, trimmed := budgetMemoryContext(huge, 1200, 600)
 	if !trimmed || !strings.Contains(got, "FIM") || estimateTextTokens(got) > 600 {
-		t.Fatalf("huge single line: trimmed=%v tokens=%d hasTail=%v", trimmed, estimateTextTokens(got), strings.Contains(got, "FIM"))
+		t.Fatalf(
+			"huge single line: trimmed=%v tokens=%d hasTail=%v",
+			trimmed,
+			estimateTextTokens(got),
+			strings.Contains(got, "FIM"),
+		)
 	}
 }
 

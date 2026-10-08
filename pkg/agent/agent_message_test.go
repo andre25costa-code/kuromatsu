@@ -120,7 +120,12 @@ func TestResolveMessageRoute_PinTakesPrecedenceOverDispatchRule(t *testing.T) {
 		t.Fatalf("resolveMessageRoute() after pin error = %v", err)
 	}
 	if route.AgentID != "sensores" || agent.ID != "sensores" {
-		t.Fatalf("pinned route = %+v (agent %q), want agent %q (pin must win over the dispatch rule)", route, agent.ID, "sensores")
+		t.Fatalf(
+			"pinned route = %+v (agent %q), want agent %q (pin must win over the dispatch rule)",
+			route,
+			agent.ID,
+			"sensores",
+		)
 	}
 	if route.MatchedBy != "agent.pin" {
 		t.Fatalf("route.MatchedBy = %q, want %q", route.MatchedBy, "agent.pin")
@@ -222,7 +227,10 @@ func TestProcessDirectWithChannel_RoutesViaDispatchRules(t *testing.T) {
 		t.Fatal("expected at least one captured message")
 	}
 	if !strings.Contains(provider.messages[0].Content, "Sensores") {
-		t.Fatalf("system prompt = %q, want it to come from the sensores agent (routed via dispatch rule)", provider.messages[0].Content)
+		t.Fatalf(
+			"system prompt = %q, want it to come from the sensores agent (routed via dispatch rule)",
+			provider.messages[0].Content,
+		)
 	}
 }
 

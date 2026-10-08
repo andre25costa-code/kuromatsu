@@ -96,7 +96,10 @@ func TestFocusHeartbeatWindow_RealFrameworkOverhead(t *testing.T) {
 	// a build on a target that was never measured before.
 	total := systemTokens + compactToolTokens
 	if total > 300 {
-		t.Logf("NOTE: %d tokens > NFR-007's 300-token target for heartbeat, even with an EMPTY workspace and the real compact tool transform applied — this is a genuine framework-overhead gap, not workspace content.", total)
+		t.Logf(
+			"NOTE: %d tokens > NFR-007's 300-token target for heartbeat, even with an EMPTY workspace and the real compact tool transform applied — this is a genuine framework-overhead gap, not workspace content.",
+			total,
+		)
 	}
 }
 

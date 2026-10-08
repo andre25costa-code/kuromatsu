@@ -92,7 +92,11 @@ func TestOptions_LoadKey_IgnoresSamplerAndOutputFields(t *testing.T) {
 	b.KeepAliveSecs = -1
 
 	if a.loadKey() != b.loadKey() {
-		t.Fatalf("loadKey() differs for options that only vary in sampler/output fields:\na = %+v\nb = %+v", a.loadKey(), b.loadKey())
+		t.Fatalf(
+			"loadKey() differs for options that only vary in sampler/output fields:\na = %+v\nb = %+v",
+			a.loadKey(),
+			b.loadKey(),
+		)
 	}
 }
 
@@ -115,7 +119,12 @@ func TestOptions_LoadKey_ChangesWithLoadAffectingFields(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			modified := tc.modify(base)
 			if base.loadKey() == modified.loadKey() {
-				t.Fatalf("loadKey() unchanged after modifying %s (base=%+v, modified=%+v)", tc.name, base.loadKey(), modified.loadKey())
+				t.Fatalf(
+					"loadKey() unchanged after modifying %s (base=%+v, modified=%+v)",
+					tc.name,
+					base.loadKey(),
+					modified.loadKey(),
+				)
 			}
 		})
 	}
@@ -204,7 +213,10 @@ func TestSetMemoryHooks_PostLoadReceivesTheEstimate(t *testing.T) {
 }
 
 func TestSetMemoryHooks_NilRemovesBothHooks(t *testing.T) {
-	SetMemoryHooks(func(MemoryEstimate) error { return errors.New("should never run") }, func(MemoryEstimate) { t.Fatal("postLoad hook should never run") })
+	SetMemoryHooks(
+		func(MemoryEstimate) error { return errors.New("should never run") },
+		func(MemoryEstimate) { t.Fatal("postLoad hook should never run") },
+	)
 	SetMemoryHooks(nil, nil)
 
 	if err := callPreLoadHook(MemoryEstimate{}); err != nil {

@@ -63,7 +63,11 @@ func TestInstallRunstateIntegration_EnabledStartsPublishersAndCanBeDisabledAgain
 	// so the test has to actually reload al first, or it would be asserting
 	// a cfg/al combination production code never produces.
 	disabledCfg := config.DefaultConfig()
-	if err := al.ReloadProviderAndConfig(context.Background(), &startupBlockedProvider{reason: "not used"}, disabledCfg); err != nil {
+	if err := al.ReloadProviderAndConfig(
+		context.Background(),
+		&startupBlockedProvider{reason: "not used"},
+		disabledCfg,
+	); err != nil {
 		t.Fatalf("ReloadProviderAndConfig() error = %v", err)
 	}
 	installRunstateIntegration(disabledCfg, al, rs)

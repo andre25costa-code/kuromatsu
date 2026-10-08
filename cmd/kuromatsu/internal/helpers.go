@@ -11,9 +11,9 @@ import (
 
 const Logo = pkg.Logo
 
-// GetPicoclawHome returns the kuromatsu home directory.
+// GetKuromatsuHome returns the kuromatsu home directory.
 // Priority: $KUROMATSU_HOME > ~/.kuromatsu
-func GetPicoclawHome() string {
+func GetKuromatsuHome() string {
 	return config.GetHome()
 }
 
@@ -21,7 +21,7 @@ func GetConfigPath() string {
 	if configPath := os.Getenv(config.EnvConfig); configPath != "" {
 		return configPath
 	}
-	return filepath.Join(GetPicoclawHome(), "config.json")
+	return filepath.Join(GetKuromatsuHome(), "config.json")
 }
 
 func LoadConfig() (*config.Config, error) {

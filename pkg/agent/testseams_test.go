@@ -1,13 +1,7 @@
 package agent
 
 import (
-	"context"
-	"fmt"
-
-	"github.com/andre25costa-code/kuromatsu/pkg/bus"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
-	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
-	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
@@ -27,80 +21,6 @@ func NamedHook(name string, hook any) HookRegistration {
 		Name:   name,
 		Source: HookSourceInProcess,
 		Hook:   hook,
-	}
-}
-
-// SubscribeEvents exposes the previous in-agent event subscription API on top
-// of the runtime event bus for tests and compatibility.
-func (al *AgentLoop) SubscribeEvents(buffer int) EventSubscription {
-	if buffer <= 0 {
-		buffer = defaultEventSubscriberBuffer
-	}
-
-	out := make(chan Event, buffer)
-	if al == nil || al.runtimeEvents == nil {
-		close(out)
-		return EventSubscription{C: out}
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	sub, in, err := al.runtimeEvents.Channel().
-		Source("agent").
-		OfKind(legacyAgentEventKinds()...).
-		SubscribeChan(ctx, runtimeevents.SubscribeOptions{
-			Name:   "legacy-agent-events",
-			Buffer: buffer,
-		})
-	if err != nil {
-		cancel()
-		close(out)
-		return EventSubscription{C: out}
-	}
-
-	id := legacyEventSubSeq.Add(1)
-	legacyEventSubLock.Store(id, legacyEventSubscription{cancel: cancel, sub: sub})
-	go func() {
-		defer legacyEventSubLock.LoadAndDelete(id)
-		defer close(out)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case evt, ok := <-in:
-				if !ok {
-					return
-				}
-				select {
-				case out <- legacyEventFromRuntimeEvent(evt):
-				case <-ctx.Done():
-					return
-				}
-			}
-		}
-	}()
-
-	return EventSubscription{ID: id, C: out}
-}
-
-func (al *AgentLoop) UnsubscribeEvents(id uint64) {
-	if id == 0 {
-		return
-	}
-	value, ok := legacyEventSubLock.LoadAndDelete(id)
-	if !ok {
-		return
-	}
-	sub, ok := value.(legacyEventSubscription)
-	if !ok {
-		logger.WarnCF("agent", "UnsubscribeEvents: unexpected type in subscription map", map[string]any{
-			"id":   id,
-			"type": fmt.Sprintf("%T", value),
-		})
-		return
-	}
-	sub.cancel()
-	if sub.sub != nil {
-		_ = sub.sub.Close()
 	}
 }
 
@@ -173,64 +93,42 @@ func (al *AgentLoop) dequeuePendingSubTurnResults(sessionKey string) []*tools.To
 	}
 }
 
-func legacyEventFromRuntimeEvent(evt runtimeevents.Event) Event {
-	meta := hookMetaFromRuntimeEvent(evt)
-	return Event{
-		Kind:    evt.Kind,
-		Time:    evt.Time,
-		Meta:    meta,
-		Context: turnContextFromRuntimeScope(evt.Scope),
-		Payload: evt.Payload,
+// Steer enqueues a user message to be injected into the currently running
+// agent loop. The message will be picked up after the current tool finishes
+// executing, causing any remaining tool calls in the batch to be skipped.
+func (al *AgentLoop) Steer(msg providers.Message) error {
+	scope := ""
+	agentID := ""
+	if ts := al.getAnyActiveTurnState(); ts != nil {
+		scope = ts.sessionKey
+		agentID = ts.agentID
 	}
+	return al.enqueueSteeringMessage(scope, agentID, msg)
 }
 
-func turnContextFromRuntimeScope(scope runtimeevents.Scope) *TurnContext {
-	if scope.Channel == "" &&
-		scope.Account == "" &&
-		scope.ChatID == "" &&
-		scope.ChatType == "" &&
-		scope.TopicID == "" &&
-		scope.SpaceID == "" &&
-		scope.SpaceType == "" &&
-		scope.SenderID == "" &&
-		scope.MessageID == "" {
-		return nil
-	}
-	return &TurnContext{
-		Inbound: &bus.InboundContext{
-			Channel:   scope.Channel,
-			Account:   scope.Account,
-			ChatID:    scope.ChatID,
-			ChatType:  scope.ChatType,
-			TopicID:   scope.TopicID,
-			SpaceID:   scope.SpaceID,
-			SpaceType: scope.SpaceType,
-			SenderID:  scope.SenderID,
-			MessageID: scope.MessageID,
-		},
-	}
+// InjectFollowUp enqueues a message to be automatically processed after the current
+// turn completes. Unlike Steer(), which interrupts the current execution, InjectFollowUp
+// waits for the current turn to finish naturally before processing the message.
+//
+// This is useful for:
+// - Automated workflows that need to chain multiple turns
+// - Background tasks that should run after the main task completes
+// - Scheduled follow-up actions
+//
+// The message will be processed via Continue() when the agent becomes idle.
+func (al *AgentLoop) InjectFollowUp(msg providers.Message) error {
+	// InjectFollowUp uses the same steering queue mechanism as Steer(),
+	// but the semantic difference is in when it's called:
+	// - Steer() is called during active execution to interrupt
+	// - InjectFollowUp() is called when planning future work
+	//
+	// Both end up in the same queue and are processed by Continue()
+	// when the agent is idle.
+	return al.Steer(msg)
 }
 
-func legacyAgentEventKinds() []runtimeevents.Kind {
-	return []runtimeevents.Kind{
-		EventKindTurnStart,
-		EventKindTurnEnd,
-		EventKindLLMRequest,
-		EventKindLLMDelta,
-		EventKindLLMResponse,
-		EventKindLLMRetry,
-		EventKindContextCompress,
-		EventKindSessionSummarize,
-		EventKindToolExecStart,
-		EventKindToolExecEnd,
-		EventKindToolExecSkipped,
-		EventKindSteeringInjected,
-		EventKindFollowUpQueued,
-		EventKindInterruptReceived,
-		EventKindSubTurnSpawn,
-		EventKindSubTurnEnd,
-		EventKindSubTurnResultDelivered,
-		EventKindSubTurnOrphan,
-		EventKindError,
-	}
+// InjectSteering is an alias for Steer() to match the design document naming.
+// It injects a steering message into the currently running agent loop.
+func (al *AgentLoop) InjectSteering(msg providers.Message) error {
+	return al.Steer(msg)
 }

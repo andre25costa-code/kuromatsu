@@ -86,6 +86,14 @@ linters:
       tab-width: 4
     misspell:
       locale: US
+      # Portuguese words used in test fixtures and pt-BR prompts; misspell
+      # only knows English and flags them as typos of English words.
+      ignore-rules:
+        - sensores
+        - comando
+        - calcular
+        - problemas
+        - incorpore
     mnd:
       checks:
         - argument

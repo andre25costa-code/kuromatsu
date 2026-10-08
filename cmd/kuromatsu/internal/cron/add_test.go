@@ -93,7 +93,18 @@ func TestNewAddCommandEveryAndCronMutuallyExclusive(t *testing.T) {
 func TestAddCommand_SameJobDifferentCommandRefused(t *testing.T) {
 	store := filepath.Join(t.TempDir(), "jobs.json")
 	args := func(command string) []string {
-		return []string{"--name", "r", "--cron", "0 10 * * *", "--command", command, "--channel", "telegram", "--to", "1"}
+		return []string{
+			"--name",
+			"r",
+			"--cron",
+			"0 10 * * *",
+			"--command",
+			command,
+			"--channel",
+			"telegram",
+			"--to",
+			"1",
+		}
 	}
 	first := newAddCommand(func() string { return store })
 	first.SetArgs(args("sh a.sh"))
@@ -142,7 +153,18 @@ func TestAddCommand_QuietRequiresCommand(t *testing.T) {
 
 func TestAddCommand_ExistingJobOptionsNotMutated(t *testing.T) {
 	store := filepath.Join(t.TempDir(), "jobs.json")
-	args := []string{"--name", "r", "--cron", "0 10 * * *", "--command", "sh a.sh", "--channel", "telegram", "--to", "1"}
+	args := []string{
+		"--name",
+		"r",
+		"--cron",
+		"0 10 * * *",
+		"--command",
+		"sh a.sh",
+		"--channel",
+		"telegram",
+		"--to",
+		"1",
+	}
 	first := newAddCommand(func() string { return store })
 	first.SetArgs(args)
 	require.NoError(t, first.Execute())

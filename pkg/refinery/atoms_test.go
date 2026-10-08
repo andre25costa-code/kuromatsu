@@ -2,6 +2,7 @@ package refinery
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -79,7 +80,9 @@ func TestStore_ChangedValueIsNotAbsorbed(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 
-	_, _, _ = s.Add(ctx, "Ana", baseFact, FlagOriginUser)
+	if _, _, err := s.Add(ctx, "Ana", baseFact, FlagOriginUser); err != nil {
+		t.Fatal(err)
+	}
 	if _, absorbed, _ := s.Add(ctx, "Ana", nearFact, FlagOriginUser); absorbed {
 		t.Fatal("a fact with a changed value was absorbed as a duplicate")
 	}
@@ -109,8 +112,12 @@ func TestStore_SupersededLeavesActiveSetAndDedupeIndex(t *testing.T) {
 func TestRenderMarkdown_DeterministicRulesFirst(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
-	_, _, _ = s.Add(ctx, "VM", "a vm-ref tem 900M de MemoryMax", FlagOriginUser)
-	_, _, _ = s.Add(ctx, "Ana", "prefere respostas curtas", FlagOriginUser)
+	if _, _, err := s.Add(ctx, "VM", "a vm-ref tem 900M de MemoryMax", FlagOriginUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Add(ctx, "Ana", "prefere respostas curtas", FlagOriginUser); err != nil {
+		t.Fatal(err)
+	}
 
 	atoms, _ := s.Active(ctx)
 	md := RenderMarkdown(atoms)
@@ -132,8 +139,12 @@ func TestStore_SyncImportsManualEdits(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "MEMORY.md")
 
-	_, _, _ = s.Add(ctx, "VM", "a vm-ref tem 900M de MemoryMax", FlagOriginUser)
-	_, _, _ = s.Add(ctx, "Ana", "gosta de café sem açúcar", FlagOriginUser)
+	if _, _, err := s.Add(ctx, "VM", "a vm-ref tem 900M de MemoryMax", FlagOriginUser); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.Add(ctx, "Ana", "gosta de café sem açúcar", FlagOriginUser); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.WriteMemoryFile(ctx, path); err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +158,7 @@ func TestStore_SyncImportsManualEdits(t *testing.T) {
 		t.Fatal(err)
 	}
 	atoms, _ := s.Active(ctx)
-	var facts []string
+	facts := make([]string, 0, len(atoms))
 	for _, a := range atoms {
 		facts = append(facts, a.Fact)
 		if a.Fact == "mora em Recife" && a.Flags&FlagUserAuthored == 0 {
@@ -164,7 +175,9 @@ func TestStore_SyncUnchangedFileIsNoop(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "MEMORY.md")
-	_, _, _ = s.Add(ctx, "VM", "a vm-ref tem 900M de MemoryMax", FlagOriginUser)
+	if _, _, err := s.Add(ctx, "VM", "a vm-ref tem 900M de MemoryMax", FlagOriginUser); err != nil {
+		t.Fatal(err)
+	}
 	_ = s.WriteMemoryFile(ctx, path)
 
 	if err := s.SyncMemoryFile(ctx, path); err != nil {
@@ -182,7 +195,11 @@ func TestStore_SyncImportsFreeTextLines(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "MEMORY.md")
-	writeFile(t, path, "# Memória de longo prazo\n\nO usuário se chama Ana e mora em Recife.\n\n* Prefere respostas curtas.\n1. Backup roda às 3h.\n")
+	writeFile(
+		t,
+		path,
+		"# Memória de longo prazo\n\nO usuário se chama Ana e mora em Recife.\n\n* Prefere respostas curtas.\n1. Backup roda às 3h.\n",
+	)
 
 	if err := s.SyncMemoryFile(ctx, path); err != nil {
 		t.Fatal(err)
@@ -204,7 +221,9 @@ func TestStore_MultiLineFactRoundTripsIntact(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "MEMORY.md")
-	_, _, _ = s.Add(ctx, "VM", "o backup roda às 3h\ne vai para o disco externo", FlagOriginUser)
+	if _, _, err := s.Add(ctx, "VM", "o backup roda às 3h\ne vai para o disco externo", FlagOriginUser); err != nil {
+		t.Fatal(err)
+	}
 	_ = s.WriteMemoryFile(ctx, path)
 	writeFile(t, path, readFile(t, path)+"\n") // force a sync pass
 
@@ -260,5 +279,95 @@ func TestStore_DedupeSeesOtherConnectionsWrites(t *testing.T) {
 	}
 	if !absorbed || again != first {
 		t.Fatalf("second connection Add = (%d, absorbed=%v), want absorbed into %d", again, absorbed, first)
+	}
+}
+
+// A failed fingerprint reload must not mark the (now empty) index as current:
+// the next Add has to reload and still see the existing atoms, instead of
+// deduplicating against nothing and storing a duplicate.
+func TestStore_FailedReloadDoesNotLeaveEmptyIndexMarkedCurrent(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, _, err := s.Add(ctx, "VM", "a vm-ref tem 900M de MemoryMax", FlagOriginUser); err != nil {
+		t.Fatal(err)
+	}
+
+	// Make the fingerprint query fail. Same connection, so data_version does
+	// not move: only the store's own bookkeeping can trigger a reload later.
+	if _, err := s.db.ExecContext(ctx, `ALTER TABLE atoms RENAME TO atoms_hidden`); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	err := s.loadFingerprints()
+	s.mu.Unlock()
+	if err == nil {
+		t.Fatal("loadFingerprints succeeded without the atoms table")
+	}
+	if _, err = s.db.ExecContext(ctx, `ALTER TABLE atoms_hidden RENAME TO atoms`); err != nil {
+		t.Fatal(err)
+	}
+
+	_, absorbed, err := s.Add(ctx, "VM", "a vm-ref tem 900M de MemoryMax", FlagOriginUser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !absorbed {
+		t.Fatal("duplicate stored after a failed reload: the empty index was treated as current")
+	}
+}
+
+// SyncMemoryFile mirrors MEMORY.md, but only for atoms that came from it:
+// atoms written by other paths (rule import, sleep) are not in the file and
+// must survive a manual edit. A line removed from the file still supersedes
+// the atom it created.
+func TestSyncMemoryFile_KeepsAtomsThatDidNotComeFromTheFile(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "MEMORY.md")
+
+	if err := os.WriteFile(path, []byte("- [VM] o rack fica na sala\n- [Ana] gosta de chá\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SyncMemoryFile(ctx, path); err != nil {
+		t.Fatal(err)
+	}
+	rule := mustAdd(t, s, "TM_01", "nunca peça dados de pacientes", FlagPinned|FlagRule|FlagOriginImport)
+	slept := mustAdd(t, s, "VM", "o backup roda às três da manhã", FlagOriginSleep)
+
+	// Manual edit: one file line removed, one added.
+	if err := os.WriteFile(
+		path,
+		[]byte("- [VM] o rack fica na sala\n- [Impressora] toner no armário azul\n"),
+		0o600,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SyncMemoryFile(ctx, path); err != nil {
+		t.Fatal(err)
+	}
+
+	active, err := s.Active(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	byID := map[int64]bool{}
+	for _, a := range active {
+		got[a.Fact] = true
+		byID[a.ID] = true
+	}
+	if !byID[rule] || !byID[slept] {
+		t.Fatalf(
+			"atoms from other writers were superseded by a MEMORY.md edit: rule=%v sleep=%v",
+			byID[rule],
+			byID[slept],
+		)
+	}
+	if got["gosta de chá"] {
+		t.Fatal("a line removed from MEMORY.md was not superseded")
+	}
+	if !got["toner no armário azul"] || !got["o rack fica na sala"] {
+		t.Fatalf("file lines missing after sync: %v", got)
 	}
 }

@@ -2,9 +2,8 @@ name: 🌲 Build Native (nativellm) amd64 Image
 
 # Manual only: this builds the cgo/nativellm image (Bonsai-1.7B embedded via
 # llama.cpp), which needs a real C++ toolchain and noticeably more RAM/time
-# than the regular pure-Go image built by docker-build.yml. It's not part of
-# the release pipeline (S32) -- run it by hand when you need a fresh image
-# for the Oracle deploy.
+# than the regular pure-Go image (docker/Dockerfile). It's not part of the
+# release pipeline -- run it by hand when you need a fresh native image.
 #
 # Runs on GitHub's standard amd64 runner -- this is also the real deploy
 # target's architecture (the Oracle box turned out to be x86_64, not ARM64

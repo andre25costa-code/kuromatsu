@@ -10,7 +10,9 @@ import (
 // memoryFloorPattern marks rule/preference lines that always survive the
 // memory budget wherever they sit in the file (FR-022, ADR-020 §4b; the
 // pt-BR terms come from context-refinery's exporters.py).
-var memoryFloorPattern = regexp.MustCompile(`(?i)\b(prefere|preferência|gosta|odeia|evita|quer|deseja|deve|não deve|sempre|nunca|proibid[oa]|exigid[oa]|obrigatóri[oa]|regra|prefers?|likes?|hates?|avoids?|always|never|must|rule)\b`)
+var memoryFloorPattern = regexp.MustCompile(
+	`(?i)\b(prefere|preferência|gosta|odeia|evita|quer|deseja|deve|não deve|sempre|nunca|proibid[oa]|exigid[oa]|obrigatóri[oa]|regra|prefers?|likes?|hates?|avoids?|always|never|must|rule)\b`,
+)
 
 // memoryBudgetHeader opens a budgeted memory block. It is constant on
 // purpose: anything that changes with the file (a token count, a date)

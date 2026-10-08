@@ -80,7 +80,9 @@ func TestIntegration_RealConfiguredServer(t *testing.T) {
 		}
 	}
 
-	if expectedCountRaw := strings.TrimSpace(os.Getenv("KUROMATSU_MCP_REAL_EXPECT_TOOL_COUNT")); expectedCountRaw != "" {
+	if expectedCountRaw := strings.TrimSpace(
+		os.Getenv("KUROMATSU_MCP_REAL_EXPECT_TOOL_COUNT"),
+	); expectedCountRaw != "" {
 		expectedCount, err := strconv.Atoi(expectedCountRaw)
 		if err != nil {
 			t.Fatalf("invalid KUROMATSU_MCP_REAL_EXPECT_TOOL_COUNT %q: %v", expectedCountRaw, err)

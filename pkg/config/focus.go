@@ -17,6 +17,11 @@ const (
 	FocusMemoryDefault = "default"
 	FocusMemoryCore    = "core"
 	FocusMemoryOff     = "off"
+	// FocusMemoryRetrieved (FR-022 phase 2, opt-in) injects memory atoms
+	// selected for the turn within memory_budget_tokens: the rule/preference/
+	// pinned floor in the system prompt, atoms matching the message in that
+	// call's user message. Falls back to core while the atom store is empty.
+	FocusMemoryRetrieved = "retrieved"
 )
 
 // Focus workspace modes control how much of AGENT.md/SOUL.md/USER.md is
@@ -55,7 +60,7 @@ type FocusWindow struct {
 	Skills       TurnProfileBlock `json:"skills,omitempty"`
 	SystemPrompt TurnProfileMode  `json:"system_prompt,omitempty"`
 	History      TurnProfileMode  `json:"history,omitempty"`
-	// Memory is one of FocusMemoryDefault/Core/Off (case-insensitive);
+	// Memory is one of FocusMemoryDefault/Core/Off/Retrieved (case-insensitive);
 	// anything else falls back to FocusMemoryDefault.
 	Memory string `json:"memory,omitempty"`
 	// Workspace is one of FocusWorkspaceDefault/Compact/Off. Compact is
@@ -96,6 +101,8 @@ func (w FocusWindow) effectiveMemoryMode() string {
 		return FocusMemoryCore
 	case FocusMemoryOff:
 		return FocusMemoryOff
+	case FocusMemoryRetrieved:
+		return FocusMemoryRetrieved
 	default:
 		return FocusMemoryDefault
 	}

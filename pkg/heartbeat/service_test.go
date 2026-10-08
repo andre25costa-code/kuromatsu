@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
@@ -367,6 +368,46 @@ func TestBuildPrompt_TimeOnlyInLastLine(t *testing.T) {
 	// The VM runs in UTC while the user does not: the zone must be explicit
 	// or the model has to guess it (adversarial review, 2026-10-05).
 	if !strings.HasSuffix(strings.TrimRight(second, "\n"), "10:01 UTC") {
-		t.Fatalf("last line = %q, want it to end with the HH:MM time and its zone", second[strings.LastIndex(strings.TrimRight(second, "\n"), "\n"):])
+		t.Fatalf(
+			"last line = %q, want it to end with the HH:MM time and its zone",
+			second[strings.LastIndex(strings.TrimRight(second, "\n"), "\n"):],
+		)
+	}
+}
+
+// T14: the heartbeat turn is built for the chat that was last active when it
+// started; if the user writes from another channel while the (possibly
+// minutes-long) turn runs, the result must still go to the chat it was built
+// for, not to whichever chat is "last" when it finishes.
+func TestHeartbeat_ResultGoesToTheChatTheTurnWasBuiltFor(t *testing.T) {
+	tmpDir := t.TempDir()
+	hs := NewHeartbeatService(tmpDir, 30, true)
+	hs.stopChan = make(chan struct{})
+	msgBus := bus.NewMessageBus()
+	hs.SetBus(msgBus)
+	if err := hs.state.SetLastChannel("telegram:111"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "HEARTBEAT.md"), []byte("check the backup"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hs.SetHandler(func(prompt, channel, chatID string) *tools.ToolResult {
+		if channel != "telegram" || chatID != "111" {
+			t.Errorf("turn built for %s:%s, want telegram:111", channel, chatID)
+		}
+		// Meanwhile the user writes from WhatsApp.
+		_ = hs.state.SetLastChannel("whatsapp:222")
+		return &tools.ToolResult{ForUser: "backup ok"}
+	})
+	hs.executeHeartbeat()
+
+	select {
+	case out := <-msgBus.OutboundChan():
+		if out.Context.Channel != "telegram" || out.Context.ChatID != "111" {
+			t.Fatalf("heartbeat result sent to %s:%s, want telegram:111", out.Context.Channel, out.Context.ChatID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("no heartbeat result published")
 	}
 }

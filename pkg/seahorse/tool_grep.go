@@ -141,17 +141,17 @@ func (t *GrepTool) Execute(ctx context.Context, args map[string]any) *tools.Tool
 		input.Limit = int(limit)
 	}
 	if sinceStr, ok := args["since"].(string); ok && sinceStr != "" {
-		parsed, err := time.Parse(time.RFC3339, sinceStr)
-		if err != nil {
+		parsed, parseErr := time.Parse(time.RFC3339, sinceStr)
+		if parseErr != nil {
 			return tools.ErrorResult(fmt.Sprintf(
-				"Invalid 'since' timestamp. Use RFC3339 format like '2024-01-15T10:00:00Z'. Error: %v", err))
+				"Invalid 'since' timestamp. Use RFC3339 format like '2024-01-15T10:00:00Z'. Error: %v", parseErr))
 		}
 		input.Since = &parsed
 	}
 	if beforeStr, ok := args["before"].(string); ok && beforeStr != "" {
-		parsed, err := time.Parse(time.RFC3339, beforeStr)
-		if err != nil {
-			return tools.ErrorResult(fmt.Sprintf("Invalid 'before' timestamp format: %v", err))
+		parsed, parseErr := time.Parse(time.RFC3339, beforeStr)
+		if parseErr != nil {
+			return tools.ErrorResult(fmt.Sprintf("Invalid 'before' timestamp format: %v", parseErr))
 		}
 		input.Before = &parsed
 	}

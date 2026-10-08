@@ -89,7 +89,8 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 		// notices. context.Canceled/DeadlineExceeded/ErrBusClosed are
 		// expected during shutdown or a canceled turn; anything else means
 		// the user got silence when they shouldn't have.
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, bus.ErrBusClosed) {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) ||
+			errors.Is(err, bus.ErrBusClosed) {
 			logger.DebugCF("agent", "Outbound response publish skipped (canceled/closed)",
 				map[string]any{"channel": channel, "chat_id": chatID, "error": err.Error()})
 			return

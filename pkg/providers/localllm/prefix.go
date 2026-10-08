@@ -1,6 +1,7 @@
-// Package localllm -- prefix.go has no build tag (unlike engine_cgo.go /
+// prefix.go has no build tag (unlike engine_cgo.go /
 // engine_stub.go) so commonPrefixLen is plain, cgo-free Go: testable on any
 // machine, including this one (Windows, no C toolchain -- see SOUL.md).
+
 package localllm
 
 // commonPrefixLen returns the length of the longest common prefix of a and

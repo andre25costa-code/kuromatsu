@@ -213,6 +213,11 @@ func TestApplyExplicitFocusCommand_NonFocusCommandDoesNotMatch(t *testing.T) {
 	opts := &processOptions{SessionKey: "agent:default:test-foco-not-a-match"}
 	matched, handled, reply := al.applyExplicitFocusCommand("/use shell", opts)
 	if matched || handled || reply != "" {
-		t.Fatalf("matched=%v handled=%v reply=%q, want false/false/\"\" for an unrelated command", matched, handled, reply)
+		t.Fatalf(
+			"matched=%v handled=%v reply=%q, want false/false/\"\" for an unrelated command",
+			matched,
+			handled,
+			reply,
+		)
 	}
 }

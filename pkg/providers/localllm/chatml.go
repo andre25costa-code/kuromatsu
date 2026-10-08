@@ -45,7 +45,11 @@ type toolFunctionJSON struct {
 // prompt shares regardless of conversation history -- as its own llama.cpp
 // sequence, so switching focus windows can restore it instead of
 // re-decoding it.
-func RenderPromptParts(messages []protocoltypes.Message, tools []protocoltypes.ToolDefinition, enableThinking bool) (prompt string, coreEnd int) {
+func RenderPromptParts(
+	messages []protocoltypes.Message,
+	tools []protocoltypes.ToolDefinition,
+	enableThinking bool,
+) (prompt string, coreEnd int) {
 	var b strings.Builder
 
 	systemContent := ""

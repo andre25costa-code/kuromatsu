@@ -97,7 +97,7 @@ func earlyColorDisabled() bool {
 	return false
 }
 
-func NewPicoclawCommand() *cobra.Command {
+func NewKuromatsuCommand() *cobra.Command {
 	short := fmt.Sprintf("%s Kuromatsu — personal AI assistant with an embedded native model", internal.Logo)
 	long := fmt.Sprintf(`%s Kuromatsu is a personal AI assistant, forked from PicoClaw, that runs
 Bonsai-1.7B-Q1_0 (1-bit quantized) in-process as a fallback with no API key
@@ -196,7 +196,7 @@ func main() {
 		}
 	}
 
-	cmd := NewPicoclawCommand()
+	cmd := NewKuromatsuCommand()
 	last, err := cmd.ExecuteC()
 	if err != nil {
 		syncCliUIColor(cmd)

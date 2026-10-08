@@ -46,7 +46,6 @@ func TestFocusWindows_RealFrameworkOverhead(t *testing.T) {
 	sort.Strings(names)
 
 	for _, name := range names {
-		name := name
 		t.Run(name, func(t *testing.T) {
 			tmpDir := setupWorkspace(t, nil)
 			defer os.RemoveAll(tmpDir)
@@ -113,8 +112,12 @@ func TestFocusWindows_RealFrameworkOverhead(t *testing.T) {
 				name, systemTokens, rawToolTokens, compactToolTokens, total, toolNames)
 
 			if budget, ok := focusWindowOverheadBudget[name]; ok && total > budget {
-				t.Logf("NOTE: window %q framework overhead = %d tokens > NFR-006 budget %d, even with an EMPTY workspace and the real compact transform applied -- genuine framework-overhead gap, not workspace content.",
-					name, total, budget)
+				t.Logf(
+					"NOTE: window %q framework overhead = %d tokens > NFR-006 budget %d, even with an EMPTY workspace and the real compact transform applied -- genuine framework-overhead gap, not workspace content.",
+					name,
+					total,
+					budget,
+				)
 			}
 		})
 	}

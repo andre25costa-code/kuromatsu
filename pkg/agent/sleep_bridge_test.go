@@ -127,8 +127,12 @@ func TestNewSleepScheduler_PerAgentOverrideGetsOwnBridgeAndWindow(t *testing.T) 
 	globalWorkspace := t.TempDir()
 	overrideWorkspace := t.TempDir()
 	registry := &AgentRegistry{agents: map[string]*AgentInstance{
-		"estudos":  {ID: "estudos", Workspace: globalWorkspace, Sessions: session.NewSessionManager(globalWorkspace)},
-		"sensores": {ID: "sensores", Workspace: overrideWorkspace, Sessions: session.NewSessionManager(overrideWorkspace)},
+		"estudos": {ID: "estudos", Workspace: globalWorkspace, Sessions: session.NewSessionManager(globalWorkspace)},
+		"sensores": {
+			ID:        "sensores",
+			Workspace: overrideWorkspace,
+			Sessions:  session.NewSessionManager(overrideWorkspace),
+		},
 	}}
 	overrideEnabled := true
 	cfg := &config.Config{
@@ -166,8 +170,12 @@ func TestNewSleepScheduler_AgentOverrideDisablesSleepForThatAgentOnly(t *testing
 	enabledWorkspace := t.TempDir()
 	disabledWorkspace := t.TempDir()
 	registry := &AgentRegistry{agents: map[string]*AgentInstance{
-		"estudos":  {ID: "estudos", Workspace: enabledWorkspace, Sessions: session.NewSessionManager(enabledWorkspace)},
-		"sensores": {ID: "sensores", Workspace: disabledWorkspace, Sessions: session.NewSessionManager(disabledWorkspace)},
+		"estudos": {ID: "estudos", Workspace: enabledWorkspace, Sessions: session.NewSessionManager(enabledWorkspace)},
+		"sensores": {
+			ID:        "sensores",
+			Workspace: disabledWorkspace,
+			Sessions:  session.NewSessionManager(disabledWorkspace),
+		},
 	}}
 	disabled := false
 	cfg := &config.Config{

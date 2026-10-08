@@ -129,7 +129,7 @@ func TestTelemetryBridge_IgnoresOtherEventKinds(t *testing.T) {
 	}
 	defer b.Close()
 
-	if err := b.OnRuntimeEvent(context.Background(), runtimeevents.Event{
+	if err = b.OnRuntimeEvent(context.Background(), runtimeevents.Event{
 		Kind:    runtimeevents.KindAgentTurnStart,
 		Payload: TurnStartPayload{},
 	}); err != nil {
@@ -195,7 +195,7 @@ func TestTelemetryBridge_QueryStats_WindowFilterAndHours(t *testing.T) {
 
 	eventBus := runtimeevents.NewBus()
 	defer eventBus.Close()
-	if err := b.subscribeRuntimeEvents(eventBus.Channel()); err != nil {
+	if err = b.subscribeRuntimeEvents(eventBus.Channel()); err != nil {
 		t.Fatalf("subscribeRuntimeEvents: %v", err)
 	}
 	publishTurnEnd(t, eventBus, "files", 100, 50)
@@ -255,4 +255,3 @@ func waitForStatsCount(t *testing.T, b *telemetryBridge, window string, want int
 	}
 	t.Fatalf("stats for window %q never reached count %d within the deadline", window, want)
 }
-

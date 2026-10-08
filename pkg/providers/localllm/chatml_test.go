@@ -119,7 +119,11 @@ func TestRenderPromptParts_CoreEnd_ToolsWithoutSystemMessage(t *testing.T) {
 
 	prompt, coreEnd := RenderPromptParts(messages, tools, false)
 	if coreEnd <= 0 || coreEnd >= len(prompt) {
-		t.Fatalf("coreEnd = %d (prompt len %d), want a boundary strictly inside the prompt (tools with no system message still open a system block)", coreEnd, len(prompt))
+		t.Fatalf(
+			"coreEnd = %d (prompt len %d), want a boundary strictly inside the prompt (tools with no system message still open a system block)",
+			coreEnd,
+			len(prompt),
+		)
 	}
 	if !strings.HasSuffix(prompt[:coreEnd], imEnd+"\n") {
 		t.Fatalf("prompt[:coreEnd] = %q, want it to end right after %q", prompt[:coreEnd], imEnd+"\n")

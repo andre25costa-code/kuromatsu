@@ -12,7 +12,7 @@ import (
 // S09/ADR-016 point 6: activeRequestsInc is the Inference hook every real
 // LLM call (CallLLM/retryLLMCall) goes through -- it must refuse while
 // Suspended, and must not touch activeReqCount when it does (nothing was
-// actually started, so there is nothing for activeRequestsDec to undo).
+// actually started, so there is nothing for its release func to undo).
 func TestActiveRequestsInc_RefusedWhenSuspended(t *testing.T) {
 	rs := runstate.New()
 	rs.Suspend()
@@ -21,7 +21,7 @@ func TestActiveRequestsInc_RefusedWhenSuspended(t *testing.T) {
 	al := &AgentLoop{runstate: rs}
 	al.activeReqCond = sync.NewCond(&al.activeReqMu)
 
-	if ok := al.activeRequestsInc(); ok {
+	if _, ok := al.activeRequestsInc(); ok {
 		t.Fatal("activeRequestsInc() = true while Suspended, want false")
 	}
 	al.activeReqMu.Lock()
@@ -32,20 +32,61 @@ func TestActiveRequestsInc_RefusedWhenSuspended(t *testing.T) {
 	}
 }
 
+// T35: a reload swaps the runstate engine. A request that started before it
+// must release the engine it entered, not the new one, where it would clear
+// the Inference bit of a request still running.
+func TestActiveRequests_ReleaseHitsTheEngineItEntered(t *testing.T) {
+	oldRS, newRS := runstate.New(), runstate.New()
+	al := &AgentLoop{runstate: oldRS}
+	al.activeReqCond = sync.NewCond(&al.activeReqMu)
+
+	release, ok := al.activeRequestsInc()
+	if !ok {
+		t.Fatal("first request refused")
+	}
+	al.mu.Lock()
+	al.runstate = newRS // reload
+	al.mu.Unlock()
+	other, ok := al.activeRequestsInc()
+	if !ok {
+		t.Fatal("second request refused")
+	}
+
+	release()
+	if !newRS.Snapshot().Has(runstate.Inference) {
+		t.Fatal("releasing the pre-reload request cleared Inference on the new engine")
+	}
+	if oldRS.Snapshot().Has(runstate.Inference) {
+		t.Fatal("pre-reload request never released the engine it entered")
+	}
+	other()
+	if newRS.Snapshot().Has(runstate.Inference) {
+		t.Fatal("Inference still set after both requests finished")
+	}
+	release() // idempotent
+	al.activeReqMu.Lock()
+	count := al.activeReqCount
+	al.activeReqMu.Unlock()
+	if count != 0 {
+		t.Fatalf("activeReqCount = %d, want 0 (release must be idempotent)", count)
+	}
+}
+
 func TestActiveRequestsInc_SucceedsWhenNotSuspended(t *testing.T) {
 	rs := runstate.New()
 	al := &AgentLoop{runstate: rs}
 	al.activeReqCond = sync.NewCond(&al.activeReqMu)
 
-	if ok := al.activeRequestsInc(); !ok {
+	release, ok := al.activeRequestsInc()
+	if !ok {
 		t.Fatal("activeRequestsInc() = false on a non-Suspended engine, want true")
 	}
 	if !rs.Snapshot().Has(runstate.Inference) {
 		t.Fatal("Inference bit not set after a successful activeRequestsInc")
 	}
-	al.activeRequestsDec()
+	release()
 	if rs.Snapshot().Has(runstate.Inference) {
-		t.Fatal("Inference bit still set after activeRequestsDec")
+		t.Fatal("Inference bit still set after release")
 	}
 }
 
@@ -192,6 +233,9 @@ func TestWaitForRunstateResume_ReturnsFalseWhenCtxCanceled(t *testing.T) {
 		t.Fatal("waitForRunstateResume() = true, want false -- ctx was canceled, engine never resumed")
 	}
 	if elapsed > time.Second {
-		t.Fatalf("waitForRunstateResume() took %v, want it to return promptly on ctx cancellation, not wait out the 5s budget", elapsed)
+		t.Fatalf(
+			"waitForRunstateResume() took %v, want it to return promptly on ctx cancellation, not wait out the 5s budget",
+			elapsed,
+		)
 	}
 }

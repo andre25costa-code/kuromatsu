@@ -160,7 +160,9 @@ func (g *Guard) ApplyPlan(modelBytes, kvBytes uint64) uint64 {
 func (g *Guard) PreLoad(kvBytes, computeBytes uint64) error {
 	_, available, err := g.memInfo()
 	if err != nil {
-		return nil
+		// AC-018-6: without a MemInfo reader there is nothing to check, so the
+		// load is allowed and a static GOMEMLIMIT stays the only guard.
+		return nil //nolint:nilerr // deliberate, see above
 	}
 	need := kvBytes + computeBytes + uint64(g.cfg.MinAvailableMB)*mib
 	if available < need {
@@ -274,6 +276,11 @@ func (g *Guard) pollOnce() {
 
 	g.mu.Lock()
 	g.fullSince = time.Time{}
+	if pressure.FullAvg10 >= resumeFullThreshold {
+		// Back in the hysteresis band: not a recovery, so the next dip
+		// below resumeFullThreshold must start a fresh sustain window.
+		g.underSince = time.Time{}
+	}
 	g.mu.Unlock()
 
 	if pressure.FullAvg10 < resumeFullThreshold && g.suspended() {

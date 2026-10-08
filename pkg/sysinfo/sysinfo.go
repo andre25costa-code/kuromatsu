@@ -62,7 +62,10 @@ func CgroupMemory() (used, limit uint64, ok bool) {
 	if used, limit, ok := cgroupMemoryFrom("/proc/self/cgroup", "/sys/fs/cgroup"); ok {
 		return used, limit, true
 	}
-	return cgroupV1MemoryAt("/sys/fs/cgroup/memory/memory.usage_in_bytes", "/sys/fs/cgroup/memory/memory.limit_in_bytes")
+	return cgroupV1MemoryAt(
+		"/sys/fs/cgroup/memory/memory.usage_in_bytes",
+		"/sys/fs/cgroup/memory/memory.limit_in_bytes",
+	)
 }
 
 // cgroupMemoryFrom resolves the process's cgroup v2 directory from its

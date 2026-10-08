@@ -51,11 +51,11 @@ func TestMemInfoAt_MissingFieldsErrors(t *testing.T) {
 func TestCgroupV2MemoryAt_NoLimitReportsZero(t *testing.T) {
 	dir := t.TempDir()
 	current := filepath.Join(dir, "memory.current")
-	max := filepath.Join(dir, "memory.max")
+	maxFile := filepath.Join(dir, "memory.max")
 	writeFile(t, current, "104857600\n")
-	writeFile(t, max, "max\n")
+	writeFile(t, maxFile, "max\n")
 
-	used, limit, ok := cgroupV2MemoryAt(current, max)
+	used, limit, ok := cgroupV2MemoryAt(current, maxFile)
 	if !ok {
 		t.Fatal("cgroupV2MemoryAt ok = false, want true")
 	}
@@ -70,11 +70,11 @@ func TestCgroupV2MemoryAt_NoLimitReportsZero(t *testing.T) {
 func TestCgroupV2MemoryAt_WithLimit(t *testing.T) {
 	dir := t.TempDir()
 	current := filepath.Join(dir, "memory.current")
-	max := filepath.Join(dir, "memory.max")
+	maxFile := filepath.Join(dir, "memory.max")
 	writeFile(t, current, "50\n")
-	writeFile(t, max, "1000\n")
+	writeFile(t, maxFile, "1000\n")
 
-	used, limit, ok := cgroupV2MemoryAt(current, max)
+	used, limit, ok := cgroupV2MemoryAt(current, maxFile)
 	if !ok || used != 50 || limit != 1000 {
 		t.Fatalf("cgroupV2MemoryAt = (%d, %d, %v), want (50, 1000, true)", used, limit, ok)
 	}
@@ -140,7 +140,11 @@ func TestCgroupV1MemoryAt_SentinelMeansNoLimit(t *testing.T) {
 func TestPsiAt_ParsesSomeAndFull(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "memory")
-	writeFile(t, path, "some avg10=12.34 avg60=5.00 avg300=1.00 total=1000\nfull avg10=3.21 avg60=1.00 avg300=0.50 total=500\n")
+	writeFile(
+		t,
+		path,
+		"some avg10=12.34 avg60=5.00 avg300=1.00 total=1000\nfull avg10=3.21 avg60=1.00 avg300=0.50 total=500\n",
+	)
 
 	p, err := psiAt(path)
 	if err != nil {

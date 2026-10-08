@@ -109,7 +109,8 @@ func setDefaultModel(configPath string, cfg *config.Config, modelName string) er
 	if modelName == NativeModel && !localllm.Built() {
 		return fmt.Errorf(
 			"'%s' requires a binary built with the native inference engine; rebuild with `make build-native` (see `kuromatsu status`)",
-			NativeModel)
+			NativeModel,
+		)
 	}
 
 	// Validate that the model exists in model_list

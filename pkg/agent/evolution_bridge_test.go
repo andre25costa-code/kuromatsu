@@ -359,8 +359,7 @@ func TestEvolutionBridge_ObserveTurnEndPayloadIncludesResolvedAttemptTrail(t *te
 	}
 	defaultAgent.SkillsFilter = []string{"missing-skill", "observe-skill", "observe-skill"}
 
-	sub := al.SubscribeEvents(16)
-	defer al.UnsubscribeEvents(sub.ID)
+	turnEnds := subscribeTurnEnds(t, al)
 
 	resp, err := al.ProcessDirectWithChannel(
 		context.Background(),
@@ -376,13 +375,7 @@ func TestEvolutionBridge_ObserveTurnEndPayloadIncludesResolvedAttemptTrail(t *te
 		t.Fatalf("response = %q, want %q", resp, "ok")
 	}
 
-	turnEndEvt := waitForEvent(t, sub.C, 2*time.Second, func(evt Event) bool {
-		return evt.Kind == EventKindTurnEnd
-	})
-	turnEndPayload, ok := turnEndEvt.Payload.(TurnEndPayload)
-	if !ok {
-		t.Fatalf("expected TurnEndPayload, got %T", turnEndEvt.Payload)
-	}
+	turnEndPayload := waitForTurnEnd(t, turnEnds, 2*time.Second)
 	if got := turnEndPayload.AttemptedSkills; len(got) != 1 || got[0] != "observe-skill" {
 		t.Fatalf("AttemptedSkills = %v, want [observe-skill]", got)
 	}
@@ -422,8 +415,7 @@ func TestEvolutionBridge_ObserveTurnEndUsesLatestSkillSnapshotAfterRetry(t *test
 	}
 	defaultAgent.SkillsFilter = []string{"base-skill", "late-skill"}
 
-	sub := al.SubscribeEvents(16)
-	defer al.UnsubscribeEvents(sub.ID)
+	turnEnds := subscribeTurnEnds(t, al)
 
 	resp, err := al.ProcessDirectWithChannel(
 		context.Background(),
@@ -439,13 +431,7 @@ func TestEvolutionBridge_ObserveTurnEndUsesLatestSkillSnapshotAfterRetry(t *test
 		t.Fatalf("response = %q, want %q", resp, "Recovered after retry")
 	}
 
-	turnEndEvt := waitForEvent(t, sub.C, 2*time.Second, func(evt Event) bool {
-		return evt.Kind == EventKindTurnEnd
-	})
-	turnEndPayload, ok := turnEndEvt.Payload.(TurnEndPayload)
-	if !ok {
-		t.Fatalf("expected TurnEndPayload, got %T", turnEndEvt.Payload)
-	}
+	turnEndPayload := waitForTurnEnd(t, turnEnds, 2*time.Second)
 	if got := turnEndPayload.AttemptedSkills; len(got) != 2 || got[0] != "base-skill" || got[1] != "late-skill" {
 		t.Fatalf("AttemptedSkills = %v, want [base-skill late-skill]", got)
 	}
@@ -1162,7 +1148,12 @@ func TestEvolutionBridge_ScheduledColdPathSeedsConfiguredAgentWorkspaces(t *test
 		ModelList: externalEvolutionModelList(),
 	}
 	registry := NewAgentRegistry(cfg, &simpleMockProvider{response: "ok"})
-	bridge, err := newEvolutionBridge(registry, cfg, evolutionTestProviderFactory(&simpleMockProvider{response: "ok"}), nil)
+	bridge, err := newEvolutionBridge(
+		registry,
+		cfg,
+		evolutionTestProviderFactory(&simpleMockProvider{response: "ok"}),
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("newEvolutionBridge: %v", err)
 	}
@@ -1211,7 +1202,9 @@ func externalEvolutionModelList() config.SecureModelList {
 // provider the same way sleep_bridge_test.go's own factory closures do,
 // without newEvolutionBridge's real providers.CreateProviderFromConfig
 // default trying to reach a live network.
-func evolutionTestProviderFactory(p providers.LLMProvider) func(*config.ModelConfig) (providers.LLMProvider, string, error) {
+func evolutionTestProviderFactory(
+	p providers.LLMProvider,
+) func(*config.ModelConfig) (providers.LLMProvider, string, error) {
 	return func(mc *config.ModelConfig) (providers.LLMProvider, string, error) {
 		return p, mc.ModelName, nil
 	}
@@ -1362,23 +1355,32 @@ func assertNotExists(t *testing.T, path string) {
 	}
 }
 
-func waitForEvent(t *testing.T, ch <-chan Event, timeout time.Duration, match func(Event) bool) Event {
+// subscribeTurnEnds subscribes to the agent's turn_end runtime events.
+func subscribeTurnEnds(t *testing.T, al *AgentLoop) <-chan runtimeevents.Event {
 	t.Helper()
+	sub, ch, err := al.RuntimeEvents().OfKind(runtimeevents.KindAgentTurnEnd).SubscribeChan(
+		context.Background(),
+		runtimeevents.SubscribeOptions{Name: t.Name(), Buffer: 16},
+	)
+	if err != nil {
+		t.Fatalf("SubscribeChan: %v", err)
+	}
+	t.Cleanup(func() { _ = sub.Close() })
+	return ch
+}
 
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	for {
-		select {
-		case evt, ok := <-ch:
-			if !ok {
-				t.Fatal("event channel closed")
-			}
-			if match == nil || match(evt) {
-				return evt
-			}
-		case <-timer.C:
-			t.Fatal("timed out waiting for event")
+func waitForTurnEnd(t *testing.T, ch <-chan runtimeevents.Event, timeout time.Duration) TurnEndPayload {
+	t.Helper()
+	select {
+	case evt := <-ch:
+		payload, ok := evt.Payload.(TurnEndPayload)
+		if !ok {
+			t.Fatalf("expected TurnEndPayload, got %T", evt.Payload)
 		}
+		return payload
+	case <-time.After(timeout):
+		t.Fatal("timed out waiting for turn_end event")
+		return TurnEndPayload{}
 	}
 }
 

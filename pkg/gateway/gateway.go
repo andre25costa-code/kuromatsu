@@ -465,7 +465,7 @@ func setupAndStartServices(
 	}
 	fmt.Println("✓ Cron service started")
 
-	if err := startHeartbeatServices(ctx, cfg, agentLoop, msgBus, runningServices); err != nil {
+	if err = startHeartbeatServices(ctx, cfg, agentLoop, msgBus, runningServices); err != nil {
 		return nil, err
 	}
 
@@ -604,7 +604,7 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 // every in-flight turn's completion() call received (agentLoop.Run(ctx) ->
 // runTurnWithSteering(ctx, ...), never rerooted along the way), and
 // completion() already arms context.AfterFunc(ctx, ...) to flip
-// llama.cpp's abort_callback on cancellation (ADR-015 point 5). Cancelling
+// llama.cpp's abort_callback on cancellation (ADR-015 point 5). Canceling
 // first lets an in-flight decode unwind immediately instead of blocking
 // shutdown up to systemd's 90s TimeoutStopSec and getting SIGKILLed.
 func initiateShutdown(
@@ -738,7 +738,7 @@ func restartServices(
 	}
 	fmt.Println("  ✓ Cron service restarted")
 
-	if err := startHeartbeatServices(ctx, cfg, al, msgBus, runningServices); err != nil {
+	if err = startHeartbeatServices(ctx, cfg, al, msgBus, runningServices); err != nil {
 		return fmt.Errorf("error restarting heartbeat service: %w", err)
 	}
 
@@ -982,7 +982,9 @@ func startHeartbeatServices(
 
 		svc := heartbeat.NewHeartbeatService(agentInst.Workspace, hbCfg.Interval, true)
 		svc.SetBus(msgBus)
-		svc.SetHandler(createHeartbeatHandlerForAgent(ctx, agentLoop, agentID, cfg.Agents.Defaults.NonUserTurnMaxMinutes))
+		svc.SetHandler(
+			createHeartbeatHandlerForAgent(ctx, agentLoop, agentID, cfg.Agents.Defaults.NonUserTurnMaxMinutes),
+		)
 		runningServices.HeartbeatServices[agentID] = svc
 
 		delay := time.Duration(started) * heartbeatStartStagger

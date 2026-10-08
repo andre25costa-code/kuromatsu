@@ -299,14 +299,14 @@ func (m *legacyContextManager) retryLLMCall(
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		// S09/ADR-016 point 6: a Suspended refusal here is treated just
 		// like any other failed attempt -- skip the actual Chat call (and
-		// the paired activeRequestsDec, since nothing was incremented) and
+		// the paired its release func, since nothing was incremented) and
 		// let this loop's own backoff-and-retry below try again.
-		if !m.al.activeRequestsInc() {
+		if releaseRequest, ok := m.al.activeRequestsInc(); !ok {
 			err = runstate.ErrBusy
 			resp = nil
 		} else {
 			resp, err = func() (*providers.LLMResponse, error) {
-				defer m.al.activeRequestsDec()
+				defer releaseRequest()
 				return agent.Provider.Chat(
 					ctx,
 					[]providers.Message{{Role: "user", Content: prompt}},

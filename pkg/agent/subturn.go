@@ -430,7 +430,12 @@ func spawnSubTurn(
 		if r := recover(); r != nil {
 			logger.RecoverPanicNoExit(r)
 			err = fmt.Errorf("subturn panicked: %v", r)
-			result = nil
+			// Same shape as the ordinary error path below: the parent drops
+			// nil results, so a nil here hid the failure from the model.
+			result = &tools.ToolResult{
+				Err:    err,
+				ForLLM: fmt.Sprintf("SubTurn failed: %v", err),
+			}
 			logger.ErrorCF("subturn", "SubTurn panicked", map[string]any{
 				"child_id":  childID,
 				"parent_id": parentTS.turnID,

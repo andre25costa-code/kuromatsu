@@ -13,7 +13,14 @@ func fakeChat(text string, tokens int, err error) ChatFunc {
 }
 
 func TestRunTriage_NoDigests_NoChange(t *testing.T) {
-	updated, report := runTriage(context.Background(), Config{}, false, "memória antiga", nil, fakeChat("nunca chamado", 0, nil))
+	updated, report := runTriage(
+		context.Background(),
+		Config{},
+		false,
+		"memória antiga",
+		nil,
+		fakeChat("nunca chamado", 0, nil),
+	)
 	if updated != "memória antiga" {
 		t.Fatalf("updated = %q, want unchanged", updated)
 	}

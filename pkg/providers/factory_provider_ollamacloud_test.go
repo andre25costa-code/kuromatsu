@@ -74,7 +74,11 @@ func TestOllamaCloudProvider_SendsBearerAuthHeader_NoNetwork(t *testing.T) {
 func TestOllamaCloudProvider_ParsesToolCallsFromResponse(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"sysmon","arguments":"{\"action\":\"status\"}"}}]},"finish_reason":"tool_calls"}]}`))
+		_, _ = w.Write(
+			[]byte(
+				`{"choices":[{"message":{"content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"sysmon","arguments":"{\"action\":\"status\"}"}}]},"finish_reason":"tool_calls"}]}`,
+			),
+		)
 	}))
 	defer srv.Close()
 
@@ -91,7 +95,13 @@ func TestOllamaCloudProvider_ParsesToolCallsFromResponse(t *testing.T) {
 			Description: "Reports system state.",
 		},
 	}}
-	resp, err := provider.Chat(context.Background(), []Message{{Role: "user", Content: "how's the system?"}}, tools, modelID, nil)
+	resp, err := provider.Chat(
+		context.Background(),
+		[]Message{{Role: "user", Content: "how's the system?"}},
+		tools,
+		modelID,
+		nil,
+	)
 	if err != nil {
 		t.Fatalf("Chat() error = %v", err)
 	}

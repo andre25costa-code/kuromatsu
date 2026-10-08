@@ -371,7 +371,12 @@ func (e *cgoEngine) parkCore(mem C.llama_memory_t, hash [sha256.Size]byte, nCore
 	}
 }
 
-func (e *cgoEngine) completion(ctx context.Context, prompt string, coreEnd int, opts Options) (CompletionResult, error) {
+func (e *cgoEngine) completion(
+	ctx context.Context,
+	prompt string,
+	coreEnd int,
+	opts Options,
+) (CompletionResult, error) {
 	if err := ctx.Err(); err != nil {
 		return CompletionResult{}, err
 	}
@@ -650,7 +655,8 @@ func (e *cgoEngine) completion(ctx context.Context, prompt string, coreEnd int, 
 		// step). Park it now, right as it's confirmed resident, rather
 		// than waiting for the whole call to succeed: a later abort/error
 		// during generation must not cost this call's own prefill work.
-		if isPrefillDecode && opts.CoreCacheParking && nCore > 0 && !(e.activeCoreValid && e.activeCoreHash == coreHash) {
+		if isPrefillDecode && opts.CoreCacheParking && nCore > 0 &&
+			!(e.activeCoreValid && e.activeCoreHash == coreHash) {
 			e.parkCore(mem, coreHash, nCore, e.kvTokens[:nCore])
 			e.activeCoreHash = coreHash
 			e.activeCoreValid = true
@@ -663,7 +669,14 @@ func (e *cgoEngine) completion(ctx context.Context, prompt string, coreEnd int, 
 			break
 		}
 
-		nChars := C.llama_token_to_piece(e.vocab, newToken, (*C.char)(unsafe.Pointer(&buf[0])), C.int32_t(len(buf)), 0, true)
+		nChars := C.llama_token_to_piece(
+			e.vocab,
+			newToken,
+			(*C.char)(unsafe.Pointer(&buf[0])),
+			C.int32_t(len(buf)),
+			0,
+			true,
+		)
 		if nChars < 0 {
 			break
 		}

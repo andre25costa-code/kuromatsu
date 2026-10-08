@@ -185,10 +185,11 @@ func (p *Pipeline) CallLLM(
 			ts.clearProviderCancel(providerCancel)
 		}()
 
-		if !al.activeRequestsInc() {
+		releaseRequest, ok := al.activeRequestsInc()
+		if !ok {
 			return nil, errRuntimeSuspendedOverloaded
 		}
-		defer al.activeRequestsDec()
+		defer releaseRequest()
 
 		if response, handled, streamErr := p.tryConfiguredStreamingLLM(
 			providerCtx,

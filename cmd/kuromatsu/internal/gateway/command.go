@@ -67,7 +67,7 @@ func NewGatewayCommand() *cobra.Command {
 				}()
 			}
 
-			return gateway.Run(debug, internal.GetPicoclawHome(), internal.GetConfigPath(), allowEmpty)
+			return gateway.Run(debug, internal.GetKuromatsuHome(), internal.GetConfigPath(), allowEmpty)
 		},
 	}
 

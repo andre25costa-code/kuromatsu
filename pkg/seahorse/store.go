@@ -178,11 +178,28 @@ func (s *Store) AddMessageWithReasoning(
 	tokenCount int,
 	createdAt time.Time,
 ) (*Message, error) {
+	return insertMessage(ctx, s.db, convID, role, content, modelName, reasoningContent, tokenCount, createdAt)
+}
+
+// execer is satisfied by both *sql.DB and *sql.Tx, so the insert helpers can
+// run standalone or as one step of a larger transaction (IngestMessages).
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func insertMessage(
+	ctx context.Context,
+	ex execer,
+	convID int64,
+	role, content, modelName, reasoningContent string,
+	tokenCount int,
+	createdAt time.Time,
+) (*Message, error) {
 	storedCreatedAt := normalizeMessageCreatedAt(createdAt)
 	if storedCreatedAt.IsZero() {
 		storedCreatedAt = normalizeMessageCreatedAt(time.Now())
 	}
-	result, err := s.db.ExecContext(
+	result, err := ex.ExecContext(
 		ctx,
 		"INSERT INTO messages (conversation_id, role, content, model_name, reasoning_content, token_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
 		convID,
@@ -266,39 +283,50 @@ func (s *Store) AddMessageWithPartsAndReasoning(
 	}
 	defer tx.Rollback()
 
-	storedCreatedAt := normalizeMessageCreatedAt(createdAt)
-	if storedCreatedAt.IsZero() {
-		storedCreatedAt = normalizeMessageCreatedAt(time.Now())
+	msg, err := insertMessageWithParts(ctx, tx, convID, role, parts, modelName, reasoningContent, tokenCount, createdAt)
+	if err != nil {
+		return nil, err
 	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return msg, nil
+}
 
+func insertMessageWithParts(
+	ctx context.Context,
+	tx *sql.Tx,
+	convID int64,
+	role string,
+	parts []MessagePart,
+	modelName string,
+	reasoningContent string,
+	tokenCount int,
+	createdAt time.Time,
+) (*Message, error) {
 	// Derive readable content from Parts for FTS5 indexing and summary formatting
-	readableContent := partsToReadableContent(parts)
-
-	result, err := tx.ExecContext(
+	msg, err := insertMessage(
 		ctx,
-		"INSERT INTO messages (conversation_id, role, content, model_name, reasoning_content, token_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		tx,
 		convID,
 		role,
-		readableContent,
+		partsToReadableContent(parts),
 		modelName,
 		reasoningContent,
 		tokenCount,
-		formatSQLiteTime(storedCreatedAt),
+		createdAt,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("add message: %w", err)
+		return nil, err
 	}
-	msgID, err := result.LastInsertId()
-	if err != nil {
-		return nil, fmt.Errorf("get last insert id: %w", err)
-	}
+	msg.Content = ""
 
 	for i, p := range parts {
 		_, err = tx.ExecContext(
 			ctx,
 			`INSERT INTO message_parts (message_id, type, text, name, arguments, tool_call_id, media_uri, mime_type, ordinal)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			msgID,
+			msg.ID,
 			p.Type,
 			p.Text,
 			p.Name,
@@ -312,26 +340,72 @@ func (s *Store) AddMessageWithPartsAndReasoning(
 			return nil, fmt.Errorf("add message part %d: %w", i, err)
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit: %w", err)
-	}
 
 	// Return message with parts
-	msg := &Message{
-		ID:               msgID,
-		ConversationID:   convID,
-		Role:             role,
-		ModelName:        modelName,
-		ReasoningContent: reasoningContent,
-		TokenCount:       tokenCount,
-		CreatedAt:        storedCreatedAt,
-		Parts:            make([]MessagePart, len(parts)),
-	}
+	msg.Parts = make([]MessagePart, len(parts))
 	for i, p := range parts {
-		p.MessageID = msgID
+		p.MessageID = msg.ID
 		msg.Parts[i] = p
 	}
 	return msg, nil
+}
+
+// IngestMessages stores messages and appends them to the conversation's
+// context_items in one transaction: either the whole batch lands or none of
+// it does, so a failed ingest leaves no orphan messages for a retry to
+// duplicate.
+func (s *Store) IngestMessages(ctx context.Context, convID int64, messages []Message) ([]int64, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	ids := make([]int64, 0, len(messages))
+	for _, m := range messages {
+		var added *Message
+		if len(m.Parts) > 0 {
+			added, err = insertMessageWithParts(
+				ctx,
+				tx,
+				convID,
+				m.Role,
+				m.Parts,
+				m.ModelName,
+				m.ReasoningContent,
+				m.TokenCount,
+				m.CreatedAt,
+			)
+		} else {
+			added, err = insertMessage(
+				ctx,
+				tx,
+				convID,
+				m.Role,
+				m.Content,
+				m.ModelName,
+				m.ReasoningContent,
+				m.TokenCount,
+				m.CreatedAt,
+			)
+		}
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, added.ID)
+	}
+
+	items := make([]ContextItem, len(ids))
+	for i, id := range ids {
+		items[i] = ContextItem{ItemType: "message", MessageID: id}
+	}
+	if err := s.appendContextItemsTx(ctx, tx, convID, items); err != nil {
+		return nil, fmt.Errorf("append context: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
+	}
+	return ids, nil
 }
 
 // GetMessages retrieves messages for a conversation.
@@ -925,15 +999,6 @@ func (s *Store) AppendContextMessage(ctx context.Context, convID int64, messageI
 	})
 }
 
-// AppendContextMessages bulk-appends messages to context_items.
-func (s *Store) AppendContextMessages(ctx context.Context, convID int64, messageIDs []int64) error {
-	items := make([]ContextItem, len(messageIDs))
-	for i, id := range messageIDs {
-		items[i] = ContextItem{ItemType: "message", MessageID: id}
-	}
-	return s.appendContextItems(ctx, convID, items)
-}
-
 // AppendContextSummary appends a summary to context_items at next ordinal.
 func (s *Store) AppendContextSummary(ctx context.Context, convID int64, summaryID string) error {
 	return s.appendContextItems(ctx, convID, []ContextItem{
@@ -948,6 +1013,13 @@ func (s *Store) appendContextItems(ctx context.Context, convID int64, items []Co
 	}
 	defer tx.Rollback()
 
+	if err := s.appendContextItemsTx(ctx, tx, convID, items); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func (s *Store) appendContextItemsTx(ctx context.Context, tx *sql.Tx, convID int64, items []ContextItem) error {
 	maxOrd, err := s.GetMaxOrdinalTx(ctx, tx, convID)
 	if err != nil {
 		return err
@@ -976,7 +1048,7 @@ func (s *Store) appendContextItems(ctx context.Context, convID int64, items []Co
 		}
 		ordinal += OrdinalStep
 	}
-	return tx.Commit()
+	return nil
 }
 
 // resolveItemTokenCountTx looks up token count within a transaction.

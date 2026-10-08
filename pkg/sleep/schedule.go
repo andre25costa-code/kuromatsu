@@ -54,7 +54,16 @@ func (w Window) NextStart(now time.Time) time.Time {
 		return candidate
 	}
 	tomorrow := now.AddDate(0, 0, 1)
-	return time.Date(tomorrow.Year(), tomorrow.Month(), tomorrow.Day(), w.StartHour, w.StartMinute, 0, 0, now.Location())
+	return time.Date(
+		tomorrow.Year(),
+		tomorrow.Month(),
+		tomorrow.Day(),
+		w.StartHour,
+		w.StartMinute,
+		0,
+		0,
+		now.Location(),
+	)
 }
 
 // Deadline returns the window's end time relative to a given start,

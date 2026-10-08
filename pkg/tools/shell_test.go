@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/require"
 
@@ -1077,6 +1078,48 @@ func TestShellTool_Read_Output(t *testing.T) {
 	}
 }
 
+// A background command that fills the stderr pipe (more than the ~64 KiB
+// kernel buffer) before writing to stdout must not deadlock: both streams
+// have to be drained while the process runs.
+func TestShellTool_Background_LargeStderrDoesNotDeadlock(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh and head")
+	}
+	tool, err := NewExecTool("", false)
+	require.NoError(t, err)
+
+	sm := NewSessionManager()
+	t.Cleanup(sm.Stop)
+	tool.sessionManager = sm
+
+	ctx := WithToolContext(context.Background(), "cli", "test")
+	runResult := tool.Execute(ctx, map[string]any{
+		"action":     "run",
+		"command":    "head -c 262144 /dev/zero | tr '\\0' e >&2; echo stdout-after-stderr",
+		"background": "true",
+	})
+	require.False(t, runResult.IsError, runResult.ForLLM)
+
+	var resp ExecResponse
+	require.NoError(t, json.Unmarshal([]byte(runResult.ForLLM), &resp))
+	session, err := sm.Get(resp.SessionID)
+	require.NoError(t, err)
+
+	deadline := time.Now().Add(10 * time.Second)
+	for !session.IsDone() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !session.IsDone() {
+		_ = session.Kill()
+		t.Fatal("background session never finished: stdout/stderr pipes deadlocked")
+	}
+
+	out := session.Read()
+	require.Contains(t, out, "stdout-after-stderr")
+	require.Contains(t, out, "eeee")
+	require.Equal(t, 0, session.GetExitCode())
+}
+
 func TestShellTool_Kill(t *testing.T) {
 	tool, err := NewExecTool("", false)
 	require.NoError(t, err)
@@ -2000,4 +2043,29 @@ func TestExecTool_DefaultConfigBlocksRemoteChannel(t *testing.T) {
 	if !res.IsError || !strings.Contains(res.ForLLM, "restricted to internal channels") {
 		t.Fatalf("remote exec under DefaultConfig = %+v, want blocked", res)
 	}
+}
+
+// T37: synchronous output is capped at 10000 bytes. The cut must not split a
+// UTF-8 character (that sends invalid text to the model), the note must say
+// bytes, and the tool description must not present the 1MB background buffer
+// as the limit for ordinary runs.
+func TestShellTool_TruncationKeepsValidUTF8(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses awk")
+	}
+	tool, err := NewExecTool("", false)
+	require.NoError(t, err)
+
+	// "x" then 6000 two-byte "é": byte 10000 falls inside a character.
+	result := tool.Execute(context.Background(), map[string]any{
+		"action":  "run",
+		"command": `awk 'BEGIN{printf "x"; for(i=0;i<6000;i++) printf "é"}'`,
+	})
+	require.False(t, result.IsError, result.ForLLM)
+	require.True(t, utf8.ValidString(result.ForLLM), "truncated output is not valid UTF-8")
+	require.Contains(t, result.ForLLM, "more bytes)")
+
+	desc := tool.Description()
+	require.Contains(t, desc, "10000 bytes")
+	require.NotContains(t, desc, "Output buffer limit: 1MB.")
 }

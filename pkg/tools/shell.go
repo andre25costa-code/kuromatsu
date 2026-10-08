@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/creack/pty"
 
@@ -207,15 +208,18 @@ func NewExecToolWithConfig(
 	}, nil
 }
 
+// syncOutputLimitBytes caps the output a foreground run returns to the model
+// (background sessions buffer up to maxOutputBufferSize instead).
+const syncOutputLimitBytes = 10000
+
 func (t *ExecTool) Name() string {
 	return "exec"
 }
 
 func (t *ExecTool) Description() string {
-	return `Execute shell commands. Use background=true for long-running commands (returns sessionId). Use pty=true for interactive commands (can combine with background=true). Use poll/read/write/send-keys/kill with sessionId to manage background sessions. Sessions auto-cleanup 30 minutes after process exits; use kill to terminate early. Output buffer limit: 1MB.`
+	return `Execute shell commands. Use background=true for long-running commands (returns sessionId). Use pty=true for interactive commands (can combine with background=true). Use poll/read/write/send-keys/kill with sessionId to manage background sessions. Sessions auto-cleanup 30 minutes after process exits; use kill to terminate early. Output limit: 10000 bytes for a foreground run, a 1MB buffer for a background session.`
 }
 
-//nolint:dupl // Tool parameter schemas intentionally use similar JSON-schema map literals.
 func (t *ExecTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -490,9 +494,14 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 		output = "(no output)"
 	}
 
-	maxLen := 10000
-	if len(output) > maxLen {
-		output = output[:maxLen] + fmt.Sprintf("\n... (truncated, %d more chars)", len(output)-maxLen)
+	if len(output) > syncOutputLimitBytes {
+		// Cut on a character boundary: slicing mid-rune would hand the model
+		// invalid UTF-8.
+		cut := syncOutputLimitBytes
+		for cut > 0 && !utf8.RuneStart(output[cut]) {
+			cut--
+		}
+		output = output[:cut] + fmt.Sprintf("\n... (truncated, %d more bytes)", len(output)-cut)
 	}
 
 	if err != nil {
@@ -536,8 +545,8 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 
 	prepareCommandForTermination(cmd)
 
-	var stdoutReader io.ReadCloser
-	var stderrReader io.ReadCloser
+	var outputReader *os.File
+	var outputWriter *os.File
 	var stdinWriter io.WriteCloser
 
 	if ptyEnabled {
@@ -556,20 +565,23 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 
 		session.ptyMaster = ptmx
 	} else {
+		// stdout and stderr share one pipe, like a terminal: a single reader
+		// drains both while the process runs (two pipes read one after the
+		// other deadlock once stderr fills its buffer before stdout closes),
+		// and the interleaving of the two streams is preserved.
 		var err error
-		stdoutReader, err = cmd.StdoutPipe()
+		outputReader, outputWriter, err = os.Pipe()
 		if err != nil {
-			return ErrorResult(fmt.Sprintf("failed to create stdout pipe: %v", err))
+			return ErrorResult(fmt.Sprintf("failed to create output pipe: %v", err))
 		}
-		stderrReader, err = cmd.StderrPipe()
-		if err != nil {
-			return ErrorResult(fmt.Sprintf("failed to create stderr pipe: %v", err))
-		}
+		cmd.Stdout = outputWriter
+		cmd.Stderr = outputWriter
 		stdinWriter, err = cmd.StdinPipe()
 		if err != nil {
+			_ = outputReader.Close()
+			_ = outputWriter.Close()
 			return ErrorResult(fmt.Sprintf("failed to create stdin pipe: %v", err))
 		}
-		session.stdoutPipe = io.MultiReader(stdoutReader, stderrReader)
 		session.stdinWriter = stdinWriter
 	}
 
@@ -579,7 +591,16 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		if session.ptyMaster != nil {
 			_ = session.ptyMaster.Close()
 		}
+		if outputReader != nil {
+			_ = outputReader.Close()
+			_ = outputWriter.Close()
+		}
 		return ErrorResult(fmt.Sprintf("failed to start command: %v", err))
+	}
+	if outputWriter != nil {
+		// The child holds its own copy; closing ours lets the reader see EOF
+		// once the process (and anything it spawned) exits.
+		_ = outputWriter.Close()
 	}
 
 	session.PID = cmd.Process.Pid
@@ -647,7 +668,7 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 			}
 		}()
 	} else {
-		// Non-PTY mode: single goroutine reads pipes.
+		// Non-PTY mode: one goroutine reads the shared output pipe.
 		// When Read() returns EOF (pipe closed), we break.
 		// When process exits, OS closes pipe write end → Read() returns EOF → we exit.
 		go func() {
@@ -662,29 +683,10 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 			}()
 			buf := make([]byte, 4096)
 
-			// Read stdout
+			// Read the shared stdout+stderr pipe until every writer is closed.
+			defer outputReader.Close()
 			for {
-				n, err := stdoutReader.Read(buf)
-				if n > 0 {
-					session.mu.Lock()
-					if session.outputBuffer.Len() >= maxOutputBufferSize {
-						if !session.outputTruncated {
-							session.outputBuffer.WriteString(outputTruncateMarker)
-							session.outputTruncated = true
-						}
-					} else {
-						session.outputBuffer.Write(buf[:n])
-					}
-					session.mu.Unlock()
-				}
-				if err != nil {
-					break
-				}
-			}
-
-			// Read stderr
-			for {
-				n, err := stderrReader.Read(buf)
+				n, err := outputReader.Read(buf)
 				if n > 0 {
 					session.mu.Lock()
 					if session.outputBuffer.Len() >= maxOutputBufferSize {

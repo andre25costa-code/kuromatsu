@@ -45,7 +45,6 @@ type ProcessSession struct {
 	ExitCode        int
 	Status          string
 	stdinWriter     io.Writer
-	stdoutPipe      io.Reader
 	outputBuffer    *bytes.Buffer
 	outputTruncated bool
 	ptyMaster       *os.File

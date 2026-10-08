@@ -23,9 +23,14 @@ Janelas padrão (`config.DefaultFocusWindows()`): `chat` (sem tools),
 `files`, `shell`, `web`, `schedule`, `memory`, `full` (teto do
 escalonamento, = perfil sem restrição), `heartbeat`, `cron`. Cada uma
 define `Tools`/`Skills`/`SystemPrompt` (modo `compact` ou não) /`History`
-(ligado/desligado) /`Memory` (`default`/`core`/`off`) — `core` só manda o
-`MEMORY.md`, `off` não manda nada, útil pra não vazar memória pessoal pra
-um provider externo turbinado (ver `models.md`, Ollama Cloud).
+(ligado/desligado) /`Memory` (`default`/`core`/`off`/`retrieved`) — `core`
+só manda o `MEMORY.md`, `off` não manda nada, útil pra não vazar memória
+pessoal pra um provider externo turbinado (ver `models.md`, Ollama Cloud).
+`retrieved` (opt-in) importa o `MEMORY.md` para `memory/atoms.db` e manda só
+o que cabe em `memory_budget_tokens`: regras, preferências e itens fixados no
+prompt de sistema, e os fatos que casam com a mensagem dentro da própria
+mensagem daquela chamada. Com o banco vazio age como `core`. Use com provider
+externo: no modelo nativo esse bloco por turno é reprocessado a ~1 token/s.
 
 **Escalonamento**: se o modelo chama uma tool que existe no registro global
 mas está fora da janela atual, o turno escala pra outra janela

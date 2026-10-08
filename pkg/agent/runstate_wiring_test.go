@@ -23,7 +23,9 @@ func TestRunstateEngineForConfig_EnabledReturnsTheProcessWideSingleton(t *testin
 		t.Fatal("runstateEngineForConfig(enabled) = nil, want runstate.Default()")
 	}
 	if got != runstate.Default() {
-		t.Fatal("runstateEngineForConfig(enabled) returned an instance other than runstate.Default() -- a reload would silently stop sharing state with gateway.go's publishers")
+		t.Fatal(
+			"runstateEngineForConfig(enabled) returned an instance other than runstate.Default() -- a reload would silently stop sharing state with gateway.go's publishers",
+		)
 	}
 }
 

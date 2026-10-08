@@ -146,7 +146,12 @@ func TestStore_StatsByHourOfDay_GroupsByUTCHour(t *testing.T) {
 	base := time.Date(2026, 9, 12, 9, 30, 0, 0, time.UTC)
 
 	mustInsert(t, store, ctx, TurnRecord{Ts: base, Window: "files", PromptTokens: 10, TotalMs: 100})
-	mustInsert(t, store, ctx, TurnRecord{Ts: base.Add(20 * time.Minute), Window: "files", PromptTokens: 20, TotalMs: 200})
+	mustInsert(
+		t,
+		store,
+		ctx,
+		TurnRecord{Ts: base.Add(20 * time.Minute), Window: "files", PromptTokens: 20, TotalMs: 200},
+	)
 	mustInsert(t, store, ctx, TurnRecord{Ts: base.Add(time.Hour), Window: "files", PromptTokens: 30, TotalMs: 300})
 
 	agg, err := store.StatsByHourOfDay(ctx, base.Add(-time.Hour), "")
@@ -202,7 +207,12 @@ func TestStore_ReflexRow_ZeroPromptExcludedFromCachedPercentAverage(t *testing.T
 
 	// AC-019-3: a reflex turn records prompt_tokens=0/output_tokens=0.
 	mustInsert(t, store, ctx, TurnRecord{Ts: now, Window: "", PromptTokens: 0, OutputTokens: 0, TotalMs: 5})
-	mustInsert(t, store, ctx, TurnRecord{Ts: now, Window: "", PromptTokens: 100, CachedTokens: 80, OutputTokens: 10, TotalMs: 500})
+	mustInsert(
+		t,
+		store,
+		ctx,
+		TurnRecord{Ts: now, Window: "", PromptTokens: 100, CachedTokens: 80, OutputTokens: 10, TotalMs: 500},
+	)
 
 	agg, err := store.StatsByWindow(ctx, now.Add(-time.Hour), "")
 	if err != nil {
@@ -257,7 +267,10 @@ func TestStore_Prune_ZeroRetentionIsNoOp(t *testing.T) {
 		t.Fatalf("Prune(0): %v", err)
 	}
 	if removed != 0 {
-		t.Fatalf("Prune(0) removed %d rows, want 0 (a non-positive retention must be a no-op, never \"delete everything\")", removed)
+		t.Fatalf(
+			"Prune(0) removed %d rows, want 0 (a non-positive retention must be a no-op, never \"delete everything\")",
+			removed,
+		)
 	}
 }
 
@@ -289,7 +302,10 @@ func TestStore_ConcurrentInsertAndPruneNeverBusy(t *testing.T) {
 		}
 	}()
 	for i := 0; i < 200; i++ {
-		if err := store.Insert(ctx, TurnRecord{Ts: time.Now(), Origin: "user", Window: "files", Status: "completed"}); err != nil {
+		if err := store.Insert(
+			ctx,
+			TurnRecord{Ts: time.Now(), Origin: "user", Window: "files", Status: "completed"},
+		); err != nil {
 			errs <- err
 		}
 	}

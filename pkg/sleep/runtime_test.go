@@ -17,7 +17,12 @@ type fakeSessionSource struct {
 	lastWSpace string
 }
 
-func (f *fakeSessionSource) RecentDigests(_ context.Context, workspace string, since time.Time, weeklyDeep bool) ([]SessionDigest, error) {
+func (f *fakeSessionSource) RecentDigests(
+	_ context.Context,
+	workspace string,
+	since time.Time,
+	weeklyDeep bool,
+) ([]SessionDigest, error) {
 	f.calls++
 	f.lastSince = since
 	f.lastDeep = weeklyDeep

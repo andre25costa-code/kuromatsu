@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -114,8 +115,6 @@ Use 'command' to execute shell commands directly.`
 }
 
 // Parameters returns the tool parameters schema
-//
-//nolint:dupl // Tool parameter schemas intentionally use similar JSON-schema map literals.
 func (t *CronTool) Parameters() map[string]any {
 	return map[string]any{
 		"type": "object",
@@ -266,50 +265,27 @@ func (t *CronTool) addJob(ctx context.Context, args map[string]any) *ToolResult 
 	// Truncate message for job name (max 30 chars)
 	messagePreview := utils.Truncate(message, 30)
 
-	existingIDs := map[string]bool{}
-	for _, existing := range t.cronService.ListJobs(true) {
-		existingIDs[existing.ID] = true
-	}
-
-	job, err := t.cronService.AddJob(
-		messagePreview,
-		schedule,
-		message,
-		channel,
-		chatID,
-	)
-	if err != nil {
-		return ErrorResult(fmt.Sprintf("Error adding job: %v", err))
-	}
-
-	// AddJob returns an existing identical job instead of duplicating it
-	// (AC-028-6); "add" never mutates that job -- neither rewriting its
-	// command nor turning a message job into a command job.
-	if existingIDs[job.ID] && job.Payload.Command != command {
-		return ErrorResult(fmt.Sprintf(
-			"job %s (id: %s) already exists with a different command; remove it first", job.Name, job.ID))
-	}
-	if existingIDs[job.ID] {
-		return SilentResult(fmt.Sprintf("Cron job already exists: %s (id: %s)", job.Name, job.ID))
-	}
-
-	// Apply optional payload fields and persist in a single UpdateJob call
-	needsUpdate := false
-	if command != "" {
-		job.Payload.Command = command
-		needsUpdate = true
-	}
+	payload := cron.CronPayload{Message: message, Channel: channel, To: chatID, Command: command}
 	// window (ADR-014/FR-014): which focus window ExecuteJob should tag
 	// this job's dispatched message with (via the inline [foco:...] tag) —
 	// optional, a no-op with focus disabled or when omitted.
 	if window, ok := args["window"].(string); ok {
-		if window = strings.TrimSpace(window); window != "" {
-			job.Payload.Window = window
-			needsUpdate = true
-		}
+		payload.Window = strings.TrimSpace(window)
 	}
-	if needsUpdate {
-		t.cronService.UpdateJob(job)
+
+	// One locked save with the whole payload (T16). An identical job is
+	// returned instead of duplicated (AC-028-6); "add" never mutates it --
+	// neither rewriting its command nor turning a message job into a command job.
+	job, created, err := t.cronService.AddJobWithPayload(messagePreview, schedule, payload)
+	if errors.Is(err, cron.ErrJobExistsWithDifferentCommand) {
+		return ErrorResult(fmt.Sprintf(
+			"job %s (id: %s) already exists with a different command; remove it first", job.Name, job.ID))
+	}
+	if err != nil {
+		return ErrorResult(fmt.Sprintf("Error adding job: %v", err))
+	}
+	if !created {
+		return SilentResult(fmt.Sprintf("Cron job already exists: %s (id: %s)", job.Name, job.ID))
 	}
 
 	return SilentResult(fmt.Sprintf("Cron job added: %s (id: %s)", job.Name, job.ID))
@@ -802,7 +778,11 @@ func anomalyPrompt(job *cron.CronJob, output string) string {
 
 // runAgentTurn dispatches message to the agent as a cron-originated turn
 // and publishes the response.
-func (t *CronTool) runAgentTurn(ctx context.Context, job *cron.CronJob, message, window, channel, chatID string) string {
+func (t *CronTool) runAgentTurn(
+	ctx context.Context,
+	job *cron.CronJob,
+	message, window, channel, chatID string,
+) string {
 	if t.nonUserTurnMaxMinutes > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(t.nonUserTurnMaxMinutes)*time.Minute)

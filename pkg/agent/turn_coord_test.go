@@ -498,31 +498,15 @@ func TestRunTurn_FinalizeSaveErrorEmitsErrorTurnEnd(t *testing.T) {
 		err:          saveErr,
 	}
 
-	sub := al.SubscribeEvents(8)
-	defer al.UnsubscribeEvents(sub.ID)
+	turnEnds := subscribeTurnEnds(t, al)
 
 	if _, err := al.ProcessDirect(context.Background(), "hello", "session-save-fail"); err == nil {
 		t.Fatal("expected ProcessDirect to fail")
 	}
 
-	deadline := time.After(2 * time.Second)
-	for {
-		select {
-		case evt := <-sub.C:
-			if evt.Kind != EventKindTurnEnd {
-				continue
-			}
-			payload, ok := evt.Payload.(TurnEndPayload)
-			if !ok {
-				t.Fatalf("TurnEnd payload type = %T", evt.Payload)
-			}
-			if payload.Status != TurnEndStatusError {
-				t.Fatalf("TurnEnd status = %q, want %q", payload.Status, TurnEndStatusError)
-			}
-			return
-		case <-deadline:
-			t.Fatal("timed out waiting for turn_end event")
-		}
+	payload := waitForTurnEnd(t, turnEnds, 2*time.Second)
+	if payload.Status != TurnEndStatusError {
+		t.Fatalf("TurnEnd status = %q, want %q", payload.Status, TurnEndStatusError)
 	}
 }
 

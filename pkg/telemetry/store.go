@@ -156,7 +156,12 @@ type turnRow struct {
 // resulting per-group slices -- see Aggregate/percentile) and returns rows
 // bucketed by groupExpr's value, plus the bucket labels in first-seen
 // (i.e. SQL ORDER BY) order so callers can render deterministically.
-func (s *Store) fetchGrouped(ctx context.Context, groupExpr string, since time.Time, windowFilter string) (map[string][]turnRow, []string, error) {
+func (s *Store) fetchGrouped(
+	ctx context.Context,
+	groupExpr string,
+	since time.Time,
+	windowFilter string,
+) (map[string][]turnRow, []string, error) {
 	query := fmt.Sprintf(
 		`SELECT %s AS label, prompt_tokens, cached_tokens, output_tokens, total_ms
 		 FROM turns WHERE ts >= ?`, groupExpr)

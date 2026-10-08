@@ -1,8 +1,9 @@
 name: Nightly Build
 
+# Manual only: the nightly publishes Docker images and signed macOS builds and
+# needs the DOCKERHUB_USERNAME / DOCKERHUB_TOKEN / MACOS_* secrets and the
+# DOCKERHUB_REPOSITORY variable. Without them every scheduled run failed.
 on:
-  schedule:
-    - cron: '0 0 * * *'
   workflow_dispatch:
 
 permissions:

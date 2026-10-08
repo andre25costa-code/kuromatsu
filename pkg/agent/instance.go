@@ -707,6 +707,11 @@ func (a *AgentInstance) Close() error {
 		providerList = append(providerList, provider)
 	}
 	closeUniqueStatefulProviders(providerList...)
+	if a.ContextBuilder != nil {
+		if err := a.ContextBuilder.Close(); err != nil {
+			logger.WarnCF("agent", "Failed to close memory atom store", map[string]any{"error": err.Error()})
+		}
+	}
 	if a.Sessions != nil {
 		return a.Sessions.Close()
 	}

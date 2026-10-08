@@ -79,13 +79,17 @@ type channelWorker struct {
 }
 
 type Manager struct {
-	channels                  map[string]Channel
-	workers                   map[string]*channelWorker
-	bus                       *bus.MessageBus
-	runtimeEvents             runtimeevents.Bus
-	config                    *config.Config
-	mediaStore                media.MediaStore
-	dispatchTask              *asyncTask
+	channels      map[string]Channel
+	workers       map[string]*channelWorker
+	bus           *bus.MessageBus
+	runtimeEvents runtimeevents.Bus
+	config        *config.Config
+	mediaStore    media.MediaStore
+	dispatchTask  *asyncTask
+	// reloadDispatchTasks are the contexts Reload started workers on. Earlier
+	// ones stay alive (unchanged channels keep their workers); StopAll
+	// cancels them all.
+	reloadDispatchTasks       []*asyncTask
 	mux                       *dynamicServeMux
 	httpServer                *http.Server
 	httpListeners             []net.Listener
@@ -146,6 +150,7 @@ type toolFeedbackMessageContentPreparer interface {
 }
 
 type asyncTask struct {
+	ctx    context.Context
 	cancel context.CancelFunc
 }
 
@@ -1184,7 +1189,7 @@ func (m *Manager) StartAll(ctx context.Context) error {
 	logger.InfoC("channels", "Starting all channels")
 
 	dispatchCtx, cancel := context.WithCancel(ctx)
-	m.dispatchTask = &asyncTask{cancel: cancel}
+	m.dispatchTask = &asyncTask{ctx: dispatchCtx, cancel: cancel}
 	failedStarts := make([]error, 0, len(m.channels))
 	failedNames := make([]string, 0, len(m.channels))
 
@@ -1343,11 +1348,15 @@ func (m *Manager) StopAll(ctx context.Context) error {
 		m.httpListeners = nil
 	}
 
-	// Cancel dispatcher
+	// Cancel dispatchers: the StartAll one and every Reload one.
 	if m.dispatchTask != nil {
 		m.dispatchTask.cancel()
 		m.dispatchTask = nil
 	}
+	for _, task := range m.reloadDispatchTasks {
+		task.cancel()
+	}
+	m.reloadDispatchTasks = nil
 
 	// Close all worker queues and wait for them to drain
 	for _, w := range m.workers {
@@ -1895,7 +1904,7 @@ func (m *Manager) Reload(ctx context.Context, cfg *config.Config) error {
 		})
 	}
 	dispatchCtx, cancel := context.WithCancel(ctx)
-	m.dispatchTask = &asyncTask{cancel: cancel}
+	m.reloadDispatchTasks = append(m.reloadDispatchTasks, &asyncTask{ctx: dispatchCtx, cancel: cancel})
 	cc, err := toChannelConfig(cfg, added)
 	if err != nil {
 		logger.ErrorC("channels", fmt.Sprintf("toChannelConfig error: %v", err))
@@ -2061,7 +2070,7 @@ func (m *Manager) SendMedia(ctx context.Context, msg bus.OutboundMediaMessage) e
 
 func (m *Manager) SendToChannel(ctx context.Context, channelName, chatID, content string) error {
 	m.mu.RLock()
-	_, exists := m.channels[channelName]
+	channel, exists := m.channels[channelName]
 	w, wExists := m.workers[channelName]
 	m.mu.RUnlock()
 
@@ -2085,8 +2094,8 @@ func (m *Manager) SendToChannel(ctx context.Context, channelName, chatID, conten
 		}
 	}
 
-	// Fallback: direct send (should not happen)
-	channel, _ := m.channels[channelName]
+	// Fallback: direct send (should not happen). channel was read under the
+	// lock above; m.channels must not be read without it.
 	_, err := channel.Send(ctx, msg)
 	return err
 }

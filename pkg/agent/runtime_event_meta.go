@@ -1,30 +1,7 @@
 package agent
 
 import (
-	"context"
-	"sync"
-	"sync/atomic"
-
 	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
-)
-
-const defaultEventSubscriberBuffer = 16
-
-// EventSubscription identifies a legacy subscriber channel returned by
-// AgentLoop.SubscribeEvents.
-type EventSubscription struct {
-	ID uint64
-	C  <-chan Event
-}
-
-type legacyEventSubscription struct {
-	cancel context.CancelFunc
-	sub    runtimeevents.Subscription
-}
-
-var (
-	legacyEventSubSeq  atomic.Uint64
-	legacyEventSubLock sync.Map
 )
 
 func hookMetaFromRuntimeEvent(evt runtimeevents.Event) HookMeta {

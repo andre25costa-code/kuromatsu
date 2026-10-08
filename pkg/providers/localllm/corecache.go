@@ -1,8 +1,9 @@
-// Package localllm -- corecache.go has no build tag (unlike engine_cgo.go /
+// corecache.go has no build tag (unlike engine_cgo.go /
 // engine_stub.go), same rationale as prefix.go: the slot-selection decision
 // for B2 (window-core KV parking, ADR-015 point 8) is plain, cgo-free
 // arithmetic and is testable on any machine, including this one (Windows,
 // no C toolchain).
+
 package localllm
 
 // pickCoreCacheSlot decides which of the fixed coreCacheSlots (see

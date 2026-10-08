@@ -18,10 +18,14 @@ func (t *fakeExecTool) Name() string        { return "exec" }
 func (t *fakeExecTool) Description() string { return "fake exec for reflex tests" }
 func (t *fakeExecTool) Parameters() map[string]any {
 	return map[string]any{
-		"type":       "object",
-		"properties": map[string]any{"action": map[string]any{"type": "string"}, "command": map[string]any{"type": "string"}},
+		"type": "object",
+		"properties": map[string]any{
+			"action":  map[string]any{"type": "string"},
+			"command": map[string]any{"type": "string"},
+		},
 	}
 }
+
 func (t *fakeExecTool) Execute(_ context.Context, args map[string]any) *tools.ToolResult {
 	t.lastArgs = args
 	cmd, _ := args["command"].(string)

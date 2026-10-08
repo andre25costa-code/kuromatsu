@@ -1,6 +1,7 @@
 package cron
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -399,10 +400,101 @@ func TestAddJob_DifferentDestinationOrScheduleIsNewJob(t *testing.T) {
 	if _, err := cs.AddJob("check", daily, "msg", "telegram", "456"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := cs.AddJob("check", CronSchedule{Kind: "cron", Expr: "0 7 * * *"}, "msg", "telegram", "123"); err != nil {
+	if _, err := cs.AddJob(
+		"check",
+		CronSchedule{Kind: "cron", Expr: "0 7 * * *"},
+		"msg",
+		"telegram",
+		"123",
+	); err != nil {
 		t.Fatal(err)
 	}
 	if n := len(cs.ListJobs(true)); n != 3 {
 		t.Fatalf("ListJobs() has %d jobs, want 3", n)
+	}
+}
+
+// T15: notify must not drop the wake-up when the run loop is busy outside its
+// select (e.g. between getNextWakeMS and the select): with an unbuffered
+// channel the default branch discarded it, and a job added in that window
+// waited for the current timer (up to an hour with no jobs).
+func TestNotify_KeepsWakeUpWhenLoopIsNotWaiting(t *testing.T) {
+	cs := NewCronService(filepath.Join(t.TempDir(), "jobs.json"), nil)
+	cs.notify() // nobody is receiving right now
+	select {
+	case <-cs.wakeChan:
+	default:
+		t.Fatal("wake-up dropped: the loop would sleep on a stale timer")
+	}
+	cs.notify()
+	cs.notify() // a second pending signal adds nothing and must not block
+}
+
+// T16: a command job is created with its whole payload in one locked, single
+// save -- never persisted first as a plain message job and patched afterwards.
+func TestAddJobWithPayload_PersistsFullPayloadAtOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	cs := NewCronService(path, nil)
+	payload := CronPayload{
+		Message:      "carga",
+		Command:      "uptime",
+		Quiet:        true,
+		AnomalyRegex: "load: [5-9]",
+		Window:       "cron",
+	}
+
+	job, created, err := cs.AddJobWithPayload("carga", CronSchedule{Kind: "cron", Expr: "0 7 * * *"}, payload)
+	if err != nil || !created {
+		t.Fatalf("AddJobWithPayload = created %v, err %v", created, err)
+	}
+
+	reloaded := NewCronService(path, nil)
+	if err := reloaded.Load(); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := reloaded.GetJob(job.ID)
+	if !ok {
+		t.Fatal("job not persisted")
+	}
+	p := got.Payload
+	if p.Command != "uptime" || !p.Quiet || p.AnomalyRegex != "load: [5-9]" || p.Window != "cron" ||
+		p.Kind != "agent_turn" {
+		t.Fatalf("persisted payload = %+v", p)
+	}
+}
+
+func TestAddJobWithPayload_IdenticalJobIsNotDuplicated(t *testing.T) {
+	cs := NewCronService(filepath.Join(t.TempDir(), "jobs.json"), nil)
+	sched := CronSchedule{Kind: "cron", Expr: "0 7 * * *"}
+	payload := CronPayload{Message: "carga", Command: "uptime"}
+	first, _, err := cs.AddJobWithPayload("carga", sched, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, created, err := cs.AddJobWithPayload("carga", sched, payload)
+	if err != nil || created || again.ID != first.ID {
+		t.Fatalf("second add: id %s (first %s), created %v, err %v", again.ID, first.ID, created, err)
+	}
+	if n := len(cs.ListJobs(true)); n != 1 {
+		t.Fatalf("jobs = %d, want 1", n)
+	}
+}
+
+// Same name/schedule/message/destination but a different command is an
+// explicit error, and the existing job is left untouched.
+func TestAddJobWithPayload_DifferentCommandIsRejected(t *testing.T) {
+	cs := NewCronService(filepath.Join(t.TempDir(), "jobs.json"), nil)
+	sched := CronSchedule{Kind: "cron", Expr: "0 7 * * *"}
+	first, _, err := cs.AddJobWithPayload("carga", sched, CronPayload{Message: "carga", Command: "uptime"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = cs.AddJobWithPayload("carga", sched, CronPayload{Message: "carga", Command: "free -m"})
+	if !errors.Is(err, ErrJobExistsWithDifferentCommand) {
+		t.Fatalf("err = %v, want ErrJobExistsWithDifferentCommand", err)
+	}
+	kept, _ := cs.GetJob(first.ID)
+	if kept.Payload.Command != "uptime" {
+		t.Fatalf("existing job modified: command %q", kept.Payload.Command)
 	}
 }

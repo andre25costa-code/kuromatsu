@@ -22,8 +22,15 @@ import (
 // dedupe and redundancy penalties.
 func SimHash64(text string) uint64 {
 	runes := []rune(normalizeForFingerprint(text))
-	var votes [64]int
 	h := fnv.New64a()
+	if len(runes) > 0 && len(runes) < 3 {
+		// Too short for a 3-gram: without this every short text would get
+		// fingerprint 0 and collide with every other one. Hash it whole, so
+		// only identical (normalized) short texts match.
+		_, _ = h.Write([]byte(string(runes)))
+		return h.Sum64()
+	}
+	var votes [64]int
 	for n := 3; n <= 5; n++ {
 		for i := 0; i+n <= len(runes); i++ {
 			h.Reset()

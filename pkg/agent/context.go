@@ -17,6 +17,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/refinery"
 	"github.com/andre25costa-code/kuromatsu/pkg/skills"
 	"github.com/andre25costa-code/kuromatsu/pkg/utils"
 )
@@ -55,6 +56,12 @@ type ContextBuilder struct {
 	// shares cachedAt/existedAtCache/skillFilesAtCache as its staleness
 	// baseline, and is invalidated alongside cachedSystemPrompt.
 	cachedVariants map[string]cachedVariantEntry
+
+	// Atom store for memory: retrieved (FR-022 phase 2), opened lazily by
+	// retrievalStore and released by Close.
+	atomsMu        sync.Mutex
+	atoms          *refinery.Store
+	atomsWarnedDay string
 }
 
 func (cb *ContextBuilder) WithToolDiscovery(useBM25, useRegex bool) *ContextBuilder {
@@ -377,15 +384,30 @@ func (cb *ContextBuilder) buildSystemPromptParts(opts systemPromptBuildOptions) 
 	// Memory context (ADR-014 point 3: "core" = MEMORY.md only, "off" =
 	// none; "" / "default" is today's MEMORY.md + recent daily notes).
 	var memoryContext string
+	alreadyBudgeted := false
 	switch strings.ToLower(strings.TrimSpace(opts.MemoryMode)) {
 	case config.FocusMemoryOff:
 		memoryContext = ""
 	case config.FocusMemoryCore:
 		memoryContext = cb.memory.ReadLongTerm()
+	case config.FocusMemoryRetrieved:
+		// FR-022 phase 2: only the query-independent floor lives in the
+		// cached system prompt; atoms matching the message go into that
+		// call's user message (BuildMessagesFromPrompt). Falls back to core.
+		if floor, ok := cb.retrievedFloorText(); ok {
+			memoryContext, alreadyBudgeted = floor, true
+		} else {
+			memoryContext = cb.memory.ReadLongTerm()
+		}
 	default:
 		memoryContext = cb.memory.GetMemoryContext()
 	}
-	if budgeted, trimmed := budgetMemoryContext(memoryContext, cb.memoryOver, cb.memoryBudget); trimmed {
+	if budgeted, trimmed := budgetMemoryContext(
+		memoryContext,
+		cb.memoryOver,
+		cb.memoryBudget,
+	); trimmed &&
+		!alreadyBudgeted {
 		logger.WarnCF("agent", "Memory over budget: injecting a budgeted summary (FR-022)", map[string]any{
 			"memory_tokens": estimateTextTokens(memoryContext),
 			"budget_tokens": cb.memoryBudget,
@@ -505,6 +527,11 @@ func (cb *ContextBuilder) buildSystemPromptForRequest(
 	// turns in the same focus window (AC-015-3), not just within a single
 	// call.
 	variantKey := systemPromptVariantKey(req)
+	if strings.EqualFold(strings.TrimSpace(req.MemoryMode), config.FocusMemoryRetrieved) {
+		// The floor comes from the atom store, which no workspace mtime
+		// tracks: key the variant by the floor itself.
+		variantKey += "|floor=" + cb.retrievedCacheSignature()
+	}
 	if entry, ok := cb.cachedVariantLocked(variantKey); ok {
 		return entry.prompt, entry.blocks
 	}
@@ -585,6 +612,15 @@ func (cb *ContextBuilder) storeCachedVariantLocked(key, prompt string, blocks []
 	}
 	if cb.cachedVariants == nil {
 		cb.cachedVariants = make(map[string]cachedVariantEntry)
+	}
+	if base, _, ok := strings.Cut(key, "|floor="); ok {
+		// memory: retrieved keys a variant by its floor; once the floor
+		// changes the old variant for the same request shape is dead.
+		for old := range cb.cachedVariants {
+			if old != key && strings.HasPrefix(old, base+"|floor=") {
+				delete(cb.cachedVariants, old)
+			}
+		}
 	}
 	cb.cachedVariants[key] = cachedVariantEntry{prompt: prompt, blocks: blocks}
 }
@@ -1242,6 +1278,15 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 	// no accompanying text.
 	if strings.TrimSpace(req.CurrentMessage) != "" || len(req.Media) > 0 {
 		currentMessage := req.CurrentMessage
+		if strings.EqualFold(strings.TrimSpace(req.MemoryMode), config.FocusMemoryRetrieved) &&
+			!req.SuppressDefaultSystemPrompt {
+			// FR-022 phase 2 / AC-022-10: atoms retrieved for this message go
+			// after every stable part, for THIS call only -- like the time
+			// stamp below, never into the system prompt or persisted history.
+			if block := cb.retrievedTurnBlock(req.CurrentMessage); block != "" {
+				currentMessage = block + "\n\n" + currentMessage
+			}
+		}
 		if req.NeedsTime {
 			// ADR-014 point 3: time-sensitive windows (schedule/heartbeat/
 			// cron) get "[now: HH:MM]" appended to the assembled message

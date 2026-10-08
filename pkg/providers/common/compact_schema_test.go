@@ -290,18 +290,33 @@ func realExecToolDefinition() ToolDefinition {
 							"(check status), read (get output), write (send input), kill (terminate), " +
 							"send-keys (send keys to PTY)",
 					},
-					"command":   map[string]any{"type": "string", "description": "Shell command to execute (required for run)"},
-					"sessionId": map[string]any{"type": "string", "description": "Session ID (required for poll/read/write/kill/send-keys)"},
+					"command": map[string]any{
+						"type":        "string",
+						"description": "Shell command to execute (required for run)",
+					},
+					"sessionId": map[string]any{
+						"type":        "string",
+						"description": "Session ID (required for poll/read/write/kill/send-keys)",
+					},
 					"keys": map[string]any{
 						"type": "string",
 						"description": "Key names for send-keys: up, down, left, right, enter, tab, " +
 							"escape, backspace, ctrl-c, ctrl-d, home, end, pageup, pagedown, f1-f12",
 					},
-					"data":       map[string]any{"type": "string", "description": "Data to write to stdin (required for write)"},
+					"data": map[string]any{
+						"type":        "string",
+						"description": "Data to write to stdin (required for write)",
+					},
 					"background": map[string]any{"type": "string", "description": "Run in background immediately"},
-					"pty":        map[string]any{"type": "string", "description": "Run in a pseudo-terminal (PTY) when available"},
-					"cwd":        map[string]any{"type": "string", "description": "Working directory for the command"},
-					"timeout":    map[string]any{"type": "integer", "description": "Timeout in seconds (0 = no timeout)"},
+					"pty": map[string]any{
+						"type":        "string",
+						"description": "Run in a pseudo-terminal (PTY) when available",
+					},
+					"cwd": map[string]any{"type": "string", "description": "Working directory for the command"},
+					"timeout": map[string]any{
+						"type":        "integer",
+						"description": "Timeout in seconds (0 = no timeout)",
+					},
 				},
 				"required": []string{"action"},
 			},
@@ -322,11 +337,28 @@ func realSysmonToolDefinition() ToolDefinition {
 			Parameters: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"action":   map[string]any{"type": "string", "description": "What to inspect or do.", "enum": []string{"mem", "top", "load", "disk", "proc"}},
-					"limit":    map[string]any{"type": "integer", "description": "For action=top: how many processes to return, by RSS descending. Default 10."},
-					"pid":      map[string]any{"type": "integer", "description": "For action=proc: the target process ID."},
-					"op":       map[string]any{"type": "string", "description": "For action=proc: \"kill\" sends SIGKILL, \"renice\" applies niceness.", "enum": []string{"kill", "renice"}},
-					"niceness": map[string]any{"type": "integer", "description": "For action=proc, op=renice: target niceness (-20 to 19)."},
+					"action": map[string]any{
+						"type":        "string",
+						"description": "What to inspect or do.",
+						"enum":        []string{"mem", "top", "load", "disk", "proc"},
+					},
+					"limit": map[string]any{
+						"type":        "integer",
+						"description": "For action=top: how many processes to return, by RSS descending. Default 10.",
+					},
+					"pid": map[string]any{
+						"type":        "integer",
+						"description": "For action=proc: the target process ID.",
+					},
+					"op": map[string]any{
+						"type":        "string",
+						"description": "For action=proc: \"kill\" sends SIGKILL, \"renice\" applies niceness.",
+						"enum":        []string{"kill", "renice"},
+					},
+					"niceness": map[string]any{
+						"type":        "integer",
+						"description": "For action=proc, op=renice: target niceness (-20 to 19).",
+					},
 				},
 				"required": []string{"action"},
 			},
@@ -355,14 +387,38 @@ func realCronToolDefinition() ToolDefinition {
 							"change existing jobs without losing their payload. Remote channels can " +
 							"only list/get/update jobs for the current channel/chat_id.",
 					},
-					"name":            map[string]any{"type": "string", "description": "Optional job display name for update or add."},
-					"message":         map[string]any{"type": "string", "description": "The reminder/task message to display when triggered. If 'command' is used, this describes what the command does."},
-					"command":         map[string]any{"type": "string", "description": "Optional: Shell command to execute directly (e.g., 'df -h'). If set, the agent will run this command and report output instead of just showing the message."},
-					"command_confirm": map[string]any{"type": "boolean", "description": "Optional explicit confirmation flag for scheduling a shell command."},
-					"at_seconds":      map[string]any{"type": "integer", "description": "One-time reminder: seconds from now when to trigger (e.g., 600 for 10 minutes later)."},
-					"every_seconds":   map[string]any{"type": "integer", "description": "Recurring interval in seconds (e.g., 3600 for every hour)."},
-					"cron_expr":       map[string]any{"type": "string", "description": "Cron expression for complex recurring schedules (e.g., '0 9 * * *' for daily at 9am)."},
-					"job_id":          map[string]any{"type": "string", "description": "Job ID (for get/update/remove/enable/disable)"},
+					"name": map[string]any{
+						"type":        "string",
+						"description": "Optional job display name for update or add.",
+					},
+					"message": map[string]any{
+						"type":        "string",
+						"description": "The reminder/task message to display when triggered. If 'command' is used, this describes what the command does.",
+					},
+					"command": map[string]any{
+						"type":        "string",
+						"description": "Optional: Shell command to execute directly (e.g., 'df -h'). If set, the agent will run this command and report output instead of just showing the message.",
+					},
+					"command_confirm": map[string]any{
+						"type":        "boolean",
+						"description": "Optional explicit confirmation flag for scheduling a shell command.",
+					},
+					"at_seconds": map[string]any{
+						"type":        "integer",
+						"description": "One-time reminder: seconds from now when to trigger (e.g., 600 for 10 minutes later).",
+					},
+					"every_seconds": map[string]any{
+						"type":        "integer",
+						"description": "Recurring interval in seconds (e.g., 3600 for every hour).",
+					},
+					"cron_expr": map[string]any{
+						"type":        "string",
+						"description": "Cron expression for complex recurring schedules (e.g., '0 9 * * *' for daily at 9am).",
+					},
+					"job_id": map[string]any{
+						"type":        "string",
+						"description": "Job ID (for get/update/remove/enable/disable)",
+					},
 				},
 				"required": []string{"action"},
 			},
@@ -421,10 +477,19 @@ func TestCompactSchema_GoldenExecSysmonCronUnder70TokensAverage(t *testing.T) {
 	// generous absolute ceiling catches a real regression without chasing an
 	// unreachable number. AC-015-5 in spec needs a matching correction.
 	if ratio := float64(after) / float64(before); ratio > 0.6 {
-		t.Fatalf("compaction only reduced tokens/tool by %.0f%%, want a bigger cut (AC-015-5): before=%d after=%d", (1-ratio)*100, before, after)
+		t.Fatalf(
+			"compaction only reduced tokens/tool by %.0f%%, want a bigger cut (AC-015-5): before=%d after=%d",
+			(1-ratio)*100,
+			before,
+			after,
+		)
 	}
 	if avg > 200 {
-		t.Fatalf("average tokens/tool after compaction = %d, want <=200 (AC-015-5, corrected budget); total=%d", avg, after)
+		t.Fatalf(
+			"average tokens/tool after compaction = %d, want <=200 (AC-015-5, corrected budget); total=%d",
+			avg,
+			after,
+		)
 	}
 
 	// AC-015-4: no property removed, "action" stays required, "command"

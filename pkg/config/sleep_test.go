@@ -50,14 +50,20 @@ func TestValidateSleep_DisabledIsAlwaysValid(t *testing.T) {
 }
 
 func TestValidateSleep_RejectsMalformedWindow(t *testing.T) {
-	cfg := &Config{Sleep: SleepConfig{Enabled: true, Window: "not-a-window", UnconsciousModel: "sonho-cloud"}, ModelList: externalModelList()}
+	cfg := &Config{
+		Sleep:     SleepConfig{Enabled: true, Window: "not-a-window", UnconsciousModel: "sonho-cloud"},
+		ModelList: externalModelList(),
+	}
 	if err := cfg.ValidateSleep(); err == nil {
 		t.Fatal("ValidateSleep() = nil, want an error for a malformed window")
 	}
 }
 
 func TestValidateSleep_AcceptsValidWindow(t *testing.T) {
-	cfg := &Config{Sleep: SleepConfig{Enabled: true, Window: "03:00-05:00", UnconsciousModel: "sonho-cloud"}, ModelList: externalModelList()}
+	cfg := &Config{
+		Sleep:     SleepConfig{Enabled: true, Window: "03:00-05:00", UnconsciousModel: "sonho-cloud"},
+		ModelList: externalModelList(),
+	}
 	if err := cfg.ValidateSleep(); err != nil {
 		t.Fatalf("ValidateSleep() = %v, want nil", err)
 	}
@@ -71,7 +77,10 @@ func TestValidateSleep_MissingOrNativeModelIsNotFatal(t *testing.T) {
 		t.Fatalf("ValidateSleep() with empty unconscious_model = %v, want nil (AC-010-7: not fatal)", err)
 	}
 
-	cfg2 := &Config{Sleep: SleepConfig{Enabled: true, UnconsciousModel: nativeModelName}, ModelList: externalModelList()}
+	cfg2 := &Config{
+		Sleep:     SleepConfig{Enabled: true, UnconsciousModel: nativeModelName},
+		ModelList: externalModelList(),
+	}
 	if err := cfg2.ValidateSleep(); err != nil {
 		t.Fatalf("ValidateSleep() with native unconscious_model = %v, want nil (AC-010-7: not fatal)", err)
 	}

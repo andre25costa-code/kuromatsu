@@ -30,12 +30,23 @@ func main() {
 	modelPath := flag.String("model", "models/Bonsai-1.7B-Q1_0.gguf", "path to the GGUF file")
 	nCtx := flag.Int("n-ctx", 2048, "context size")
 	maxPredict := flag.Int("max-predict", 128, "max tokens to generate per prompt")
-	nThreads := flag.Int("n-threads", 0, "number of decode threads (0 = engine default, min(runtime.NumCPU(),4) -- ADR-015)")
-	repeat := flag.Int("repeat", 1, "how many times to repeat the fixed prompt set; >1 shows the KV prefix-cache warming up across repetitions (cached_tokens, B1/ADR-015)")
+	nThreads := flag.Int(
+		"n-threads",
+		0,
+		"number of decode threads (0 = engine default, min(runtime.NumCPU(),4) -- ADR-015)",
+	)
+	repeat := flag.Int(
+		"repeat",
+		1,
+		"how many times to repeat the fixed prompt set; >1 shows the KV prefix-cache warming up across repetitions (cached_tokens, B1/ADR-015)",
+	)
 	flag.Parse()
 
 	if !localllm.Built() {
-		fmt.Fprintln(os.Stderr, "nativebench: this binary was built without the nativellm engine; rebuild with `make bench-native`")
+		fmt.Fprintln(
+			os.Stderr,
+			"nativebench: this binary was built without the nativellm engine; rebuild with `make bench-native`",
+		)
 		os.Exit(1)
 	}
 

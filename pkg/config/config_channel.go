@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -597,10 +598,16 @@ func InitChannelList(channels ChannelsConfig) error {
 				return fmt.Errorf("channel %q failed to decode settings: %w", name, err)
 			}
 			// Apply env overrides for channel-specific fields via struct tags
+			// Env overrides for channel settings are non-fatal (some may not
+			// apply), but a value that is ignored is reported, not dropped.
 			if err := env.Parse(target); err != nil {
-				// Non-fatal: some env vars may not apply
+				logger.WarnCF("config", "channel env override ignored",
+					map[string]any{"channel": name, "error": err.Error()})
 			}
-			applyTelegramStreamingEnvCompat(target)
+			if err := applyTelegramStreamingEnvCompat(target); err != nil {
+				logger.WarnCF("config", "invalid Telegram streaming env override ignored",
+					map[string]any{"channel": name, "error": err.Error()})
+			}
 			if err := validateChannelStreamingConfig(name, target); err != nil {
 				return err
 			}
@@ -615,27 +622,45 @@ func InitChannelList(channels ChannelsConfig) error {
 	return nil
 }
 
-func applyTelegramStreamingEnvCompat(target any) {
+// applyTelegramStreamingEnvCompat applies the KUROMATSU_CHANNELS_TELEGRAM_
+// STREAMING_* overrides. A value that does not parse keeps the configured one
+// and is returned as an error naming the variable, so the caller can warn
+// instead of dropping it in silence (T38).
+func applyTelegramStreamingEnvCompat(target any) error {
 	settings, ok := target.(*TelegramSettings)
 	if !ok || settings == nil {
-		return
+		return nil
 	}
 
+	var errs []error
 	if raw, ok := os.LookupEnv("KUROMATSU_CHANNELS_TELEGRAM_STREAMING_ENABLED"); ok {
 		if value, err := strconv.ParseBool(raw); err == nil {
 			settings.Streaming.Enabled = value
+		} else {
+			errs = append(errs, fmt.Errorf("KUROMATSU_CHANNELS_TELEGRAM_STREAMING_ENABLED=%q: not a boolean", raw))
 		}
 	}
 	if raw, ok := os.LookupEnv("KUROMATSU_CHANNELS_TELEGRAM_STREAMING_THROTTLE_SECONDS"); ok {
 		if value, err := strconv.Atoi(raw); err == nil {
 			settings.Streaming.ThrottleSeconds = value
+		} else {
+			errs = append(
+				errs,
+				fmt.Errorf("KUROMATSU_CHANNELS_TELEGRAM_STREAMING_THROTTLE_SECONDS=%q: not an integer", raw),
+			)
 		}
 	}
 	if raw, ok := os.LookupEnv("KUROMATSU_CHANNELS_TELEGRAM_STREAMING_MIN_GROWTH_CHARS"); ok {
 		if value, err := strconv.Atoi(raw); err == nil {
 			settings.Streaming.MinGrowthChars = value
+		} else {
+			errs = append(
+				errs,
+				fmt.Errorf("KUROMATSU_CHANNELS_TELEGRAM_STREAMING_MIN_GROWTH_CHARS=%q: not an integer", raw),
+			)
 		}
 	}
+	return errors.Join(errs...)
 }
 
 func validateChannelStreamingConfig(channelName string, target any) error {

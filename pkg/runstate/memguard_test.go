@@ -222,6 +222,46 @@ func TestGuard_PollOnce_ResumesAfterSustainedRecovery(t *testing.T) {
 	}
 }
 
+// A dip below resumeFullThreshold that bounces back into the hysteresis band
+// (resumeFullThreshold <= full < PSIFullThreshold) is not a recovery: the
+// next dip must start a fresh sustain window instead of reusing the old one.
+func TestGuard_PollOnce_HysteresisBounceRestartsResumeWindow(t *testing.T) {
+	clock := &fakeClock{t: time.Now()}
+	rs := New()
+	g := NewGuard(rs, GuardConfig{PSIFullThreshold: 10, PSISustainSecs: 30}, nil)
+	g.now = clock.now
+	g.memInfo = fakeMemInfo(1000*mib, 500*mib)
+
+	pressure := sysinfo.Pressure{FullAvg10: 50}
+	g.psi = func(string) (sysinfo.Pressure, error) { return pressure, nil }
+	g.pollOnce()
+	clock.advance(31 * time.Second)
+	g.pollOnce()
+	if !g.suspended() {
+		t.Fatal("setup failed: guard never suspended")
+	}
+
+	pressure = sysinfo.Pressure{FullAvg10: 1} // below resumeFullThreshold: resume window starts
+	g.pollOnce()
+
+	clock.advance(20 * time.Second)
+	pressure = sysinfo.Pressure{FullAvg10: 7} // back into the hysteresis band
+	g.pollOnce()
+
+	clock.advance(15 * time.Second) // 35s after the first dip, 15s after the bounce
+	pressure = sysinfo.Pressure{FullAvg10: 1}
+	g.pollOnce()
+	if !g.suspended() {
+		t.Fatal("resumed right after a bounce into the hysteresis band; the resume window must restart")
+	}
+
+	clock.advance(31 * time.Second)
+	g.pollOnce()
+	if g.suspended() {
+		t.Fatal("still suspended after a fresh sustained recovery exceeded PSISustainSecs")
+	}
+}
+
 func TestGuard_PollOnce_NilRsUsesLocalSuspendedFallback(t *testing.T) {
 	clock := &fakeClock{t: time.Now()}
 	unloadCalls := 0

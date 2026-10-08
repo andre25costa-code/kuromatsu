@@ -462,3 +462,16 @@ func TestEditFileTool_Restricted_FileNotFound(t *testing.T) {
 	assert.True(t, result.IsError)
 	assert.Contains(t, result.ForLLM, "not found")
 }
+
+// T40: strings.Count only counts non-overlapping matches, so old_text "aa"
+// in "aaa" counted once although it matches at two positions; the edit was
+// accepted as unique and applied to whichever came first.
+func TestReplaceEditContent_OverlappingMatchesAreAmbiguous(t *testing.T) {
+	if _, err := replaceEditContent([]byte("aaa"), "aa", "b"); err == nil {
+		t.Fatal("overlapping matches accepted as a unique edit")
+	}
+	got, err := replaceEditContent([]byte("xaay"), "aa", "b")
+	if err != nil || string(got) != "xby" {
+		t.Fatalf("unique match: got %q, err %v", got, err)
+	}
+}

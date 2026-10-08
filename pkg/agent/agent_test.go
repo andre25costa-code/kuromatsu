@@ -7154,17 +7154,6 @@ func (p *nativeSearchProvider) GetDefaultModel() string { return "test-model" }
 
 func (p *nativeSearchProvider) SupportsNativeSearch() bool { return p.supported }
 
-type plainProvider struct{}
-
-func (p *plainProvider) Chat(
-	ctx context.Context, msgs []providers.Message, tools []providers.ToolDefinition,
-	model string, opts map[string]any,
-) (*providers.LLMResponse, error) {
-	return &providers.LLMResponse{Content: "ok"}, nil
-}
-
-func (p *plainProvider) GetDefaultModel() string { return "test-model" }
-
 func TestProcessMessage_NativeSearchHandlesHookClearingOptions(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Agents.Defaults.Workspace = t.TempDir()

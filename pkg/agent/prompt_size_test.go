@@ -88,7 +88,11 @@ func TestBuildMessagesFromPrompt_DefaultRequestUnaffectedByFocusFields(t *testin
 	first := cb.BuildMessagesFromPrompt(req)
 	second := cb.BuildMessagesFromPrompt(req)
 	if first[0].Content != second[0].Content {
-		t.Fatalf("default request system prompt not stable across calls:\n1: %s\n2: %s", first[0].Content, second[0].Content)
+		t.Fatalf(
+			"default request system prompt not stable across calls:\n1: %s\n2: %s",
+			first[0].Content,
+			second[0].Content,
+		)
 	}
 	if !strings.Contains(first[0].Content, "## Current Time") {
 		t.Fatalf("default request lost the full dynamic context block:\n%s", first[0].Content)
@@ -195,7 +199,10 @@ func TestBuildMessagesFromPrompt_NeedsTimeStampsOnlyTheAssembledUserMessage(t *t
 		t.Fatalf("stamped message = %q, want original content preserved as a prefix", last.Content)
 	}
 	if req.CurrentMessage != "lembre de mim" {
-		t.Fatalf("req.CurrentMessage mutated to %q, want unchanged (never persisted with the stamp)", req.CurrentMessage)
+		t.Fatalf(
+			"req.CurrentMessage mutated to %q, want unchanged (never persisted with the stamp)",
+			req.CurrentMessage,
+		)
 	}
 }
 

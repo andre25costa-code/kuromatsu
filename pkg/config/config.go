@@ -1012,9 +1012,9 @@ type MediaCleanupConfig struct {
 }
 
 type ReadFileToolConfig struct {
-	Enabled         bool   `json:"enabled"`
-	Mode            string `json:"mode"`
-	MaxReadFileSize int    `json:"max_read_file_size"`
+	Enabled         bool   `json:"enabled"            env:"ENABLED"`
+	Mode            string `json:"mode"               env:"MODE"`
+	MaxReadFileSize int    `json:"max_read_file_size" env:"MAX_READ_FILE_SIZE"`
 }
 
 const (
@@ -1073,8 +1073,8 @@ type ToolsConfig struct {
 // AllowDestructive gates "proc kill"/"proc renice" and defaults to false
 // (BR-007) -- read-only actions are unaffected by it.
 type SysmonToolConfig struct {
-	ToolConfig       `     yaml:"-" envPrefix:"KUROMATSU_TOOLS_SYSMON_"`
-	AllowDestructive bool `yaml:"-"                                     json:"allow_destructive" env:"ALLOW_DESTRUCTIVE"`
+	ToolConfig       `     yaml:"-"`
+	AllowDestructive bool `yaml:"-" json:"allow_destructive" env:"ALLOW_DESTRUCTIVE"`
 }
 
 // IsFilterSensitiveDataEnabled returns true if sensitive data filtering is enabled

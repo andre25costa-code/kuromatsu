@@ -12,7 +12,9 @@ var (
 	controlPattern     = regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]`)
 	htmlCommentPattern = regexp.MustCompile(`(?s)<!--.*?-->`)
 	fencedCodePattern  = regexp.MustCompile("(?s)```.*?```")
-	assistantAck       = regexp.MustCompile(`(?i)^\s*(?:ok(?:ay)?|certo|entendido|perfeito|combinado|claro|beleza|feito)[.!…\s]*$`)
+	assistantAck       = regexp.MustCompile(
+		`(?i)^\s*(?:ok(?:ay)?|certo|entendido|perfeito|combinado|claro|beleza|feito)[.!…\s]*$`,
+	)
 )
 
 // SecretPattern is one credential shape; Group selects the submatch holding
@@ -31,7 +33,12 @@ var SecretPatterns = []SecretPattern{
 	{regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`), 0},
 	{regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`), 0},
 	{regexp.MustCompile(`(?i)\bBearer\s+([A-Za-z0-9._~+/-]{16,})`), 1},
-	{regexp.MustCompile(`(?i)\b(?:api[_-]?key|access[_-]?token|token|password|passwd|secret)\s*[:=]\s*["']?([^\s"']{6,})`), 1},
+	{
+		regexp.MustCompile(
+			`(?i)\b(?:api[_-]?key|access[_-]?token|token|password|passwd|secret)\s*[:=]\s*["']?([^\s"']{6,})`,
+		),
+		1,
+	},
 }
 
 // Clean removes ANSI sequences, control characters and HTML comments from

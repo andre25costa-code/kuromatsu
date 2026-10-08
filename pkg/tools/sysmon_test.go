@@ -44,7 +44,10 @@ func TestSysmonTool_KillDeniedByDefault(t *testing.T) {
 
 func TestSysmonTool_ReniceDeniedByDefault(t *testing.T) {
 	tool := NewSysmonTool(false)
-	res := tool.Execute(context.Background(), map[string]any{"action": "proc", "op": "renice", "pid": 999999, "niceness": 5})
+	res := tool.Execute(
+		context.Background(),
+		map[string]any{"action": "proc", "op": "renice", "pid": 999999, "niceness": 5},
+	)
 	if !res.IsError {
 		t.Fatal("expected renice to be denied")
 	}
@@ -73,7 +76,10 @@ func TestSysmonTool_InvalidLimit(t *testing.T) {
 
 func TestSysmonTool_InvalidNiceness(t *testing.T) {
 	tool := NewSysmonTool(true)
-	res := tool.Execute(context.Background(), map[string]any{"action": "proc", "op": "renice", "pid": 1, "niceness": 100})
+	res := tool.Execute(
+		context.Background(),
+		map[string]any{"action": "proc", "op": "renice", "pid": 1, "niceness": 100},
+	)
 	if !res.IsError {
 		t.Fatal("expected an error for niceness out of [-20,19]")
 	}
@@ -121,21 +127,6 @@ func TestSysmonTool_WithStateReaderReturnsReceiver(t *testing.T) {
 	got := tool.WithStateReader(func() (uint32, []string) { return 0, nil })
 	if got != tool {
 		t.Fatal("WithStateReader did not return the same *SysmonTool")
-	}
-}
-
-func TestFormatBytes(t *testing.T) {
-	cases := map[uint64]string{
-		0:                 "0 B",
-		1023:              "1023 B",
-		1024:              "1.0 KiB",
-		1024 * 1024:       "1.0 MiB",
-		1536 * 1024 * 1024: "1.5 GiB",
-	}
-	for in, want := range cases {
-		if got := formatBytes(in); got != want {
-			t.Errorf("formatBytes(%d) = %q, want %q", in, got, want)
-		}
 	}
 }
 

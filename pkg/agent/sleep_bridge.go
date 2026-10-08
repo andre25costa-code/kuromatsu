@@ -433,7 +433,6 @@ func (s *agentSessionSource) RecentDigests(
 				continue
 			}
 			digests = append(digests, sleep.SessionDigest{SessionID: key, Summary: summary, Revision: revision})
-
 		}
 	}
 

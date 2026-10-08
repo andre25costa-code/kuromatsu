@@ -98,7 +98,12 @@ func TestCgoEngine_RealModel_Integration(t *testing.T) {
 	if resp.Usage == nil || resp.Usage.CompletionTokens == 0 {
 		t.Fatalf("expected non-zero completion tokens, got usage=%+v", resp.Usage)
 	}
-	t.Logf("response: %q (prompt_tok=%d output_tok=%d)", resp.Content, resp.Usage.PromptTokens, resp.Usage.CompletionTokens)
+	t.Logf(
+		"response: %q (prompt_tok=%d output_tok=%d)",
+		resp.Content,
+		resp.Usage.PromptTokens,
+		resp.Usage.CompletionTokens,
+	)
 }
 
 // TestCgoEngine_ContextOverflow_Integration confirms an oversized prompt is
@@ -142,7 +147,10 @@ func TestCgoEngine_ReloadGuard_Integration(t *testing.T) {
 	// first NewProvider() call to run wins, and every other test's Options
 	// (including NCtx) are silently ignored. A private *Provider gives this
 	// test its own *cgoEngine, so its own loadCount baseline is meaningful.
-	provider := &Provider{opts: Options{ModelPath: modelPath, NCtx: 384, MaxPredict: 16}.WithDefaults(), eng: newEngine()}
+	provider := &Provider{
+		opts: Options{ModelPath: modelPath, NCtx: 384, MaxPredict: 16}.WithDefaults(),
+		eng:  newEngine(),
+	}
 	eng, ok := provider.eng.(*cgoEngine)
 	if !ok {
 		t.Fatalf("provider.eng is %T, want *cgoEngine", provider.eng)
@@ -174,7 +182,11 @@ func TestCgoEngine_ReloadGuard_Integration(t *testing.T) {
 	}
 
 	if eng.loadCount != baseline {
-		t.Fatalf("loadCount changed from %d to %d across calls that only vary sampler/max_tokens (AC-016-4)", baseline, eng.loadCount)
+		t.Fatalf(
+			"loadCount changed from %d to %d across calls that only vary sampler/max_tokens (AC-016-4)",
+			baseline,
+			eng.loadCount,
+		)
 	}
 }
 
@@ -189,7 +201,10 @@ func TestCgoEngine_AbortMidPrefill_Integration(t *testing.T) {
 	// for why NewProvider()'s shared, ModelPath-only-keyed registry would silently
 	// ignore this NCtx if another integration test already resolved it first): this
 	// test needs its own *cgoEngine so the 4096 below is the real, effective n_ctx.
-	provider := &Provider{opts: Options{ModelPath: modelPath, NCtx: 4096, MaxPredict: 64}.WithDefaults(), eng: newEngine()}
+	provider := &Provider{
+		opts: Options{ModelPath: modelPath, NCtx: 4096, MaxPredict: 64}.WithDefaults(),
+		eng:  newEngine(),
+	}
 	// Measure cancellation during prefill, excluding synchronous model loading.
 	// A cold load on slow storage may itself take longer than the decode budget.
 	if _, err := provider.Chat(context.Background(), []protocoltypes.Message{
@@ -235,9 +250,15 @@ func TestCgoEngine_PrefixCache_Integration(t *testing.T) {
 	// CachedTokens==0, which requires a genuinely cold, empty KV cache --
 	// NewProvider()'s shared registry would silently reuse whatever KV state
 	// another integration test already left on the process-wide *cgoEngine.
-	provider := &Provider{opts: Options{ModelPath: modelPath, NCtx: 1024, MaxPredict: 16}.WithDefaults(), eng: newEngine()}
+	provider := &Provider{
+		opts: Options{ModelPath: modelPath, NCtx: 1024, MaxPredict: 16}.WithDefaults(),
+		eng:  newEngine(),
+	}
 
-	systemMsg := protocoltypes.Message{Role: "system", Content: "Responda sempre em português, de forma direta e objetiva."}
+	systemMsg := protocoltypes.Message{
+		Role:    "system",
+		Content: "Responda sempre em português, de forma direta e objetiva.",
+	}
 
 	resp1, err := provider.Chat(context.Background(),
 		[]protocoltypes.Message{systemMsg, {Role: "user", Content: "Diga olá em uma frase curta."}},
@@ -290,15 +311,40 @@ func TestCgoEngine_CoreParking_Integration(t *testing.T) {
 	// parking commonPrefixLen match a chunk of it by accident, muddying
 	// the "without parking, switching windows shares ~nothing" baseline
 	// this test relies on.
-	windowACore := []protocoltypes.Message{{Role: "system", Content: "Você é o Kuromatsu no modo chat. Responda em português, de forma direta."}}
-	windowBCore := []protocoltypes.Message{{Role: "system", Content: "Modo heartbeat: monitore o sistema silenciosamente."}}
+	windowACore := []protocoltypes.Message{
+		{Role: "system", Content: "Você é o Kuromatsu no modo chat. Responda em português, de forma direta."},
+	}
+	windowBCore := []protocoltypes.Message{
+		{Role: "system", Content: "Modo heartbeat: monitore o sistema silenciosamente."},
+	}
 	toolsA := []protocoltypes.ToolDefinition{
-		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "read_file", Description: "Lê um arquivo do workspace."}},
-		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "write_file", Description: "Escreve um arquivo no workspace."}},
+		{
+			Type: "function",
+			Function: protocoltypes.ToolFunctionDefinition{
+				Name:        "read_file",
+				Description: "Lê um arquivo do workspace.",
+			},
+		},
+		{
+			Type: "function",
+			Function: protocoltypes.ToolFunctionDefinition{
+				Name:        "write_file",
+				Description: "Escreve um arquivo no workspace.",
+			},
+		},
 	}
 	toolsB := []protocoltypes.ToolDefinition{
-		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "message", Description: "Envia uma mensagem pelo Telegram."}},
-		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "sysmon", Description: "Reporta o estado do sistema."}},
+		{
+			Type: "function",
+			Function: protocoltypes.ToolFunctionDefinition{
+				Name:        "message",
+				Description: "Envia uma mensagem pelo Telegram.",
+			},
+		},
+		{
+			Type:     "function",
+			Function: protocoltypes.ToolFunctionDefinition{Name: "sysmon", Description: "Reporta o estado do sistema."},
+		},
 	}
 	turnA := append(windowACore, protocoltypes.Message{Role: "user", Content: "Liste os arquivos do workspace."})
 	turnB := append(windowBCore, protocoltypes.Message{Role: "user", Content: "Qual o estado do sistema agora?"})
@@ -332,15 +378,20 @@ func TestCgoEngine_CoreParking_Integration(t *testing.T) {
 		a2WithoutParking.Usage.CachedTokens, a2WithParking.Usage.CachedTokens, a2WithParking.Usage.PromptTokens)
 
 	if a2WithoutParking.Usage.CachedTokens >= 5 {
-		t.Fatalf("without parking, A(2) CachedTokens = %d, want < 5 (window B in between should destroy A's whole KV cache)",
-			a2WithoutParking.Usage.CachedTokens)
+		t.Fatalf(
+			"without parking, A(2) CachedTokens = %d, want < 5 (window B in between should destroy A's whole KV cache)",
+			a2WithoutParking.Usage.CachedTokens,
+		)
 	}
 	if a2WithParking.Usage.CachedTokens <= a2WithoutParking.Usage.CachedTokens {
 		t.Fatalf("with parking, A(2) CachedTokens = %d, want > without-parking's %d (B2's whole point)",
 			a2WithParking.Usage.CachedTokens, a2WithoutParking.Usage.CachedTokens)
 	}
 	if a2WithParking.Usage.CachedTokens < a2WithParking.Usage.PromptTokens/2 {
-		t.Fatalf("with parking, A(2) CachedTokens = %d out of PromptTokens = %d, want at least half recovered from the parked core",
-			a2WithParking.Usage.CachedTokens, a2WithParking.Usage.PromptTokens)
+		t.Fatalf(
+			"with parking, A(2) CachedTokens = %d out of PromptTokens = %d, want at least half recovered from the parked core",
+			a2WithParking.Usage.CachedTokens,
+			a2WithParking.Usage.PromptTokens,
+		)
 	}
 }

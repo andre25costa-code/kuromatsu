@@ -1008,7 +1008,11 @@ func TestEffectiveHeartbeat_PerAgentOverrideWinsOverGlobal(t *testing.T) {
 		t.Fatalf("EffectiveHeartbeat(no-override) = %+v, want exactly the global block %+v", got, cfg.Heartbeat)
 	}
 	if got := cfg.EffectiveHeartbeat("unregistered-id"); got != cfg.Heartbeat {
-		t.Fatalf("EffectiveHeartbeat(unregistered-id) = %+v, want exactly the global block %+v (no matching AgentConfig)", got, cfg.Heartbeat)
+		t.Fatalf(
+			"EffectiveHeartbeat(unregistered-id) = %+v, want exactly the global block %+v (no matching AgentConfig)",
+			got,
+			cfg.Heartbeat,
+		)
 	}
 }
 
@@ -3013,7 +3017,10 @@ func TestDefaultConfig_BonsaiLocalMirrorsRealDeployTuning(t *testing.T) {
 		t.Fatalf("bonsai-local ExtraBody[max_predict] = %v, want 512", got)
 	}
 	if got := bonsai.ExtraBody["keep_alive_secs"]; got != -1 {
-		t.Fatalf("bonsai-local ExtraBody[keep_alive_secs] = %v, want -1 (never idle-unload; memguard/C3 handles real memory pressure)", got)
+		t.Fatalf(
+			"bonsai-local ExtraBody[keep_alive_secs] = %v, want -1 (never idle-unload; memguard/C3 handles real memory pressure)",
+			got,
+		)
 	}
 }
 

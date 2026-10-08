@@ -104,7 +104,10 @@ func TestApplyNativeFallback_BecomesDefaultWhenNoAPIKeys(t *testing.T) {
 		t.Fatalf("ModelName = %q, want %q", cfg.Agents.Defaults.ModelName, nativeModelName)
 	}
 	if len(cfg.Agents.Defaults.ModelFallbacks) != 0 {
-		t.Fatalf("ModelFallbacks = %v, want empty (native is the primary, not a fallback)", cfg.Agents.Defaults.ModelFallbacks)
+		t.Fatalf(
+			"ModelFallbacks = %v, want empty (native is the primary, not a fallback)",
+			cfg.Agents.Defaults.ModelFallbacks,
+		)
 	}
 }
 
@@ -123,7 +126,10 @@ func TestApplyNativeFallback_AppendedAsFallbackWhenAnAPIKeyExists(t *testing.T) 
 	ApplyNativeFallback(cfg)
 
 	if cfg.Agents.Defaults.ModelName != "" {
-		t.Fatalf("ModelName = %q, want empty (native must not take over the default when a key exists)", cfg.Agents.Defaults.ModelName)
+		t.Fatalf(
+			"ModelName = %q, want empty (native must not take over the default when a key exists)",
+			cfg.Agents.Defaults.ModelName,
+		)
 	}
 	if len(cfg.Agents.Defaults.ModelFallbacks) != 1 || cfg.Agents.Defaults.ModelFallbacks[0] != nativeModelName {
 		t.Fatalf("ModelFallbacks = %v, want [%q]", cfg.Agents.Defaults.ModelFallbacks, nativeModelName)

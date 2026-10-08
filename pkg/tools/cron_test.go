@@ -1301,7 +1301,11 @@ func TestCronTool_ExecuteJobAgentIDOverride_BypassesDispatchRules(t *testing.T) 
 		t.Fatalf("ExecuteJob() = %q, want ok", got)
 	}
 	if executor.lastAgentID != "sensores" {
-		t.Fatalf("lastAgentID = %q, want %q (ProcessDirectForAgent must have been called)", executor.lastAgentID, "sensores")
+		t.Fatalf(
+			"lastAgentID = %q, want %q (ProcessDirectForAgent must have been called)",
+			executor.lastAgentID,
+			"sensores",
+		)
 	}
 	if executor.lastPrompt != "check the sensors" {
 		t.Fatalf("prompt = %q, want original message", executor.lastPrompt)
@@ -1325,7 +1329,10 @@ func TestCronTool_ExecuteJobWithoutAgentIDUsesChannelRouting(t *testing.T) {
 		t.Fatalf("ExecuteJob() = %q, want ok", got)
 	}
 	if executor.lastAgentID != "" {
-		t.Fatalf("lastAgentID = %q, want empty (ProcessDirectWithChannel path, not ProcessDirectForAgent)", executor.lastAgentID)
+		t.Fatalf(
+			"lastAgentID = %q, want empty (ProcessDirectWithChannel path, not ProcessDirectForAgent)",
+			executor.lastAgentID,
+		)
 	}
 }
 
@@ -1554,7 +1561,12 @@ func TestCronTool_AddCommandOnExistingMessageJobRefused(t *testing.T) {
 	if r := tool.Execute(ctx, base); r.IsError {
 		t.Fatalf("message job add failed: %s", r.ForLLM)
 	}
-	withCommand := map[string]any{"action": "add", "message": "check disk", "cron_expr": "0 6 * * *", "command": "df -h"}
+	withCommand := map[string]any{
+		"action":    "add",
+		"message":   "check disk",
+		"cron_expr": "0 6 * * *",
+		"command":   "df -h",
+	}
 	if r := tool.Execute(ctx, withCommand); !r.IsError {
 		t.Fatal("adding a command to an existing identical message job succeeded, want error")
 	}
@@ -1571,7 +1583,10 @@ type ctxDeadlineExecutor struct {
 	deadlineIn  time.Duration
 }
 
-func (e *ctxDeadlineExecutor) ProcessDirectWithChannel(ctx context.Context, content, key, ch, chat string) (string, error) {
+func (e *ctxDeadlineExecutor) ProcessDirectWithChannel(
+	ctx context.Context,
+	content, key, ch, chat string,
+) (string, error) {
 	if d, ok := ctx.Deadline(); ok {
 		e.hadDeadline, e.deadlineIn = true, time.Until(d)
 	}

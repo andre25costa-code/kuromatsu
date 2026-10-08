@@ -84,9 +84,13 @@ func newEvolutionBridge(
 			var provErr error
 			evoProvider, evoModelID, provErr = resolvedEvolutionProvider(cfg, providerFactory)
 			if provErr != nil {
-				logger.WarnCF("evolution", "failed to resolve evolution.model provider; cold path desativado", map[string]any{
-					"error": provErr.Error(),
-				})
+				logger.WarnCF(
+					"evolution",
+					"failed to resolve evolution.model provider; cold path desativado",
+					map[string]any{
+						"error": provErr.Error(),
+					},
+				)
 				coldPathModelOK = false
 			}
 		}
