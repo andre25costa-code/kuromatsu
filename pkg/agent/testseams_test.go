@@ -1,6 +1,10 @@
 package agent
 
 import (
+	"testing"
+	"time"
+
+	"github.com/andre25costa-code/kuromatsu/pkg/bus"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
@@ -131,4 +135,25 @@ func (al *AgentLoop) InjectFollowUp(msg providers.Message) error {
 // It injects a steering message into the currently running agent loop.
 func (al *AgentLoop) InjectSteering(msg providers.Message) error {
 	return al.Steer(msg)
+}
+
+// waitForQueuedSteering waits until the loop has put at least want messages
+// for msg's session in the steering queue. A test that publishes a "late"
+// message and then releases the running turn must wait for this first:
+// otherwise the turn can end before the loop reads the message from the bus,
+// and the message correctly becomes a turn of its own.
+func waitForQueuedSteering(t *testing.T, al *AgentLoop, msg bus.InboundMessage, want int) {
+	t.Helper()
+	scope, _, ok := al.resolveSteeringTarget(msg)
+	if !ok {
+		t.Fatalf("no steering target for %+v", msg.Context)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for al.pendingSteeringCountForScope(scope) < want {
+		if time.Now().After(deadline) {
+			t.Fatalf("timeout waiting for %d message(s) in the steering queue, have %d",
+				want, al.pendingSteeringCountForScope(scope))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
 }

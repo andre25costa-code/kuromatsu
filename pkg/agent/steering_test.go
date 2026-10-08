@@ -797,6 +797,7 @@ func TestAgentLoop_Run_AutoContinuesLateSteeringMessage(t *testing.T) {
 	if err := msgBus.PublishInbound(pubCtx, late); err != nil {
 		t.Fatalf("publish late inbound: %v", err)
 	}
+	waitForQueuedSteering(t, al, late, 1)
 
 	close(provider.releaseFirstCall)
 
@@ -1103,6 +1104,7 @@ func TestAgentLoop_Run_QueuedVoiceMessageIsTranscribedBeforeSteering(t *testing.
 	if err := msgBus.PublishInbound(pubCtx, late); err != nil {
 		t.Fatalf("publish late voice inbound: %v", err)
 	}
+	waitForQueuedSteering(t, al, late, 1)
 
 	close(provider.releaseFirstCall)
 

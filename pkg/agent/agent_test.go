@@ -7467,6 +7467,13 @@ func TestParallelMessageProcessing_SameSessionProcessedSequentially(t *testing.T
 	turnIDs := make(map[string]bool)
 	var wg sync.WaitGroup
 	var firstResponse sync.Once
+	// Message 1's model call is held until messages 2 and 3 are in the
+	// steering queue. With an instant provider the turn could end before the
+	// loop read them, and they would rightly start a turn of their own; and
+	// messages queued before the turn's initial steering poll are folded into
+	// its first call. Both made the "one turn" check timing-dependent.
+	firstCallStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
 	wg.Add(1) // Only 1 turn should be created for same session
 
 	cfg := &config.Config{
@@ -7490,6 +7497,8 @@ func TestParallelMessageProcessing_SameSessionProcessedSequentially(t *testing.T
 	al := NewAgentLoop(cfg, msgBus, &concurrentMockProvider{
 		responseFunc: func(callID int) string {
 			firstResponse.Do(func() {
+				close(firstCallStarted)
+				<-releaseFirst
 				wg.Done()
 			})
 			return "ok"
@@ -7529,6 +7538,7 @@ func TestParallelMessageProcessing_SameSessionProcessedSequentially(t *testing.T
 	// Send 3 messages from the SAME session - only one turn should be created;
 	// subsequent messages should be enqueued to the steering queue and processed
 	// within the same turn (not as separate concurrent turns).
+	var lastMsg bus.InboundMessage
 	for i := 0; i < 3; i++ {
 		msg := bus.InboundMessage{
 			Context: bus.InboundContext{
@@ -7545,7 +7555,18 @@ func TestParallelMessageProcessing_SameSessionProcessedSequentially(t *testing.T
 		if err := msgBus.PublishInbound(context.Background(), msg); err != nil {
 			t.Fatalf("PublishInbound failed: %v", err)
 		}
+		lastMsg = msg
+		if i == 0 {
+			select {
+			case <-firstCallStarted:
+			case <-time.After(5 * time.Second):
+				close(releaseFirst)
+				t.Fatal("timeout waiting for the first model call")
+			}
+		}
 	}
+	waitForQueuedSteering(t, al, lastMsg, 2)
+	close(releaseFirst)
 
 	// Wait for turn to complete with timeout
 	done := make(chan struct{})

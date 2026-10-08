@@ -39,6 +39,11 @@ var (
 	browserLoginInput io.Reader = os.Stdin
 )
 
+// oauthHTTPClient carries every OAuth request. http.DefaultClient has no
+// timeout, and a token refresh runs on the LLM request path: a token
+// endpoint that stops answering must fail the call, not block the turn.
+var oauthHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
 func OpenAIOAuthConfig() OAuthProviderConfig {
 	return OAuthProviderConfig{
 		Issuer:     "https://auth.openai.com",
@@ -292,7 +297,7 @@ func LoginDeviceCode(cfg OAuthProviderConfig) (*AuthCredential, error) {
 		"client_id": cfg.ClientID,
 	})
 
-	resp, err := http.Post(
+	resp, err := oauthHTTPClient.Post(
 		cfg.Issuer+"/api/accounts/deviceauth/usercode",
 		"application/json",
 		strings.NewReader(string(reqBody)),
@@ -351,7 +356,7 @@ func pollDeviceCode(cfg OAuthProviderConfig, deviceAuthID, userCode string) (*Au
 		"user_code":      userCode,
 	})
 
-	resp, err := http.Post(
+	resp, err := oauthHTTPClient.Post(
 		cfg.Issuer+"/api/accounts/deviceauth/token",
 		"application/json",
 		strings.NewReader(string(reqBody)),
@@ -403,7 +408,7 @@ func RefreshAccessToken(cred *AuthCredential, cfg OAuthProviderConfig) (*AuthCre
 		tokenURL = cfg.TokenURL
 	}
 
-	resp, err := http.PostForm(tokenURL, data)
+	resp, err := oauthHTTPClient.PostForm(tokenURL, data)
 	if err != nil {
 		return nil, fmt.Errorf("refreshing token: %w", err)
 	}
@@ -495,7 +500,7 @@ func ExchangeCodeForTokens(cfg OAuthProviderConfig, code, codeVerifier, redirect
 		provider = "google-antigravity"
 	}
 
-	resp, err := http.PostForm(tokenURL, data)
+	resp, err := oauthHTTPClient.PostForm(tokenURL, data)
 	if err != nil {
 		return nil, fmt.Errorf("exchanging code for tokens: %w", err)
 	}

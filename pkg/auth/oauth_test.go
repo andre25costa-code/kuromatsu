@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func makeJWTForClaims(t *testing.T, claims map[string]any) string {
@@ -422,4 +423,38 @@ func newMockOAuthTokenServer() *httptest.Server {
 		}
 		_ = json.NewEncoder(w).Encode(resp)
 	}))
+}
+
+// N11 (audit round 2): token refresh (called on the LLM request path) and
+// the other OAuth calls used http.DefaultClient, which has no timeout; a
+// token endpoint that stops answering blocked the turn forever.
+func TestRefreshAccessToken_GivesUpOnAHungTokenEndpoint(t *testing.T) {
+	if oauthHTTPClient.Timeout <= 0 {
+		t.Fatalf("OAuth HTTP client has no timeout")
+	}
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release
+	}))
+	defer server.Close()
+	defer close(release)
+
+	saved := oauthHTTPClient
+	oauthHTTPClient = &http.Client{Timeout: 200 * time.Millisecond}
+	defer func() { oauthHTTPClient = saved }()
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := RefreshAccessToken(&AuthCredential{RefreshToken: "r", Provider: "openai"},
+			OAuthProviderConfig{Issuer: server.URL, ClientID: "c"})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("refresh against a hung endpoint succeeded")
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("refresh still blocked on a hung token endpoint")
+	}
 }

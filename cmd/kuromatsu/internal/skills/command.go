@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal"
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/skills"
 )
 
@@ -29,11 +30,10 @@ func NewSkillsCommand() *cobra.Command {
 
 			d.workspace = cfg.WorkspacePath()
 
-			// get global config directory and builtin skills directory
-			globalDir := filepath.Dir(internal.GetConfigPath())
-			globalSkillsDir := filepath.Join(globalDir, "skills")
-			builtinSkillsDir := filepath.Join(globalDir, "kuromatsu", "skills")
-			d.skillsLoader = skills.NewSkillsLoader(d.workspace, globalSkillsDir, builtinSkillsDir)
+			// Same roots as the agent: workspace, global (<home>/skills) and the
+			// optional KUROMATSU_BUILTIN_SKILLS directory.
+			globalSkillsDir := filepath.Join(filepath.Dir(internal.GetConfigPath()), "skills")
+			d.skillsLoader = skills.NewSkillsLoader(d.workspace, globalSkillsDir, config.BuiltinSkillsDir())
 
 			return nil
 		},
@@ -60,7 +60,7 @@ func NewSkillsCommand() *cobra.Command {
 		newListCommand(loaderFn),
 		newInstallCommand(),
 		newInstallBuiltinCommand(workspaceFn),
-		newListBuiltinCommand(),
+		newListBuiltinCommand(workspaceFn),
 		newRemoveCommand(),
 		newSearchCommand(),
 		newShowCommand(loaderFn),

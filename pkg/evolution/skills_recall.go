@@ -1,7 +1,6 @@
 package evolution
 
 import (
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,14 +15,7 @@ type SkillsRecaller struct {
 }
 
 func NewSkillsRecaller(workspace string) *SkillsRecaller {
-	builtinSkillsDir := strings.TrimSpace(os.Getenv(config.EnvBuiltinSkills))
-	if builtinSkillsDir == "" {
-		wd, err := os.Getwd()
-		if err != nil {
-			wd = config.GetHome()
-		}
-		builtinSkillsDir = filepath.Join(wd, "skills")
-	}
+	builtinSkillsDir := config.BuiltinSkillsDir()
 
 	globalSkillsDir := filepath.Join(config.GetHome(), "skills")
 	return &SkillsRecaller{

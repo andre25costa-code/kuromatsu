@@ -1259,6 +1259,7 @@ func LoadConfig(path string) (*Config, error) {
 
 	// Load config based on detected version
 	var cfg *Config
+	var migratedToSave *Config
 	switch versionInfo.Version {
 	case 0:
 		logger.InfoF(
@@ -1314,9 +1315,11 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, err
 		}
 
-		defer func(cfg *Config) {
-			_ = SaveConfig(path, cfg)
-		}(cfg)
+		// Keep the migration result apart from cfg, which gets env values
+		// and runtime defaults below; it is saved only if loading succeeds.
+		if migratedToSave, err = loadConfig(migrated); err != nil {
+			return nil, err
+		}
 	case 1:
 		// V1→V3 migration: rename channels→channel_list, infer Enabled, migrate channel configs
 		logger.InfoF(
@@ -1368,9 +1371,11 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, err
 		}
 
-		defer func(cfg *Config) {
-			_ = SaveConfig(path, cfg)
-		}(cfg)
+		// Keep the migration result apart from cfg, which gets env values
+		// and runtime defaults below; it is saved only if loading succeeds.
+		if migratedToSave, err = loadConfig(migrated); err != nil {
+			return nil, err
+		}
 		logger.InfoF(
 			"config migrate success",
 			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
@@ -1420,9 +1425,11 @@ func LoadConfig(path string) (*Config, error) {
 			return nil, err
 		}
 
-		defer func(cfg *Config) {
-			_ = SaveConfig(path, cfg)
-		}(cfg)
+		// Keep the migration result apart from cfg, which gets env values
+		// and runtime defaults below; it is saved only if loading succeeds.
+		if migratedToSave, err = loadConfig(migrated); err != nil {
+			return nil, err
+		}
 		logger.InfoF(
 			"config migrate success",
 			map[string]any{"from": versionInfo.Version, "to": CurrentVersion},
@@ -1509,6 +1516,13 @@ func LoadConfig(path string) (*Config, error) {
 
 	cfg.Session.ApplyDmScope()
 	cfg.Session.DeriveDmScope()
+
+	if migratedToSave != nil {
+		if err := SaveConfig(path, migratedToSave); err != nil {
+			logger.WarnCF("config", "failed to save migrated config",
+				map[string]any{"path": path, "error": err.Error()})
+		}
+	}
 
 	return cfg, nil
 }

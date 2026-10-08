@@ -335,7 +335,9 @@ func (v *SecureModelList) UnmarshalYAML(value *yaml.Node) error {
 		if sec == nil {
 			sec = mm[m.ModelName]
 		}
-		if sec != nil {
+		// onboard writes an empty entry ({}) for every model; it must not
+		// erase a key set in config.json. A key in the security file wins.
+		if sec != nil && len(sec.APIKeys) > 0 {
 			m.APIKeys = sec.APIKeys
 		}
 	}

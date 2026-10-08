@@ -32,9 +32,9 @@ const (
 	// Default: $KUROMATSU_HOME/config.json
 	EnvConfig = "KUROMATSU_CONFIG"
 
-	// EnvBuiltinSkills overrides the directory from which built-in
-	// skills are loaded.
-	// Default: <cwd>/skills
+	// EnvBuiltinSkills names an extra, lowest-priority skills directory.
+	// Default: none (the builtin skills ship in the binary and are copied
+	// into the workspace by onboard / skills install-builtin).
 	EnvBuiltinSkills = "KUROMATSU_BUILTIN_SKILLS"
 
 	// EnvBinary overrides the path to the kuromatsu executable.

@@ -244,3 +244,32 @@ func TestNewManager_MkdirFailureDoesNotCrash(t *testing.T) {
 		t.Fatalf("NewManager should not crash when state dir creation fails, got: %v", err)
 	}
 }
+
+// N06 (audit round 2): the heartbeat, the agent and the gateway each build
+// their own Manager over the same state.json, and a Manager read the file
+// only when constructed. The heartbeat kept answering on the channel known
+// at boot (cli/direct on a fresh install) and never followed the user. A
+// Manager now sees what another one wrote, and a write does not erase a
+// field the other one set.
+func TestManager_SeesWritesFromAnotherManager(t *testing.T) {
+	workspace := t.TempDir()
+	agentSide := NewManager(workspace)
+	heartbeatSide := NewManager(workspace)
+
+	if err := agentSide.SetLastChannel("telegram:42"); err != nil {
+		t.Fatal(err)
+	}
+	if got := heartbeatSide.GetLastChannel(); got != "telegram:42" {
+		t.Fatalf("other manager sees last channel %q, want telegram:42", got)
+	}
+
+	if err := heartbeatSide.SetLastChatID("chat-7"); err != nil {
+		t.Fatal(err)
+	}
+	if got := agentSide.GetLastChatID(); got != "chat-7" {
+		t.Fatalf("chat id %q, want chat-7", got)
+	}
+	if got := NewManager(workspace).GetLastChannel(); got != "telegram:42" {
+		t.Fatalf("a write from the other manager erased last channel: %q", got)
+	}
+}

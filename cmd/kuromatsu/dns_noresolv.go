@@ -1,3 +1,9 @@
+// The override below targets systems without /etc/resolv.conf such as
+// Android/Termux. Windows never has that file and resolves through the OS,
+// so the override must not replace its DNS (corporate DNS, VPN, intranet).
+
+//go:build !windows
+
 package main
 
 import (
