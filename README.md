@@ -54,29 +54,31 @@ native binary under systemd — no Docker. Numbers measured on that VM:
 
 ## Quick start
 
-**Requirements:** Go 1.25+. For native inference also `cmake`, a C/C++ toolchain and an x86-64
-CPU with AVX2.
+**Requirements:** Go 1.25+ and git. The pure-Go build needs nothing else and runs on Linux,
+macOS, Windows and Android/Termux (`pkg install golang git`), on amd64, arm64 and 32-bit ARM.
 
 ```bash
-git clone --recurse-submodules https://github.com/andre25costa-code/kuromatsu.git
+git clone https://github.com/andre25costa-code/kuromatsu.git
 cd kuromatsu
+go build -o kuromatsu ./cmd/kuromatsu   # on Windows: -o kuromatsu.exe
 
-make build                 # pure-Go binary (external models only) -> build/
-./build/kuromatsu onboard  # creates ~/.kuromatsu with config and workspace
-./build/kuromatsu gateway  # starts the agent and its channels
+./kuromatsu onboard                     # creates ~/.kuromatsu with config and workspace
+./kuromatsu model add -b https://openrouter.ai/api/v1 -k <your-key>
+                                        # any OpenAI-compatible endpoint: lists its models,
+                                        # saves the one you pick and makes it the default
+./kuromatsu agent -m "What can you do?" # talk to it from the terminal
+./kuromatsu gateway                     # starts the agent and its channels
 ```
 
-With the in-process model:
+For a local Ollama: `./kuromatsu model add -b http://localhost:11434/v1 -k ollama`.
+`make build` produces the same binary with release flags under `build/`.
+
+With the in-process model (Linux x86-64 with AVX2; needs `cmake` and a C/C++ toolchain):
 
 ```bash
+git submodule update --init llama.cpp
 make build-native-x86-64   # links llama.cpp (AVX2) -> build/kuromatsu-native-linux-amd64
 scripts/download-model.sh  # fetches Bonsai-1.7B-Q1_0.gguf and checks its SHA-256
-```
-
-Talk to it from the terminal without any channel:
-
-```bash
-./build/kuromatsu agent -m "What can you do?"
 ```
 
 ## Configuration

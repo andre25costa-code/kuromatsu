@@ -15,6 +15,7 @@ nova sobre o mesmo assunto.
 | Pergunta sobre... | Arquivo |
 |---|---|
 | `config.json`, `.security.yml`, variáveis `KUROMATSU_*`, onde um campo é lido | [references/config.md](references/config.md) |
+| Workspace do agente: `AGENT.md` (frontmatter `model`/`tools`/`skills`/`mcpServers`), `SOUL.md`, `USER.md`, skills | [references/workspace.md](references/workspace.md) |
 | `model_list`, providers, fallback entre modelos, o modelo nativo Bonsai | [references/models.md](references/models.md) |
 | Telegram, WhatsApp, Pico, como adicionar um canal novo | [references/channels.md](references/channels.md) |
 | Tools do agente (exec, arquivos, memória/seahorse, web, skills) | [references/tools.md](references/tools.md) |
