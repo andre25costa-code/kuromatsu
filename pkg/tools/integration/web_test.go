@@ -2237,3 +2237,19 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (fn roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return fn(req)
 }
+
+// DuckDuckGo wraps each result in a redirect whose href is HTML-escaped and
+// carries a per-query "rut" hash after the target; only the target URL may
+// come out, or the same page looks like a different one on every search.
+func TestDuckDuckGoExtractResults_UnwrapsRedirectURL(t *testing.T) {
+	page := `<a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.reclameaqui.com.br%2Fempresa%2Fdental%2Dclinic%2Flista%2Dreclamacoes%2F%3Fpagina%3D2&amp;rut=2e2a2758944fc92b">Dental Clinic - Reclame Aqui</a>
+<a class="result__snippet" href="x">Ninguém confirma a consulta.</a>`
+	out, err := (&DuckDuckGoSearchProvider{}).extractResults(page, 5, "q")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "   https://www.reclameaqui.com.br/empresa/dental-clinic/lista-reclamacoes/?pagina=2\n"
+	if !strings.Contains(out+"\n", want) || strings.Contains(out, "rut=") {
+		t.Fatalf("extractResults URL line wrong:\n%s", out)
+	}
+}
