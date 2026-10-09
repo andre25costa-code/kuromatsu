@@ -35,7 +35,7 @@ LDFLAGS=-X $(CONFIG_PKG).Version=$(VERSION) -X $(CONFIG_PKG).GitCommit=$(GIT_COM
 GO?=go
 CGO_ENABLED?=0
 GO_BUILD_TAGS?=goolm,stdjson
-GOFLAGS?=-v -tags $(GO_BUILD_TAGS)
+GOFLAGS?=-v -trimpath -tags $(GO_BUILD_TAGS)
 GOCACHE?=$(CURDIR)/.cache/go-build
 GOMODCACHE?=$(CURDIR)/.cache/go-mod
 GOTOOLCHAIN?=local
@@ -47,7 +47,7 @@ comma:=,
 empty:=
 space:=$(empty) $(empty)
 GO_BUILD_TAGS_NO_GOOLM:=$(subst $(space),$(comma),$(strip $(filter-out goolm,$(subst $(comma),$(space),$(GO_BUILD_TAGS)))))
-GOFLAGS_NO_GOOLM?=-v -tags $(GO_BUILD_TAGS_NO_GOOLM)
+GOFLAGS_NO_GOOLM?=-v -trimpath -tags $(GO_BUILD_TAGS_NO_GOOLM)
 
 # Patch MIPS LE ELF e_flags (offset 36) for NaN2008-only kernels (e.g. Ingenic X2600).
 #
@@ -90,8 +90,6 @@ INSTALL_TMP_SUFFIX=.new
 # Workspace and Skills
 KUROMATSU_HOME?=$(HOME)/.kuromatsu
 WORKSPACE_DIR?=$(KUROMATSU_HOME)/workspace
-WORKSPACE_SKILLS_DIR=$(WORKSPACE_DIR)/skills
-BUILTIN_SKILLS_DIR=$(CURDIR)/skills
 
 LNCMD=ln -sf
 

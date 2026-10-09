@@ -213,9 +213,6 @@ func copyEmbeddedToTarget(targetDir string, overwrite bool) (res copyResult, err
 		if err != nil {
 			return fmt.Errorf("Failed to get relative path for %s: %v\n", path, err)
 		}
-		if new_path == "AGENTS.md" || new_path == "IDENTITY.md" {
-			return nil
-		}
 
 		// Build target file path
 		targetPath := filepath.Join(targetDir, new_path)

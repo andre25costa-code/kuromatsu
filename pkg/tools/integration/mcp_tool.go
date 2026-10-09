@@ -379,6 +379,11 @@ func (t *MCPTool) normalizeResultContent(ctx context.Context, content []mcp.Cont
 	return result
 }
 
+// mcpArtifactMaxAge is how long a large MCP text artifact is kept. The agent
+// reads it by its [file:...] tag within the conversation; older ones are
+// pruned when a new artifact is written.
+const mcpArtifactMaxAge = 24 * time.Hour
+
 func (t *MCPTool) persistLargeTextArtifact(text string) *ToolResult {
 	text = strings.TrimSpace(text)
 	limit := t.maxInlineTextRunes
@@ -394,7 +399,7 @@ func (t *MCPTool) persistLargeTextArtifact(text string) *ToolResult {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return t.largeTextArtifactFallback(text, err)
 	}
-	// TODO: Add lifecycle cleanup/retention for MCP artifact files.
+	pruneMCPArtifacts(dir, time.Now().Add(-mcpArtifactMaxAge))
 
 	pattern := fmt.Sprintf(
 		"%s_%s_*.txt",
@@ -422,6 +427,23 @@ func (t *MCPTool) persistLargeTextArtifact(text string) *ToolResult {
 			size,
 		),
 		ArtifactTags: []string{"[file:" + path + "]"},
+	}
+}
+
+// pruneMCPArtifacts removes the artifact files in dir last modified before
+// cutoff. Errors are ignored: pruning is housekeeping, not part of the call.
+func pruneMCPArtifacts(dir string, cutoff time.Time) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
+		}
 	}
 }
 

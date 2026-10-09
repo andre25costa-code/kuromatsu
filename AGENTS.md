@@ -28,4 +28,4 @@ Use Go's `testing` package and existing testify helpers where appropriate. Name 
 
 ## Commit & Pull Request Guidelines
 
-Use focused, imperative English Conventional Commits, matching history: `fix(agent): preserve ready responses`. Branch from and target `main`. Complete the PR template with the change rationale, related issues, test environment, and required AI involvement disclosure. Include logs or screenshots when useful. Run `make check`, ensure CI passes, and obtain maintainer review; see `CONTRIBUTING.md` for details.
+Use focused, imperative English Conventional Commits, matching history: `fix(agent): preserve ready responses`. Branch from and target `main`. Complete the PR template with the change rationale, related issues, test environment, and required AI involvement disclosure. Include logs or screenshots when useful. Run `make check`, ensure CI passes, and obtain maintainer review.

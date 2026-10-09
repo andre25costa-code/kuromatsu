@@ -66,11 +66,8 @@ func installRunstateIntegration(cfg *config.Config, al *agent.AgentLoop, running
 	go runstate.RunLogPublisher(ctx, rs)
 	if cfg.Runstate.EffectiveSdNotify() {
 		go runstate.RunSdNotifyPublisher(ctx, rs)
-		// A no-op unless the unit itself sets WatchdogSec (WATCHDOG_USEC in
-		// the environment) -- see RunSdWatchdogPinger's doc comment for why
-		// this needs no separate config knob or runstate.enabled gate of
-		// its own beyond sd_notify being on.
-		go runstate.RunSdWatchdogPinger(ctx)
+		// The WATCHDOG=1 pinger is started once per process in gateway.go,
+		// independently of runstate; starting another here doubled the pings.
 	}
 	// AC-017-6: the CPU-credit (steal%) watchdog that toggles the purely
 	// informative Throttled bit. Shares runstatePublishersStop's lifecycle

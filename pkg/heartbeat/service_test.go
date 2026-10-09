@@ -1,12 +1,14 @@
 package heartbeat
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/andre25costa-code/kuromatsu"
 	"github.com/andre25costa-code/kuromatsu/pkg/bus"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
@@ -409,5 +411,47 @@ func TestHeartbeat_ResultGoesToTheChatTheTurnWasBuiltFor(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("no heartbeat result published")
+	}
+}
+
+// N25 (audit round 2): when HEARTBEAT.md went missing the service recreated
+// it from its own English template (citing MaixCam, a removed channel),
+// different from the one onboard installs. It now writes the same embedded
+// workspace/HEARTBEAT.md.
+func TestCreateDefaultHeartbeatTemplate_MatchesOnboardTemplate(t *testing.T) {
+	tmpDir := t.TempDir()
+	hs := NewHeartbeatService(tmpDir, 30, true)
+	hs.createDefaultHeartbeatTemplate()
+
+	got, err := os.ReadFile(filepath.Join(tmpDir, "HEARTBEAT.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := fs.ReadFile(kuromatsu.OnboardWorkspace, "workspace/HEARTBEAT.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("recreated HEARTBEAT.md differs from the onboard template:\n%s", got)
+	}
+}
+
+// N26 (audit round 2): heartbeat.log grew forever. It is kept (ops scripts
+// read it) but rotated to heartbeat.log.1 once it passes maxHeartbeatLogBytes.
+func TestHeartbeatLog_Rotates(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "heartbeat.log")
+	if err := os.WriteFile(logPath, make([]byte, maxHeartbeatLogBytes+1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hs := NewHeartbeatService(tmpDir, 30, true)
+	hs.logInfof("after rotation")
+
+	if info, err := os.Stat(logPath + ".1"); err != nil || info.Size() <= maxHeartbeatLogBytes {
+		t.Fatalf("old log not rotated to heartbeat.log.1: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil || !strings.Contains(string(data), "after rotation") || len(data) > 1024 {
+		t.Fatalf("new heartbeat.log = %d bytes, err %v", len(data), err)
 	}
 }

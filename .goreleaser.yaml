@@ -9,10 +9,6 @@ git:
     - nightly
     - ".*-nightly.*"
 
-before:
-  hooks:
-    - go generate ./...
-
 builds:
   - id: kuromatsu
     env:
@@ -20,6 +16,8 @@ builds:
     tags:
       - goolm
       - stdjson
+    flags:
+      - -trimpath
     ldflags:
       - -s -w
       - -X github.com/andre25costa-code/kuromatsu/pkg/config.Version={{ .Version }}

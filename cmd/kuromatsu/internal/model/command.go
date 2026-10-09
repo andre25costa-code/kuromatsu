@@ -34,7 +34,7 @@ available list online and pick one), use the 'add' subcommand:
 
 Examples:
   kuromatsu model                    # Show current default model
-  kuromatsu model gpt-5.2           # Set gpt-5.2 as default
+  kuromatsu model gpt-5.4           # Set gpt-5.4 as default
   kuromatsu model claude-sonnet-4.6 # Set claude-sonnet-4.6 as default
   kuromatsu model local-model       # Set local VLLM server as default
   kuromatsu model add -b URL -k KEY # Add a model from a custom endpoint

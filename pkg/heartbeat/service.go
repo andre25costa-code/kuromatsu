@@ -9,12 +9,14 @@ package heartbeat
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/andre25costa-code/kuromatsu"
 	"github.com/andre25costa-code/kuromatsu/pkg/bus"
 	"github.com/andre25costa-code/kuromatsu/pkg/constants"
 	"github.com/andre25costa-code/kuromatsu/pkg/fileutil"
@@ -165,7 +167,6 @@ func (hs *HeartbeatService) runLoop(stopChan chan struct{}) {
 // executeHeartbeat performs a single heartbeat check
 func (hs *HeartbeatService) executeHeartbeat() {
 	hs.mu.RLock()
-	enabled := hs.enabled
 	handler := hs.handler
 	shouldSkip := hs.shouldSkip
 	if !hs.enabled || hs.stopChan == nil {
@@ -173,10 +174,6 @@ func (hs *HeartbeatService) executeHeartbeat() {
 		return
 	}
 	hs.mu.RUnlock()
-
-	if !enabled {
-		return
-	}
 
 	if shouldSkip != nil && shouldSkip() {
 		logger.InfoC("heartbeat", "Skipping heartbeat: runstate busy (AC-017-2)")
@@ -278,35 +275,18 @@ Current time: %s
 `, content, hs.now().Format("2006-01-02 15:04 MST"))
 }
 
-// createDefaultHeartbeatTemplate creates the default HEARTBEAT.md file
+// createDefaultHeartbeatTemplate recreates HEARTBEAT.md from the same
+// embedded template onboard installs (workspace/HEARTBEAT.md).
 func (hs *HeartbeatService) createDefaultHeartbeatTemplate() {
 	heartbeatPath := filepath.Join(hs.workspace, "HEARTBEAT.md")
 
-	defaultContent := `# Heartbeat Check List
+	defaultContent, err := fs.ReadFile(kuromatsu.OnboardWorkspace, "workspace/HEARTBEAT.md")
+	if err != nil {
+		hs.logErrorf("Failed to read the embedded HEARTBEAT.md template: %v", err)
+		return
+	}
 
-This file contains tasks for the heartbeat service to check periodically.
-
-## Examples
-
-- Check for unread messages
-- Review upcoming calendar events
-- Check device status (e.g., MaixCam)
-
-## Instructions
-
-- Execute ALL tasks listed below. Do NOT skip any task.
-- For simple tasks (e.g., report current time), respond directly.
-- For complex tasks that may take time, use the spawn tool to create a subagent.
-- The spawn tool is async - subagent results will be sent to the user automatically.
-- After spawning a subagent, CONTINUE to process remaining tasks.
-- Only respond with HEARTBEAT_OK when ALL tasks are done AND nothing needs attention.
-
----
-
-Add your heartbeat tasks below this line:
-`
-
-	if err := fileutil.WriteFileAtomic(heartbeatPath, []byte(defaultContent), 0o644); err != nil {
+	if err := fileutil.WriteFileAtomic(heartbeatPath, defaultContent, 0o644); err != nil {
 		hs.logErrorf("Failed to create default HEARTBEAT.md: %v", err)
 	} else {
 		hs.logInfof("Created default HEARTBEAT.md template")
@@ -401,9 +381,16 @@ func (hs *HeartbeatService) logErrorf(format string, args ...any) {
 	hs.logf("ERROR", format, args...)
 }
 
+// maxHeartbeatLogBytes is the size at which heartbeat.log is rotated to
+// heartbeat.log.1 (one generation kept).
+const maxHeartbeatLogBytes = 1 << 20
+
 // logf writes a message to the heartbeat log file
 func (hs *HeartbeatService) logf(level, format string, args ...any) {
 	logFile := filepath.Join(hs.workspace, "heartbeat.log")
+	if info, statErr := os.Stat(logFile); statErr == nil && info.Size() > maxHeartbeatLogBytes {
+		_ = os.Rename(logFile, logFile+".1")
+	}
 	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return

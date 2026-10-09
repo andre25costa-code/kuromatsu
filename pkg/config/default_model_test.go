@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
@@ -204,5 +205,31 @@ func TestLoadConfig_WarnsAboutIgnoredElevenLabsKey(t *testing.T) {
 	}
 	if logged, _ := os.ReadFile(logPath); !strings.Contains(string(logged), "elevenlabs_api_key") {
 		t.Fatalf("no warning about the ignored key: %s", logged)
+	}
+}
+
+// N30 (audit round 2): before onboard every command logged "config file not
+// found" -- twice when a command loads the config twice -- without saying
+// what to do. It is logged once per process and names `kuromatsu onboard`.
+func TestLoadConfig_MissingConfigWarnsOnceWithHint(t *testing.T) {
+	missingConfigWarnOnce = sync.Once{}
+	logPath := filepath.Join(t.TempDir(), "missing.log")
+	if err := logger.EnableFileLogging(logPath); err != nil {
+		t.Fatal(err)
+	}
+	defer logger.DisableFileLogging()
+
+	path := filepath.Join(t.TempDir(), "config.json")
+	for range 2 {
+		if _, err := LoadConfig(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	logged, _ := os.ReadFile(logPath)
+	if n := strings.Count(string(logged), "config file not found"); n != 1 {
+		t.Fatalf("warning logged %d times, want 1:\n%s", n, logged)
+	}
+	if !strings.Contains(string(logged), "kuromatsu onboard") {
+		t.Fatalf("warning does not suggest kuromatsu onboard:\n%s", logged)
 	}
 }

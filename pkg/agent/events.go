@@ -48,8 +48,9 @@ const (
 // EventMeta is the legacy name for hook metadata.
 type EventMeta = HookMeta
 
-// Event is the legacy agent event envelope exposed by SubscribeEvents and a
-// handful of tests. Runtime code publishes pkg/events.Event internally.
+// Event is the agent event envelope handed to in-process consumers such as
+// the evolution bridge (OnEvent). Runtime code publishes pkg/events.Event on
+// the runtime event bus.
 type Event struct {
 	Kind    EventKind
 	Time    time.Time

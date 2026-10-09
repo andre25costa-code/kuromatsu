@@ -137,8 +137,8 @@ start it — no container runtime needed. Docker files remain in [`docker/`](./d
   not to make it fast.
 - The native build targets x86-64 with AVX2; other platforms use the pure-Go build with external
   models.
-- There is no built-in embeddings model: semantic memory search needs an external embeddings
-  endpoint.
+- Memory search is lexical (SQLite FTS5, used by `memory: retrieved`); there is no semantic
+  (embeddings) search yet.
 
 ## Resumo em português
 

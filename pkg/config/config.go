@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -1234,16 +1235,21 @@ func (c *MCPConfig) GetMaxInlineTextChars() int {
 	return DefaultMCPMaxInlineTextChars
 }
 
+// missingConfigWarnOnce logs the "no config yet" warning once per process.
+var missingConfigWarnOnce sync.Once
+
 func LoadConfig(path string) (*Config, error) {
 	updateResolver(filepath.Dir(path))
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			logger.WarnF(
-				"config file not found, using default config",
-				map[string]any{"path": path},
-			)
+			missingConfigWarnOnce.Do(func() {
+				logger.WarnF(
+					"config file not found, using default config; run `kuromatsu onboard` to create it",
+					map[string]any{"path": path},
+				)
+			})
 			defaultCfg := DefaultConfig()
 			ApplyNativeFallback(defaultCfg)
 			return defaultCfg, nil

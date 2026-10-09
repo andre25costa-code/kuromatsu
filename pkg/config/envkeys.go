@@ -38,10 +38,6 @@ const (
 	// into the workspace by onboard / skills install-builtin).
 	EnvBuiltinSkills = "KUROMATSU_BUILTIN_SKILLS"
 
-	// EnvBinary overrides the path to the kuromatsu executable.
-	// Default: resolved from the same directory as the current executable.
-	EnvBinary = "KUROMATSU_BINARY"
-
 	// EnvGatewayHost overrides the host address for the gateway server.
 	// Default: "localhost"
 	EnvGatewayHost = "KUROMATSU_GATEWAY_HOST"
