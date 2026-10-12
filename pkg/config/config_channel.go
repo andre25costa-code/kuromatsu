@@ -583,20 +583,10 @@ func InitChannelList(channels ChannelsConfig) error {
 			delete(channels, name)
 			continue
 		}
-		// Ensure channel name is set from the map key
-		bc.SetName(name)
-		// Infer Type from map key if not explicitly set
-		if bc.Type == "" {
-			bc.Type = name
+		if err := decodeChannelSettings(name, bc); err != nil {
+			return err
 		}
-		if !isValidChannelType(bc.Type) {
-			return fmt.Errorf("channel %q has unknown type %q", name, bc.Type)
-		}
-		// Decode into the correct typed settings
-		if target := newChannelSettings(bc.Type); target != nil {
-			if err := bc.Decode(target); err != nil {
-				return fmt.Errorf("channel %q failed to decode settings: %w", name, err)
-			}
+		if target := bc.extend; target != nil {
 			// Apply env overrides for channel-specific fields via struct tags
 			// Env overrides for channel settings are non-fatal (some may not
 			// apply), but a value that is ignored is reported, not dropped.
@@ -619,6 +609,26 @@ func InitChannelList(channels ChannelsConfig) error {
 		return err
 	}
 
+	return nil
+}
+
+// decodeChannelSettings sets the channel name from its map key, infers the
+// type from the name when it is empty, rejects unknown types, and decodes the
+// raw settings into the typed struct for that type. It reads no environment
+// and runs no validation beyond the type check.
+func decodeChannelSettings(name string, bc *Channel) error {
+	bc.SetName(name)
+	if bc.Type == "" {
+		bc.Type = name
+	}
+	if !isValidChannelType(bc.Type) {
+		return fmt.Errorf("channel %q has unknown type %q", name, bc.Type)
+	}
+	if target := newChannelSettings(bc.Type); target != nil {
+		if err := bc.Decode(target); err != nil {
+			return fmt.Errorf("channel %q failed to decode settings: %w", name, err)
+		}
+	}
 	return nil
 }
 

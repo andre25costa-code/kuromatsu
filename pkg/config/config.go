@@ -1551,6 +1551,103 @@ func LoadConfig(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// LoadConfigForEdit returns the config as stored on disk (config.json plus the
+// security file), without environment overrides or runtime defaults. Use it in
+// commands that modify and save the config.
+//
+// Contract for callers that load, change and save the config:
+//   - Applied: the file content, the security file, model enablement inferred
+//     from keys in the file, the same legacy "bindings" conversion LoadConfig
+//     runs on the file bytes, and decoding of each channel's typed settings,
+//     so channel secrets keep serializing to the security file, never to
+//     config.json.
+//   - Skipped: every KUROMATSU_* environment override (renamed keys included),
+//     the gateway host from the environment, skills registry environment
+//     values, multi-key model expansion, the sole-keyed default model, the
+//     native model fallback, the default workspace, the derived DM scope, and
+//     the runtime validations, which only check and do not change what is
+//     saved.
+//   - A missing file, or one of at most 10 bytes, yields DefaultConfig().
+//   - A file older than CurrentVersion is migrated once through LoadConfig,
+//     which backs up and rewrites the file (the rewritten file holds no
+//     environment values). LoadConfig also normalizes renamed KUROMATSU_*
+//     variables in the process environment as a side effect. If the rewrite
+//     did not reach the disk, an error is returned instead of retrying.
+//
+// The result is not the runtime view: do not use it to decide which models are
+// available or which defaults apply; use LoadConfig for that.
+func LoadConfigForEdit(path string) (*Config, error) {
+	updateResolver(filepath.Dir(path))
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return DefaultConfig(), nil
+		}
+		return nil, err
+	}
+	var versionInfo struct {
+		Version int `json:"version"`
+	}
+	if err = json.Unmarshal(data, &versionInfo); err != nil {
+		return nil, wrapJSONError(data, err, "config.json")
+	}
+	if len(data) <= 10 {
+		return DefaultConfig(), nil
+	}
+	if versionInfo.Version > CurrentVersion {
+		return nil, fmt.Errorf("unsupported config version: %d", versionInfo.Version)
+	}
+	if versionInfo.Version < CurrentVersion {
+		// Migrate and rewrite the file once; the returned runtime view is
+		// discarded because it carries environment values.
+		if _, err = LoadConfig(path); err != nil {
+			return nil, err
+		}
+		if data, err = os.ReadFile(path); err != nil {
+			return nil, err
+		}
+		versionInfo.Version = 0
+		if err = json.Unmarshal(data, &versionInfo); err != nil {
+			return nil, wrapJSONError(data, err, "config.json")
+		}
+		if versionInfo.Version < CurrentVersion {
+			return nil, fmt.Errorf(
+				"config migration did not persist (version %d); run 'kuromatsu migrate' or fix permissions",
+				versionInfo.Version,
+			)
+		}
+	}
+
+	cfg, err := loadConfig(data)
+	if err != nil {
+		return nil, err
+	}
+	err = loadSecurityConfig(cfg, securityPath(path))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("failed to load security config: %w", err)
+	}
+	inferModelEnabledFromKeys(data, cfg)
+	applyLegacyBindingsMigration(data, cfg)
+
+	// Decode typed channel settings without environment overrides, so secure
+	// fields keep serializing to the security file only.
+	for name, bc := range cfg.Channels {
+		if bc == nil {
+			delete(cfg.Channels, name)
+			continue
+		}
+		if err = decodeChannelSettings(name, bc); err != nil {
+			return nil, err
+		}
+	}
+
+	if cfg.SourcePath, err = filepath.Abs(path); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
 func applySkillsRegistryEnvCompat(cfg *Config) {
 	if cfg == nil {
 		return
