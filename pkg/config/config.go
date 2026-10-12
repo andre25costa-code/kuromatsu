@@ -1474,6 +1474,11 @@ func LoadConfig(path string) (*Config, error) {
 	}
 
 	applyLegacyBindingsMigration(data, cfg)
+	if migratedToSave != nil {
+		// The migration drops the legacy "bindings" key, so the rules derived
+		// from it must be part of what is written back, or routing is lost.
+		applyLegacyBindingsMigration(data, migratedToSave)
+	}
 
 	gatewayHostBeforeEnv := cfg.Gateway.Host
 

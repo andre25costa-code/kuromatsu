@@ -258,3 +258,79 @@ func TestLoadConfigForEdit_MigrationNotPersistedFailsOnce(t *testing.T) {
 	assert.True(t, strings.Contains(err.Error(), "failed to create config backup"), "error = %v", err)
 	assert.Equal(t, raw, readRaw(t, path), "the file must be left as it was")
 }
+
+const legacyBindingsV2Fixture = `{
+	"version": 2,
+	"agents": {
+		"defaults": {
+			"workspace": "~/.kuromatsu/workspace",
+			"model": "glm-4.7"
+		},
+		"list": [
+			{ "id": "main", "default": true },
+			{ "id": "support" },
+			{ "id": "ops" },
+			{ "id": "slack" }
+		]
+	},
+	"bindings": [
+		{
+			"agent_id": "support",
+			"match": {
+				"channel": "telegram",
+				"peer": { "kind": "group", "id": "-100123" }
+			}
+		},
+		{
+			"agent_id": "ops",
+			"match": {
+				"channel": "discord",
+				"guild_id": "guild-1"
+			}
+		},
+		{
+			"agent_id": "slack",
+			"match": {
+				"channel": "slack",
+				"account_id": "*"
+			}
+		}
+	]
+}`
+
+func assertLegacyBindingRules(t *testing.T, cfg *Config) {
+	t.Helper()
+	require.NotNil(t, cfg.Agents.Dispatch)
+	rules := cfg.Agents.Dispatch.Rules
+	require.Len(t, rules, 3)
+	assert.Equal(t, "support", rules[0].Agent)
+	assert.Equal(t, "group:-100123", rules[0].When.Chat)
+	assert.Equal(t, "ops", rules[1].Agent)
+	assert.Equal(t, "guild:guild-1", rules[1].When.Space)
+	assert.Equal(t, "slack", rules[2].Agent)
+}
+
+func TestLoadConfig_MigratedLegacyBindingsPersistAsDispatchRules(t *testing.T) {
+	path, _ := editTestPaths(t)
+	require.NoError(t, os.WriteFile(path, []byte(legacyBindingsV2Fixture), 0o600))
+
+	first, err := LoadConfig(path)
+	require.NoError(t, err)
+	assertLegacyBindingRules(t, first)
+
+	second, err := LoadConfig(path)
+	require.NoError(t, err)
+	assertLegacyBindingRules(t, second)
+}
+
+func TestLoadConfigForEdit_PreservesLegacyBindingsAsDispatchRules(t *testing.T) {
+	path, _ := editTestPaths(t)
+	require.NoError(t, os.WriteFile(path, []byte(legacyBindingsV2Fixture), 0o600))
+
+	editCfg := editSaveCycle(t, path)
+	assertLegacyBindingRules(t, editCfg)
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	assertLegacyBindingRules(t, cfg)
+}
