@@ -198,7 +198,7 @@
     "whatsapp": {
       "enabled": false,
       "type": "whatsapp",
-      "allow_from": [],
+      "allow_from": ["YOUR_PHONE_NUMBER"],
       "reasoning_channel_id": "",
       "settings": {
         "bridge_url": "ws://localhost:3001",
@@ -209,7 +209,7 @@
     "pico": {
       "enabled": false,
       "type": "pico",
-      "allow_from": [],
+      "allow_from": ["*"],
       "settings": {
         "token": "YOUR_PICO_TOKEN",
         "allow_token_query": false,
@@ -222,7 +222,7 @@
     "pico_client": {
       "enabled": false,
       "type": "pico_client",
-      "allow_from": [],
+      "allow_from": ["*"],
       "settings": {
         "url": "wss://remote-pico-server/pico/ws",
         "token": "YOUR_PICO_TOKEN",

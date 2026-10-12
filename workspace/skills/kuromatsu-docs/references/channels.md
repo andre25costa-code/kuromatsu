@@ -146,7 +146,9 @@ ainda não está bem definido. Não é um bug esquecido; é uma decisão adiada.
 Convenção de config: cada entrada de `channel_list` tem campos comuns no
 nível superior (`enabled`, `type`, `allow_from`) e o específico do canal
 dentro de `settings`; segredos (token, senha) vão em `.security.yml`, nunca
-em `config.json`.
+em `config.json`. `allow_from` vazio **rejeita todos** (fail-closed, ERR no
+boot); acesso aberto só com `["*"]` explícito. No `pico`/`pico_client` o
+remetente é fixo e a autenticação é o token: use `["*"]`.
 
 ## Convenções obrigatórias
 

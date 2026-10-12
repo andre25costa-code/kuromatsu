@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -100,6 +101,7 @@ type BaseChannel struct {
 	typingDisabled      bool    // typing.enabled: false
 	owner               Channel // the concrete channel that embeds this BaseChannel
 	reasoningChannelID  string
+	emptyDropWarn       sync.Once // warns once when allow_from is empty and a message is dropped
 }
 
 func NewBaseChannel(
@@ -129,15 +131,19 @@ func NewBaseChannel(
 		opt(bc)
 	}
 
-	// Security Audit: Check for open-by-default (unsecured) channels.
-	// Kuromatsu aims to be secure-by-default. If allow_from is empty, the bot
-	// currently defaults to accepting messages from ANYONE. To explicitly
-	// acknowledge and permit this (e.g. for a public bot), use ["*"].
+	// An empty allow_from rejects every sender (fail-closed). Open access
+	// must be requested explicitly with ["*"].
 	if len(bc.allowList) == 0 {
-		logger.WarnCF("channels", "SECURITY: Channel allows EVERYONE (allow_from is empty)", map[string]any{
-			"channel": bc.name,
-			"hint":    "Set allow_from to your ID, or use '*' to explicitly acknowledge open access.",
-		})
+		hint := `set allow_from to your user ID, or ["*"] for an open bot`
+		if name == "pico" || name == "pico_client" {
+			hint = `use ["*"]; access is gated by the token`
+		}
+		logger.ErrorCF("channels",
+			"allow_from is empty: every message on this channel will be rejected",
+			map[string]any{
+				"channel": bc.name,
+				"hint":    hint,
+			})
 	}
 
 	return bc
@@ -207,9 +213,23 @@ func (c *BaseChannel) IsRunning() bool {
 	return c.running.Load()
 }
 
+// warnEmptyAllowListDrop logs, once per channel, that a message was dropped
+// because allow_from is empty, so the operator can read the sender ID.
+func (c *BaseChannel) warnEmptyAllowListDrop(senderID string) {
+	c.emptyDropWarn.Do(func() {
+		logger.WarnCF("channels", "message dropped: allow_from is empty", map[string]any{
+			"channel":   c.name,
+			"sender_id": senderID,
+		})
+	})
+}
+
+// IsAllowed reports whether senderID passes the allow-list. An empty list
+// rejects everyone; "*" accepts everyone.
 func (c *BaseChannel) IsAllowed(senderID string) bool {
 	if len(c.allowList) == 0 {
-		return true
+		c.warnEmptyAllowListDrop(senderID)
+		return false
 	}
 
 	// Extract parts from compound senderID like "123456|username"
@@ -254,7 +274,12 @@ func (c *BaseChannel) IsAllowed(senderID string) bool {
 // across all legacy formats and the new canonical "platform:id" format.
 func (c *BaseChannel) IsAllowedSender(sender bus.SenderInfo) bool {
 	if len(c.allowList) == 0 {
-		return true
+		id := sender.CanonicalID
+		if id == "" {
+			id = sender.PlatformID
+		}
+		c.warnEmptyAllowListDrop(id)
+		return false
 	}
 
 	for _, allowed := range c.allowList {

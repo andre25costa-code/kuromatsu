@@ -18,7 +18,7 @@ import (
 )
 
 func TestNewPicoClientChannel_MissingURL(t *testing.T) {
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	_, err := NewPicoClientChannel(bc, &config.PicoClientSettings{}, bus.NewMessageBus())
 	if err == nil {
 		t.Fatal("expected error for missing URL")
@@ -29,7 +29,7 @@ func TestNewPicoClientChannel_MissingURL(t *testing.T) {
 }
 
 func TestNewPicoClientChannel_OK(t *testing.T) {
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:9999/ws",
 	}, bus.NewMessageBus())
@@ -42,7 +42,7 @@ func TestNewPicoClientChannel_OK(t *testing.T) {
 }
 
 func TestSend_NotRunning(t *testing.T) {
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:9999/ws",
 	}, bus.NewMessageBus())
@@ -107,7 +107,7 @@ func TestClientChannel_ConnectAndSend(t *testing.T) {
 	defer srv.Close()
 
 	mb := bus.NewMessageBus()
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL:          wsURL(srv.URL),
 		Token:        *config.NewSecureString("test-token"),
@@ -141,7 +141,7 @@ func TestClientChannel_AuthFailure(t *testing.T) {
 	srv := testServer(t, "correct-token")
 	defer srv.Close()
 
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL:   wsURL(srv.URL),
 		Token: *config.NewSecureString("wrong-token"),
@@ -166,7 +166,7 @@ func TestClientChannel_ReceivesServerMessage(t *testing.T) {
 
 	mb := bus.NewMessageBus()
 
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL:         wsURL(srv.URL),
 		SessionID:   "sess-echo",
@@ -209,7 +209,7 @@ func TestClientChannel_StartTyping(t *testing.T) {
 	srv := testServer(t, "")
 	defer srv.Close()
 
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL:         wsURL(srv.URL),
 		SessionID:   "sess-type",
@@ -238,7 +238,7 @@ func TestSend_ClosedConnection(t *testing.T) {
 	srv := testServer(t, "")
 	defer srv.Close()
 
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL:         wsURL(srv.URL),
 		SessionID:   "sess-close",
@@ -305,7 +305,7 @@ func TestParseInlineImageMedia_Attachments(t *testing.T) {
 
 func TestPicoChannel_HandleMessageSend_AllowsMediaOnly(t *testing.T) {
 	mb := bus.NewMessageBus()
-	bc := &config.Channel{Type: "pico", Enabled: true}
+	bc := &config.Channel{Type: "pico", Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoChannel(bc, &config.PicoSettings{
 		Token: *config.NewSecureString("test-token"),
 	}, mb)
@@ -348,7 +348,7 @@ func newTestPicoClientChannel(t *testing.T) (*PicoClientChannel, *bus.MessageBus
 	t.Helper()
 
 	mb := bus.NewMessageBus()
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
 	}, mb)
@@ -443,7 +443,7 @@ func TestPicoClientChannel_HandleInbound_ForwardsMediaCreate(t *testing.T) {
 
 func TestPicoClientChannel_HandleServerMessage_ForwardsTextWithDownloadAttachment(t *testing.T) {
 	mb := bus.NewMessageBus()
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
 	}, mb)
@@ -484,7 +484,7 @@ func TestPicoClientChannel_HandleServerMessage_ForwardsTextWithDownloadAttachmen
 
 func TestPicoClientChannel_HandleServerMessage_ForwardsTextWithInvalidMediaPayload(t *testing.T) {
 	mb := bus.NewMessageBus()
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
 	}, mb)
@@ -570,7 +570,7 @@ func TestIsThoughtPayload(t *testing.T) {
 
 func TestPicoClientChannel_HandleServerMessage_IgnoresThought(t *testing.T) {
 	mb := bus.NewMessageBus()
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
 	}, mb)
@@ -598,7 +598,7 @@ func TestPicoClientChannel_HandleServerMessage_IgnoresThought(t *testing.T) {
 
 func TestPicoClientChannel_HandleServerMessage_IgnoresLegacyThoughtBool(t *testing.T) {
 	mb := bus.NewMessageBus()
-	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPicoClient, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	ch, err := NewPicoClientChannel(bc, &config.PicoClientSettings{
 		URL: "ws://localhost:8080/ws",
 	}, mb)

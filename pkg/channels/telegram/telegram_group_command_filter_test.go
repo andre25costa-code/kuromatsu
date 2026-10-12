@@ -46,7 +46,7 @@ func newGroupMentionOnlyChannel(t *testing.T, botUsername string) (*TelegramChan
 
 	messageBus := bus.NewMessageBus()
 	ch := &TelegramChannel{
-		BaseChannel: channels.NewBaseChannel("telegram", nil, messageBus, nil,
+		BaseChannel: channels.NewBaseChannel("telegram", nil, messageBus, []string{"*"},
 			channels.WithGroupTrigger(config.GroupTriggerConfig{MentionOnly: true}),
 		),
 		bot:     newTestTelegramBot(t, botUsername),

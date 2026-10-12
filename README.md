@@ -104,14 +104,25 @@ setup with an external model first and the native model as fallback:
 }
 ```
 
-Channels: **Telegram**, **WhatsApp** and the built-in **Pico** channel. Always restrict who can
-talk to the agent — a channel with an empty `allow_from` accepts **anyone**:
+Channels: **Telegram**, **WhatsApp** and the built-in **Pico** channel. Every channel is
+fail-closed: a channel with an empty `allow_from` **rejects everyone** and logs an error at
+boot (the first dropped message also logs the sender ID, so you can copy it). List your own
+ID, or use `"*"` to open the bot to anyone on purpose:
 
 ```json
 "channel_list": {
   "telegram": { "enabled": true, "type": "telegram", "allow_from": ["<your-telegram-user-id>"] }
 }
 ```
+
+Upgrading from a version where an empty `allow_from` accepted anyone? Set `allow_from` on
+every enabled channel before restarting, or the bot goes silent.
+
+**Pico.** Its sender is fixed and access is gated by the token (compared in constant time), so
+use `"allow_from": ["*"]`. The built-in default `pico` entry has no `allow_from`: if you only
+write `"enabled": true`, add `"allow_from": ["*"]` as well. `allow_origins` (under `settings`)
+is the list of Origins accepted on the WebSocket; empty accepts any Origin, and the token is
+still required.
 
 Shell commands requested from a chat are off by default; enable them only for channels you
 trust with `"tools": { "exec": { "allow_remote": true } }`.

@@ -2,6 +2,7 @@ package pico
 
 import (
 	"context"
+	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -1061,6 +1062,11 @@ func (c *PicoChannel) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	go c.readLoop(pc)
 }
 
+// tokenEqual compares two tokens in constant time (only the length leaks).
+func tokenEqual(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
 // authenticate checks the request for a valid token:
 //  1. Authorization: Bearer <token> header
 //  2. Sec-WebSocket-Protocol "token.<value>" (for browsers that can't set headers)
@@ -1074,7 +1080,7 @@ func (c *PicoChannel) authenticate(r *http.Request) bool {
 	// Check Authorization header
 	auth := r.Header.Get("Authorization")
 	if after, ok := strings.CutPrefix(auth, "Bearer "); ok {
-		if after == token {
+		if tokenEqual(after, token) {
 			return true
 		}
 	}
@@ -1086,7 +1092,7 @@ func (c *PicoChannel) authenticate(r *http.Request) bool {
 
 	// Check query parameter only when explicitly allowed
 	if c.config.AllowTokenQuery {
-		if r.URL.Query().Get("token") == token {
+		if tokenEqual(r.URL.Query().Get("token"), token) {
 			return true
 		}
 	}
@@ -1099,7 +1105,7 @@ func (c *PicoChannel) authenticate(r *http.Request) bool {
 func (c *PicoChannel) matchedSubprotocol(r *http.Request) string {
 	token := c.config.Token.String()
 	for _, proto := range websocket.Subprotocols(r) {
-		if after, ok := strings.CutPrefix(proto, "token."); ok && after == token {
+		if after, ok := strings.CutPrefix(proto, "token."); ok && tokenEqual(after, token) {
 			return proto
 		}
 	}
