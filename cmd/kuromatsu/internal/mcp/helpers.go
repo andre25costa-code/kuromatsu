@@ -103,6 +103,16 @@ func loadConfig() (*config.Config, error) {
 	return cfg, nil
 }
 
+// loadConfigForEdit loads the config as stored on disk, without environment
+// overrides or runtime defaults, for subcommands that change and save it.
+func loadConfigForEdit() (*config.Config, error) {
+	cfg, err := config.LoadConfigForEdit(internal.GetConfigPath())
+	if err != nil {
+		return nil, fmt.Errorf("failed to load config: %w", err)
+	}
+	return cfg, nil
+}
+
 func saveValidatedConfig(cfg *config.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("config is nil")

@@ -22,7 +22,7 @@ func newEditCommand() *cobra.Command {
 				return fmt.Errorf("$EDITOR is not set")
 			}
 
-			cfg, err := loadConfig()
+			cfg, err := loadConfigForEdit()
 			if err != nil {
 				return err
 			}

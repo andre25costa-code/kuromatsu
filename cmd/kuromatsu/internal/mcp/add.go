@@ -33,7 +33,7 @@ func newAddCommand() *cobra.Command {
 				return err
 			}
 
-			cfg, err := loadConfig()
+			cfg, err := loadConfigForEdit()
 			if err != nil {
 				return err
 			}

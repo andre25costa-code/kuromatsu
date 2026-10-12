@@ -2,6 +2,7 @@ package model
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -405,4 +406,56 @@ func TestListAvailableModels_MarkerLogic(t *testing.T) {
 	assert.Contains(t, output, "  - first-model (openai/first)")
 	assert.Contains(t, output, "> - middle-model (openai/middle)")
 	assert.Contains(t, output, "  - last-model (openai/last)")
+}
+
+// rawDefaults reads agents.defaults.model_name and max_tokens straight from
+// the saved config.json.
+func rawDefaults(t *testing.T, path string) (string, int) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var doc struct {
+		Agents struct {
+			Defaults struct {
+				ModelName string `json:"model_name"`
+				MaxTokens int    `json:"max_tokens"`
+			} `json:"defaults"`
+		} `json:"agents"`
+	}
+	require.NoError(t, json.Unmarshal(data, &doc))
+	return doc.Agents.Defaults.ModelName, doc.Agents.Defaults.MaxTokens
+}
+
+func TestSetDefaultModel_DoesNotPersistEnv(t *testing.T) {
+	initTest(t)
+
+	seed := config.DefaultConfig()
+	seed.Agents.Defaults.ModelName = "old-model"
+	seed.Agents.Defaults.MaxTokens = 32768
+	seed.ModelList = []*config.ModelConfig{
+		{
+			ModelName: "old-model",
+			Model:     "openai/old-model",
+			APIKeys:   config.SimpleSecureStrings("test"),
+			Enabled:   true,
+		},
+		{
+			ModelName: "new-model",
+			Model:     "openai/new-model",
+			APIKeys:   config.SimpleSecureStrings("test"),
+			Enabled:   true,
+		},
+	}
+	require.NoError(t, config.SaveConfig(configPath, seed))
+
+	t.Setenv("KUROMATSU_AGENTS_DEFAULTS_MAX_TOKENS", "1234")
+
+	cmd := NewModelCommand()
+	captureStdout(func() {
+		require.NoError(t, cmd.RunE(cmd, []string{"new-model"}))
+	})
+
+	modelName, maxTokens := rawDefaults(t, configPath)
+	assert.Equal(t, "new-model", modelName)
+	assert.Equal(t, 32768, maxTokens)
 }

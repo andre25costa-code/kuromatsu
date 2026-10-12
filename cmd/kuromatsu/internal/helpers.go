@@ -32,3 +32,15 @@ func LoadConfig() (*config.Config, error) {
 	logger.SetLevelFromString(cfg.Gateway.LogLevel)
 	return cfg, nil
 }
+
+// LoadConfigForEdit loads the config as stored on disk, without environment
+// overrides or runtime defaults, for commands that change and save it. Like
+// LoadConfig, it applies the file's gateway.log_level.
+func LoadConfigForEdit() (*config.Config, error) {
+	cfg, err := config.LoadConfigForEdit(GetConfigPath())
+	if err != nil {
+		return nil, err
+	}
+	logger.SetLevelFromString(cfg.Gateway.LogLevel)
+	return cfg, nil
+}

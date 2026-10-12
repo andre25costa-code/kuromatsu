@@ -54,7 +54,7 @@ func authLoginOpenAI(useDeviceCode bool, noBrowser bool) error {
 		return fmt.Errorf("failed to save credentials: %w", err)
 	}
 
-	appCfg, err := internal.LoadConfig()
+	appCfg, err := internal.LoadConfigForEdit()
 	if err == nil {
 		// Update or add openai in ModelList
 		foundOpenAI := false
@@ -125,7 +125,7 @@ func authLoginGoogleAntigravity(noBrowser bool) error {
 		return fmt.Errorf("failed to save credentials: %w", err)
 	}
 
-	appCfg, err := internal.LoadConfig()
+	appCfg, err := internal.LoadConfigForEdit()
 	if err == nil {
 		// Update or add antigravity in ModelList
 		foundAntigravity := false
@@ -202,7 +202,7 @@ func authLoginAnthropicSetupToken() error {
 		return fmt.Errorf("failed to save credentials: %w", err)
 	}
 
-	appCfg, err := internal.LoadConfig()
+	appCfg, err := internal.LoadConfigForEdit()
 	if err == nil {
 		found := false
 		for i := range appCfg.ModelList {
@@ -275,7 +275,7 @@ func authLoginPasteToken(provider string) error {
 		return fmt.Errorf("failed to save credentials: %w", err)
 	}
 
-	appCfg, err := internal.LoadConfig()
+	appCfg, err := internal.LoadConfigForEdit()
 	if err == nil {
 		switch provider {
 		case "anthropic":
@@ -336,7 +336,7 @@ func authLogoutCmd(provider string) error {
 			return fmt.Errorf("failed to remove credentials: %w", err)
 		}
 
-		appCfg, err := internal.LoadConfig()
+		appCfg, err := internal.LoadConfigForEdit()
 		if err == nil {
 			// Clear AuthMethod in ModelList
 			for i := range appCfg.ModelList {
@@ -367,7 +367,7 @@ func authLogoutCmd(provider string) error {
 		return fmt.Errorf("failed to remove credentials: %w", err)
 	}
 
-	appCfg, err := internal.LoadConfig()
+	appCfg, err := internal.LoadConfigForEdit()
 	if err == nil {
 		// Clear all AuthMethods in ModelList
 		for i := range appCfg.ModelList {

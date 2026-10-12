@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -657,4 +658,61 @@ func executeCommand(cmd *cobra.Command, args []string, stdin string) (string, er
 
 	err := cmd.Execute()
 	return stdout.String() + stderr.String(), err
+}
+
+func rawMaxTokens(t *testing.T, path string) int {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var doc struct {
+		Agents struct {
+			Defaults struct {
+				MaxTokens int `json:"max_tokens"`
+			} `json:"defaults"`
+		} `json:"agents"`
+	}
+	require.NoError(t, json.Unmarshal(data, &doc))
+	return doc.Agents.Defaults.MaxTokens
+}
+
+func TestMCPAdd_DoesNotPersistEnv(t *testing.T) {
+	configPath := setupMCPConfigEnv(t)
+	seed := config.DefaultConfig()
+	seed.Agents.Defaults.MaxTokens = 32768
+	writeMCPConfig(t, configPath, seed)
+
+	t.Setenv("KUROMATSU_AGENTS_DEFAULTS_MAX_TOKENS", "1234")
+
+	cmd := NewMCPCommand()
+	output, err := executeCommand(cmd, []string{"add", "sqlite", "npx", "-y", "server-sqlite"}, "")
+	require.NoError(t, err)
+	assert.Contains(t, output, `MCP server "sqlite" saved`)
+
+	assert.Equal(t, 32768, rawMaxTokens(t, configPath))
+	cfg := readMCPConfig(t, configPath)
+	assert.Contains(t, cfg.Tools.MCP.Servers, "sqlite")
+}
+
+func TestMCPRemove_DoesNotPersistEnv(t *testing.T) {
+	configPath := setupMCPConfigEnv(t)
+	seed := config.DefaultConfig()
+	seed.Agents.Defaults.MaxTokens = 32768
+	seed.Tools.MCP.Enabled = true
+	seed.Tools.MCP.Servers = map[string]config.MCPServerConfig{
+		"filesystem": {Enabled: true, Type: "stdio", Command: "npx"},
+		"other":      {Enabled: true, Type: "stdio", Command: "npx"},
+	}
+	writeMCPConfig(t, configPath, seed)
+
+	t.Setenv("KUROMATSU_AGENTS_DEFAULTS_MAX_TOKENS", "1234")
+
+	cmd := NewMCPCommand()
+	output, err := executeCommand(cmd, []string{"remove", "filesystem"}, "")
+	require.NoError(t, err)
+	assert.Contains(t, output, `MCP server "filesystem" removed`)
+
+	assert.Equal(t, 32768, rawMaxTokens(t, configPath))
+	cfg := readMCPConfig(t, configPath)
+	assert.NotContains(t, cfg.Tools.MCP.Servers, "filesystem")
+	assert.Contains(t, cfg.Tools.MCP.Servers, "other")
 }

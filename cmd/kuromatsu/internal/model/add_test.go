@@ -271,3 +271,27 @@ func TestRunAdd_RejectsUnsupportedType(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported --type")
 }
+
+func TestRunAdd_DoesNotPersistEnv(t *testing.T) {
+	initTest(t)
+
+	seed := config.DefaultConfig()
+	seed.Agents.Defaults.MaxTokens = 32768
+	require.NoError(t, config.SaveConfig(configPath, seed))
+
+	t.Setenv("KUROMATSU_AGENTS_DEFAULTS_MAX_TOKENS", "1234")
+
+	out := &bytes.Buffer{}
+	require.NoError(t, runAdd(addOptions{
+		apiBase:   "https://invalid.invalid/v1",
+		apiKey:    "k",
+		modelID:   "explicit-model",
+		alias:     "myalias",
+		modelType: "openai-compatible",
+		stdout:    out,
+	}))
+
+	modelName, maxTokens := rawDefaults(t, configPath)
+	assert.Equal(t, "myalias", modelName)
+	assert.Equal(t, 32768, maxTokens)
+}

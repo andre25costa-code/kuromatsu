@@ -65,8 +65,9 @@ func onboard(encrypt, force bool) {
 
 	var cfg *config.Config
 	if configExists {
-		// Preserve the existing config; SaveConfig will re-encrypt api_keys with the new passphrase.
-		cfg, err = config.LoadConfig(configPath)
+		// Preserve the existing config as stored on disk (no environment
+		// values); SaveConfig will re-encrypt api_keys with the new passphrase.
+		cfg, err = config.LoadConfigForEdit(configPath)
 		if err != nil {
 			fmt.Printf("Error loading existing config: %v\n", err)
 			os.Exit(1)
@@ -74,13 +75,19 @@ func onboard(encrypt, force bool) {
 	} else {
 		cfg = config.DefaultConfig()
 	}
-	if err := config.SaveConfig(configPath, cfg); err != nil {
+	if err = config.SaveConfig(configPath, cfg); err != nil {
 		fmt.Printf("Error saving config: %v\n", err)
 		os.Exit(1)
 	}
 
-	workspace := cfg.WorkspacePath()
-	createWorkspaceTemplates(workspace, force)
+	// The workspace comes from the runtime view, so an environment override
+	// of the workspace applies here without being written to the file.
+	rt, err := config.LoadConfig(configPath)
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+	createWorkspaceTemplates(rt.WorkspacePath(), force)
 
 	cliui.PrintOnboardComplete(internal.Logo, encrypt, configPath)
 }
