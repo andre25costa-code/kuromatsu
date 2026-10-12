@@ -1473,11 +1473,35 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("unsupported config version: %d", versionInfo.Version)
 	}
 
-	applyLegacyBindingsMigration(data, cfg)
 	if migratedToSave != nil {
+		// The migrated config is written back together with the security
+		// file, so both copies need the secrets that file already holds, and
+		// the copy to save needs typed channel settings so channel secrets
+		// serialize to the security file only.
+		secPath := securityPath(path)
+		for _, c := range []*Config{cfg, migratedToSave} {
+			err = loadSecurityConfig(c, secPath)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("failed to load security config: %w", err)
+			}
+		}
+		for name, bc := range migratedToSave.Channels {
+			if bc == nil {
+				delete(migratedToSave.Channels, name)
+				continue
+			}
+			if err = decodeChannelSettings(name, bc); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	applyLegacyBindingsMigration(data, cfg)
+	if migratedToSave != nil && cfg.Agents.Dispatch != nil {
 		// The migration drops the legacy "bindings" key, so the rules derived
 		// from it must be part of what is written back, or routing is lost.
-		applyLegacyBindingsMigration(data, migratedToSave)
+		dispatch := *cfg.Agents.Dispatch
+		migratedToSave.Agents.Dispatch = &dispatch
 	}
 
 	gatewayHostBeforeEnv := cfg.Gateway.Host

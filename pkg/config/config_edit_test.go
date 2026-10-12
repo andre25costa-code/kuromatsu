@@ -334,3 +334,48 @@ func TestLoadConfigForEdit_PreservesLegacyBindingsAsDispatchRules(t *testing.T) 
 	require.NoError(t, err)
 	assertLegacyBindingRules(t, cfg)
 }
+
+// A legacy config.json next to an existing security file: migrating the
+// config must not drop the secrets kept in the security file.
+func TestLoadConfig_LegacyMigrationKeepsSecurityFileSecrets(t *testing.T) {
+	path, secPath := editTestPaths(t)
+
+	seed := DefaultConfig()
+	seed.ModelList = append(seed.ModelList, &ModelConfig{
+		ModelName: "file-model",
+		Model:     "openai/file-model",
+		APIKeys:   SimpleSecureStrings("sk-file-secret"),
+		Enabled:   true,
+	})
+	bc := &Channel{Enabled: true, Type: "telegram", Settings: RawNode(`{}`)}
+	settings := &TelegramSettings{}
+	require.NoError(t, bc.Decode(settings))
+	settings.Token = *NewSecureString("123:tg-secret-token")
+	seed.Channels["telegram"] = bc
+	require.NoError(t, SaveConfig(path, seed))
+	secBefore := readRaw(t, secPath)
+	require.Contains(t, secBefore, "sk-file-secret")
+	require.Contains(t, secBefore, "123:tg-secret-token")
+
+	legacy := `{
+		"version": 2,
+		"agents": {"defaults": {"workspace": "~/.kuromatsu/workspace"}},
+		"channels": {"telegram": {"enabled": true, "use_markdown_v2": true}},
+		"model_list": [{"model_name": "file-model", "model": "openai/file-model", "enabled": true}]
+	}`
+	require.NoError(t, os.WriteFile(path, []byte(legacy), 0o600))
+
+	cfg, err := LoadConfig(path)
+	require.NoError(t, err)
+	decoded, err := cfg.Channels.Get("telegram").GetDecoded()
+	require.NoError(t, err)
+	assert.Equal(t, "123:tg-secret-token", decoded.(*TelegramSettings).Token.String())
+
+	sec := readRaw(t, secPath)
+	assert.Contains(t, sec, "sk-file-secret")
+	assert.Contains(t, sec, "123:tg-secret-token")
+	raw := readRaw(t, path)
+	assert.Contains(t, raw, `"version": 3`)
+	assert.NotContains(t, raw, "sk-file-secret")
+	assert.NotContains(t, raw, "123:tg-secret-token")
+}
