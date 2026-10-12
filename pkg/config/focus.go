@@ -460,6 +460,19 @@ func validateFocusConfig(f FocusConfig) error {
 	}
 
 	for name, w := range windows {
+		prefix := "focus.windows." + name
+		if err := validateFocusEnum(prefix+".memory", w.Memory,
+			FocusMemoryDefault, FocusMemoryCore, FocusMemoryOff, FocusMemoryRetrieved); err != nil {
+			return err
+		}
+		if err := validateFocusEnum(prefix+".workspace", w.Workspace,
+			FocusWorkspaceDefault, FocusWorkspaceCompact, FocusWorkspaceOff); err != nil {
+			return err
+		}
+		if err := validateFocusEnum(prefix+".history", string(w.History),
+			string(TurnProfileModeDefault), string(TurnProfileModeOff)); err != nil {
+			return err
+		}
 		if err := validateTurnProfileBlock("focus.windows."+name+".tools", w.Tools, true); err != nil {
 			return err
 		}
@@ -488,4 +501,20 @@ func validateFocusConfig(f FocusConfig) error {
 	}
 
 	return nil
+}
+
+// validateFocusEnum rejects a window setting outside allowed. The comparison
+// ignores case and surrounding spaces, like the effective* resolvers, and an
+// empty value is always accepted (it means the default).
+func validateFocusEnum(field, value string, allowed ...string) error {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return nil
+	}
+	for _, a := range allowed {
+		if normalized == a {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s %q is invalid (want one of: %s)", field, value, strings.Join(allowed, ", "))
 }

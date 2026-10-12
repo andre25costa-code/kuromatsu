@@ -813,7 +813,7 @@ func (c *ModelConfig) SetAPIKey(value string) {
 type ToolDiscoveryConfig struct {
 	Enabled          bool `json:"enabled"            env:"KUROMATSU_TOOLS_DISCOVERY_ENABLED"`
 	TTL              int  `json:"ttl"                env:"KUROMATSU_TOOLS_DISCOVERY_TTL"`
-	MaxSearchResults int  `json:"max_search_results" env:"KUROMATSU_MAX_SEARCH_RESULTS"`
+	MaxSearchResults int  `json:"max_search_results" env:"KUROMATSU_TOOLS_DISCOVERY_MAX_SEARCH_RESULTS"`
 	UseBM25          bool `json:"use_bm25"           env:"KUROMATSU_TOOLS_DISCOVERY_USE_BM25"`
 	UseRegex         bool `json:"use_regex"          env:"KUROMATSU_TOOLS_DISCOVERY_USE_REGEX"`
 }
@@ -1477,6 +1477,7 @@ func LoadConfig(path string) (*Config, error) {
 
 	gatewayHostBeforeEnv := cfg.Gateway.Host
 
+	applyRenamedEnvKeys()
 	if err = env.Parse(cfg); err != nil {
 		return nil, err
 	}
