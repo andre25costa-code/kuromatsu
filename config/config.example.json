@@ -264,7 +264,7 @@
         "max_results": 5
       },
       "duckduckgo": {
-        "enabled": false,
+        "enabled": true,
         "max_results": 5
       },
       "gemini": {

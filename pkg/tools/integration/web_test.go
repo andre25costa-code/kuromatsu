@@ -8,9 +8,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
@@ -2251,5 +2254,56 @@ func TestDuckDuckGoExtractResults_UnwrapsRedirectURL(t *testing.T) {
 	want := "   https://www.reclameaqui.com.br/empresa/dental-clinic/lista-reclamacoes/?pagina=2\n"
 	if !strings.Contains(out+"\n", want) || strings.Contains(out, "rut=") {
 		t.Fatalf("extractResults URL line wrong:\n%s", out)
+	}
+}
+
+// With the shipped defaults both Sogou and DuckDuckGo are ready, so the
+// query's alphabet picks the provider: Latin script goes to DuckDuckGo and
+// Chinese goes to Sogou.
+func TestResolveProviderName_DefaultsRouteLatinQueriesToDuckDuckGo(t *testing.T) {
+	opts := WebSearchToolOptionsFromConfig(config.DefaultConfig())
+
+	for query, want := range map[string]string{
+		"previsão do tempo em São Paulo": "duckduckgo",
+		"北京天气":                           "sogou",
+	} {
+		got, err := opts.resolveProviderName(query)
+		if err != nil {
+			t.Fatalf("resolveProviderName(%q) error: %v", query, err)
+		}
+		if got != want {
+			t.Fatalf("resolveProviderName(%q) = %q, want %q", query, got, want)
+		}
+	}
+}
+
+// A rate-limited or challenge page carries no results; the warning names the
+// HTTP status so that case can be told apart from a query with no matches.
+func TestDuckDuckGoSearch_EmptyPageWarnsWithStatus(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "ddg.log")
+	if err := logger.EnableFileLogging(logPath); err != nil {
+		t.Fatal(err)
+	}
+	defer logger.DisableFileLogging()
+
+	p := &DuckDuckGoSearchProvider{client: &http.Client{
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			rec := httptest.NewRecorder()
+			rec.WriteHeader(http.StatusAccepted)
+			rec.WriteString("<html><body>challenge</body></html>")
+			return rec.Result(), nil
+		}),
+	}}
+	out, err := p.Search(context.Background(), "tempo", 5, "")
+	if err != nil {
+		t.Fatalf("Search error: %v", err)
+	}
+	if !strings.Contains(out, "No results found") {
+		t.Fatalf("flow changed, got: %s", out)
+	}
+	logged, _ := os.ReadFile(logPath)
+	if !strings.Contains(string(logged), "duckduckgo returned no results") ||
+		!strings.Contains(string(logged), "202") {
+		t.Fatalf("expected a warning carrying the status, log: %s", logged)
 	}
 }

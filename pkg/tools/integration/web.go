@@ -1003,6 +1003,15 @@ func (p *DuckDuckGoSearchProvider) Search(
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
+	if !reDDGLink.Match(body) {
+		// An empty page is how rate limiting and challenge pages show up; the
+		// status distinguishes them from a query that simply matched nothing.
+		logger.WarnCF("web", "duckduckgo returned no results", map[string]any{
+			"status": resp.StatusCode,
+			"query":  query,
+		})
+	}
+
 	return p.extractResults(string(body), count, query)
 }
 
