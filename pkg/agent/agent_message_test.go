@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -261,5 +262,69 @@ func TestApplyExplicitAgentCommand_UnknownAgentDoesNotPin(t *testing.T) {
 	}
 	if pinned, ok := al.pinnedAgentID(key); !ok || pinned != "estudos" {
 		t.Fatalf("pinnedAgentID() = (%q, %v), want unchanged (%q, true)", pinned, ok, "estudos")
+	}
+}
+
+func registerFocusOriginTools(al *AgentLoop) {
+	registerNamedTools(al,
+		"read_file", "list_dir", "write_file", "edit_file", "append_file",
+		"exec", "message", "web_search",
+	)
+}
+
+func TestProcessDirect_UsesUserOriginForFocusWindow(t *testing.T) {
+	provider := &turnProfileCaptureProvider{}
+	al := newTurnProfileAgentLoop(t, defaultFocusChatCfg(), provider)
+	registerFocusOriginTools(al)
+
+	if _, err := al.ProcessDirect(context.Background(), "leia o arquivo README.md", "cli:default"); err != nil {
+		t.Fatalf("ProcessDirect() error = %v", err)
+	}
+	got := toolNamesOf(provider.tools)
+	want := []string{"append_file", "edit_file", "list_dir", "read_file", "write_file"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("tools = %v, want %v (files window for a user turn)", got, want)
+	}
+}
+
+func TestProcessDirect_RunsReflexes(t *testing.T) {
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Reflexes: []config.ReflexConfig{
+					{Match: `(?i)^oi$`, Action: config.ReflexActionReply, Template: "Oi!"},
+				},
+			},
+		},
+	}
+	provider := &turnProfileCaptureProvider{}
+	al := newTurnProfileAgentLoop(t, cfg, provider)
+
+	response, err := al.ProcessDirect(context.Background(), "oi", "cli:default")
+	if err != nil {
+		t.Fatalf("ProcessDirect() error = %v", err)
+	}
+	if response != "Oi!" {
+		t.Fatalf("response = %q, want the reflex reply", response)
+	}
+	if len(provider.messages) != 0 {
+		t.Fatalf("provider called with %d messages, want 0 (reflex short-circuits)", len(provider.messages))
+	}
+}
+
+func TestProcessCronWithChannel_KeepsCronWindow(t *testing.T) {
+	provider := &turnProfileCaptureProvider{}
+	al := newTurnProfileAgentLoop(t, defaultFocusChatCfg(), provider)
+	registerFocusOriginTools(al)
+
+	if _, err := al.ProcessCronWithChannel(
+		context.Background(), "leia o arquivo README.md", "agent:cron-t", "cli", "direct",
+	); err != nil {
+		t.Fatalf("ProcessCronWithChannel() error = %v", err)
+	}
+	got := toolNamesOf(provider.tools)
+	want := []string{"exec", "message"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("tools = %v, want %v (cron window)", got, want)
 	}
 }

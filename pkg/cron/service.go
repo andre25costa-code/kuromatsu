@@ -41,7 +41,7 @@ type CronPayload struct {
 	// AgentID optionally names a registered agent (Trilho G B.2) this
 	// job's "Message" kind must run on, bypassing agents.dispatch.rules
 	// entirely — pkg/tools/cron.go's ExecuteJob calls
-	// AgentLoop.ProcessDirectForAgent instead of ProcessDirectWithChannel
+	// AgentLoop.ProcessDirectForAgent instead of ProcessCronWithChannel
 	// when set. Empty (the default) means "route by Channel/To like any
 	// other message", which is already agent-aware today: a job whose
 	// Channel/To matches a dispatch rule already lands on that rule's

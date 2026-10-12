@@ -29,7 +29,7 @@ type stubJobExecutor struct {
 	publishedKey    string
 }
 
-func (s *stubJobExecutor) ProcessDirectWithChannel(
+func (s *stubJobExecutor) ProcessCronWithChannel(
 	_ context.Context,
 	content, sessionKey, channel, chatID string,
 ) (string, error) {
@@ -1285,7 +1285,7 @@ func TestCronTool_ExecuteJobPublishesAgentResponse(t *testing.T) {
 
 // TestCronTool_ExecuteJobAgentIDOverride_BypassesDispatchRules is Trilho G
 // B.2's optional override: a job with Payload.AgentID set calls
-// ProcessDirectForAgent instead of ProcessDirectWithChannel, regardless of
+// ProcessDirectForAgent instead of ProcessCronWithChannel, regardless of
 // what Channel/To would otherwise resolve to via agents.dispatch.rules.
 func TestCronTool_ExecuteJobAgentIDOverride_BypassesDispatchRules(t *testing.T) {
 	executor := &stubJobExecutor{response: "generated reply"}
@@ -1314,7 +1314,7 @@ func TestCronTool_ExecuteJobAgentIDOverride_BypassesDispatchRules(t *testing.T) 
 
 // TestCronTool_ExecuteJobWithoutAgentIDUsesChannelRouting is the
 // complementary case: no Payload.AgentID means the plain
-// ProcessDirectWithChannel path runs, exactly as before this override
+// ProcessCronWithChannel path runs, exactly as before this override
 // existed -- lastAgentID stays empty (only ProcessDirectForAgent sets it).
 func TestCronTool_ExecuteJobWithoutAgentIDUsesChannelRouting(t *testing.T) {
 	executor := &stubJobExecutor{response: "generated reply"}
@@ -1330,7 +1330,7 @@ func TestCronTool_ExecuteJobWithoutAgentIDUsesChannelRouting(t *testing.T) {
 	}
 	if executor.lastAgentID != "" {
 		t.Fatalf(
-			"lastAgentID = %q, want empty (ProcessDirectWithChannel path, not ProcessDirectForAgent)",
+			"lastAgentID = %q, want empty (ProcessCronWithChannel path, not ProcessDirectForAgent)",
 			executor.lastAgentID,
 		)
 	}
@@ -1583,14 +1583,14 @@ type ctxDeadlineExecutor struct {
 	deadlineIn  time.Duration
 }
 
-func (e *ctxDeadlineExecutor) ProcessDirectWithChannel(
+func (e *ctxDeadlineExecutor) ProcessCronWithChannel(
 	ctx context.Context,
 	content, key, ch, chat string,
 ) (string, error) {
 	if d, ok := ctx.Deadline(); ok {
 		e.hadDeadline, e.deadlineIn = true, time.Until(d)
 	}
-	return e.stubJobExecutor.ProcessDirectWithChannel(ctx, content, key, ch, chat)
+	return e.stubJobExecutor.ProcessCronWithChannel(ctx, content, key, ch, chat)
 }
 
 // AC-028-5 applies to LLM turns only: the cap lives in the cron tool's

@@ -40,9 +40,31 @@ func (al *AgentLoop) ProcessDirect(
 	return al.ProcessDirectWithChannel(ctx, content, sessionKey, "cli", "direct")
 }
 
+// ProcessDirectWithChannel is the direct entry point for a user turn (the CLI
+// and any caller acting on behalf of a person): the message carries SenderID
+// "cli", so focus routing, reflexes and telemetry treat it as origin user.
 func (al *AgentLoop) ProcessDirectWithChannel(
 	ctx context.Context,
 	content, sessionKey, channel, chatID string,
+) (string, error) {
+	return al.processDirectAs(ctx, content, sessionKey, channel, chatID, "cli")
+}
+
+// ProcessCronWithChannel is the entry point for a scheduled job's turn. It
+// declares the cron origin explicitly, so the turn uses the cron focus window
+// and never runs reflexes.
+func (al *AgentLoop) ProcessCronWithChannel(
+	ctx context.Context,
+	content, sessionKey, channel, chatID string,
+) (string, error) {
+	return al.processDirectAs(ctx, content, sessionKey, channel, chatID, OriginCron)
+}
+
+// processDirectAs builds a direct inbound message from senderID and processes
+// it. Do not apply user deadlines here: cron uses this path.
+func (al *AgentLoop) processDirectAs(
+	ctx context.Context,
+	content, sessionKey, channel, chatID, senderID string,
 ) (string, error) {
 	if err := al.ensureHooksInitialized(ctx); err != nil {
 		return "", err
@@ -56,7 +78,7 @@ func (al *AgentLoop) ProcessDirectWithChannel(
 			Channel:  channel,
 			ChatID:   chatID,
 			ChatType: "direct",
-			SenderID: "cron",
+			SenderID: senderID,
 		},
 		Content:    content,
 		SessionKey: sessionKey,
@@ -196,7 +218,7 @@ func (al *AgentLoop) prepareInboundMessageForAgent(
 }
 
 // originForInboundMessage derives the focus origin (ADR-014/S16) for a
-// message flowing through processMessage. ProcessDirectWithChannel (used by
+// message flowing through processMessage. ProcessCronWithChannel (used by
 // cron's "Message" job kind, pkg/tools/cron.go ExecuteJob) sets SenderID to
 // "cron"; every other inbound message here is a genuine user turn.
 func originForInboundMessage(msg bus.InboundMessage) string {

@@ -284,9 +284,9 @@ func TestReflex_CronOriginNeverTriggersReflexes(t *testing.T) {
 	provider := &turnProfileCaptureProvider{}
 	al := newTurnProfileAgentLoop(t, cfg, provider)
 
-	response, err := al.ProcessDirectWithChannel(context.Background(), "oi", "agent:cron-test", "cli", "direct")
+	response, err := al.ProcessCronWithChannel(context.Background(), "oi", "agent:cron-test", "cli", "direct")
 	if err != nil {
-		t.Fatalf("ProcessDirectWithChannel() error = %v", err)
+		t.Fatalf("ProcessCronWithChannel() error = %v", err)
 	}
 	if response != "profile response" {
 		t.Fatalf("response = %q, want LLM response (cron origin bypasses reflexes)", response)

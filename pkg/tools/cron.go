@@ -22,8 +22,8 @@ import (
 
 // JobExecutor is the interface for executing cron jobs through the agent
 type JobExecutor interface {
-	ProcessDirectWithChannel(ctx context.Context, content, sessionKey, channel, chatID string) (string, error)
-	// ProcessDirectForAgent is ProcessDirectWithChannel's per-agent form
+	ProcessCronWithChannel(ctx context.Context, content, sessionKey, channel, chatID string) (string, error)
+	// ProcessDirectForAgent is ProcessCronWithChannel's per-agent form
 	// (Trilho G B.2), used when payload.AgentID is set.
 	ProcessDirectForAgent(ctx context.Context, agentID, content, sessionKey, channel, chatID string) (string, error)
 	// PublishResponseIfNeeded sends response to the outbound bus only when the
@@ -817,7 +817,7 @@ func (t *CronTool) runAgentTurn(
 			chatID,
 		)
 	} else {
-		response, err = t.executor.ProcessDirectWithChannel(
+		response, err = t.executor.ProcessCronWithChannel(
 			ctx,
 			jobMessage,
 			sessionKey,
