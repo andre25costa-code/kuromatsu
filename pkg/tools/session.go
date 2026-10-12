@@ -3,17 +3,36 @@ package tools
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
 const maxOutputBufferSize = 1 * 1024 * 1024 // 1MB
 
 const outputTruncateMarker = "\n... [output truncated, exceeded 1MB]\n"
+
+const (
+	// maxRunningBackgroundSessions caps how many background sessions may be
+	// running at once in this process.
+	maxRunningBackgroundSessions = 8
+	// backgroundSessionMaxAge is how long a background session may keep
+	// running before the periodic cleanup kills it.
+	backgroundSessionMaxAge = time.Hour
+	// doneSessionRetention is how long a finished session stays readable
+	// before the periodic cleanup removes it.
+	doneSessionRetention = 30 * time.Minute
+)
+
+// expiredSessionNote is appended to the output of a session killed for
+// exceeding backgroundSessionMaxAge.
+const expiredSessionNote = "\n[killed after 1h: background session exceeded the maximum age]\n"
 
 // PtyKeyMode represents arrow key encoding mode for PTY sessions.
 // Programs send smkx/rmkx sequences to switch between CSI and SS3 modes.
@@ -42,6 +61,7 @@ type ProcessSession struct {
 	PTY             bool
 	Background      bool
 	StartTime       int64
+	EndTime         int64 // Unix seconds when the session finished or was killed; 0 while running.
 	ExitCode        int
 	Status          string
 	stdinWriter     io.Writer
@@ -102,7 +122,29 @@ func (s *ProcessSession) killProcess() error {
 
 	s.Status = "done"
 	s.ExitCode = -1
+	s.markEndedLocked()
 	return nil
+}
+
+// markEndedLocked records the end time once. Callers hold s.mu.
+func (s *ProcessSession) markEndedLocked() {
+	if s.EndTime == 0 {
+		s.EndTime = time.Now().Unix()
+	}
+}
+
+// markExited records the exit of the session's process. A session already
+// marked done (e.g. killed) keeps its status and exit code.
+func (s *ProcessSession) markExited(state *os.ProcessState) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Status == "running" {
+		if state != nil {
+			s.ExitCode = state.ExitCode()
+		}
+		s.Status = "done"
+	}
+	s.markEndedLocked()
 }
 
 func (s *ProcessSession) Kill() error {
@@ -195,16 +237,48 @@ func (sm *SessionManager) Stop() {
 	})
 }
 
-// cleanupOldSessions removes sessions that are done and older than 30 minutes
+// cleanupOldSessions removes sessions that finished more than
+// doneSessionRetention ago and kills running sessions older than
+// backgroundSessionMaxAge. A killed session stays listed until a later run, so
+// its owner can still read why it ended.
 func (sm *SessionManager) cleanupOldSessions() {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
+	now := time.Now()
+	doneCutoff := now.Add(-doneSessionRetention).Unix()
+	ageCutoff := now.Add(-backgroundSessionMaxAge).Unix()
 
-	cutoff := time.Now().Add(-30 * time.Minute)
+	var expired []*ProcessSession
+	sm.mu.Lock()
 	for id, session := range sm.sessions {
-		if session.IsDone() && session.StartTime < cutoff.Unix() {
-			delete(sm.sessions, id)
+		session.mu.Lock()
+		status, start, end := session.Status, session.StartTime, session.EndTime
+		session.mu.Unlock()
+		switch {
+		case status == "done" || status == "exited":
+			if end < doneCutoff {
+				delete(sm.sessions, id)
+			}
+		case status == "running" && start < ageCutoff:
+			expired = append(expired, session)
 		}
+	}
+	sm.mu.Unlock()
+
+	// Kill outside the manager lock: killing a process tree can be slow
+	// (taskkill on Windows).
+	for _, session := range expired {
+		if err := session.Kill(); err != nil {
+			// ErrSessionDone means it exited on its own since the scan.
+			if !errors.Is(err, ErrSessionDone) {
+				logger.WarnCF("shell", "failed to kill expired background session",
+					map[string]any{"session_id": session.ID, "error": err.Error()})
+			}
+			continue
+		}
+		session.mu.Lock()
+		if session.outputBuffer != nil {
+			session.outputBuffer.WriteString(expiredSessionNote)
+		}
+		session.mu.Unlock()
 	}
 }
 
@@ -212,6 +286,35 @@ func (sm *SessionManager) Add(session *ProcessSession) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 	sm.sessions[session.ID] = session
+}
+
+// AddIfBelow adds the session only while fewer than max sessions are running.
+// The check and the insert happen under the same lock.
+func (sm *SessionManager) AddIfBelow(session *ProcessSession, limit int) error {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if sm.runningCountLocked() >= limit {
+		return fmt.Errorf("too many background sessions running (max %d); kill or wait for one", limit)
+	}
+	sm.sessions[session.ID] = session
+	return nil
+}
+
+// RunningCount returns how many sessions are running.
+func (sm *SessionManager) RunningCount() int {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.runningCountLocked()
+}
+
+func (sm *SessionManager) runningCountLocked() int {
+	n := 0
+	for _, session := range sm.sessions {
+		if session.GetStatus() == "running" {
+			n++
+		}
+	}
+	return n
 }
 
 func (sm *SessionManager) Get(sessionID string) (*ProcessSession, error) {

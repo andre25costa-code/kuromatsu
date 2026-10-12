@@ -7,12 +7,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -54,9 +56,10 @@ var (
 		regexp.MustCompile(`\brm\s+-[rf]{1,2}\b`),
 		regexp.MustCompile(`\bdel\s+/[fq]\b`),
 		regexp.MustCompile(`\brmdir\s+/s\b`),
-		// Match disk wiping commands (must be followed by space/args)
+		// Match disk wiping commands (must be followed by space/args), including
+		// the mkfs.<fs> helpers such as mkfs.ext4 and mkfs.vfat.
 		regexp.MustCompile(
-			`(^|[^-\w])\b(format|mkfs|diskpart)\b\s`,
+			`(^|[^-\w])\b(format|mkfs(?:\.\w+)?|diskpart)\b\s`,
 		),
 		regexp.MustCompile(`\bdd\s+if=`),
 		// Block writes to block devices (all common naming schemes).
@@ -106,9 +109,12 @@ var (
 		// [Text.Encoding] used to construct command strings at runtime.
 		// Matches [Text.Encoding] and [System.Text.Encoding] variants.
 		regexp.MustCompile(`\[(?:\w+\.)?text\.encoding\]`),
-		// PowerShell -EncodedCommand flag (base64-encoded command) and all short forms.
-		// Matches: -e, -ec, -enc, -en, -EncodedCommand (all with space prefix)
-		regexp.MustCompile(` -e(?:$|\s)| -ec(?:$|\s)| -enc(?:$|\s)| -en(?:$|\s)| -encodedcommand\b`),
+		// PowerShell -EncodedCommand flag (base64-encoded command). PowerShell
+		// accepts any unique prefix of a parameter name, so every prefix from
+		// -e up to -encodedcommand is matched, plus the -ec alias.
+		encodedCommandFlagPattern(),
+		// The full flag followed by anything (e.g. "-encodedcommand:ZQ==").
+		regexp.MustCompile(` -encodedcommand\b`),
 		// .GetString called on byte array to decode commands.
 		regexp.MustCompile(`\.getstring\s*\(\s*\[byte\[\]`),
 		// FromBase64String used in command construction chain.
@@ -123,6 +129,34 @@ var (
 	// absolutePathPattern matches absolute file paths in commands (Unix and Windows).
 	absolutePathPattern = regexp.MustCompile(`[A-Za-z]:\\[^\\\"']+|/[^\s\"']+`)
 
+	// pathTraversalPattern matches ".." followed by a path separator, including
+	// ".../.../" variants.
+	pathTraversalPattern = regexp.MustCompile(`\.\.(?:[\\/]\.\.)*[\\/]`)
+
+	// dotDotTokenPattern matches ".." standing alone as a path token ("ls ..",
+	// "cd .. && x", "--directory=..", "PATH=..:$PATH", "cat <.."). Git ranges
+	// such as "a..b", "..HEAD" and "HEAD~3.." stay unmatched because a letter
+	// or digit touches the dots.
+	dotDotTokenPattern = regexp.MustCompile(
+		`(^|[\s/\\;&|"'=()<>,:` + "`" + `])\.\.($|[\s/\\;&|"'=()<>,:` + "`" + `])`,
+	)
+
+	// dotDotShortOptionPattern matches ".." attached to a one-letter option,
+	// as in "make -C.. x".
+	dotDotShortOptionPattern = regexp.MustCompile(
+		`(^|\s)-[A-Za-z]\.\.($|[\s/\\;&|"'=()<>,:` + "`" + `])`,
+	)
+
+	// cdDotDotPattern matches "cd.." written without a space, which cmd.exe
+	// and PowerShell both accept.
+	cdDotDotPattern = regexp.MustCompile(`(?i)(^|[\s;&|])cd\.\.`)
+
+	// psEnvVarPattern matches PowerShell environment variables ($env:VAR and ${env:VAR}).
+	psEnvVarPattern = regexp.MustCompile(`\$\{?env:(\w+)\}?`)
+
+	// cmdEnvVarPattern matches CMD environment variables (%VAR%).
+	cmdEnvVarPattern = regexp.MustCompile(`%([^%]+)%`)
+
 	// safePaths are kernel pseudo-devices that are always safe to reference in
 	// commands, regardless of workspace restriction. They contain no user data
 	// and cannot cause destructive writes.
@@ -136,6 +170,18 @@ var (
 		"/dev/stderr":  true,
 	}
 )
+
+// encodedCommandFlagPattern matches, in a lower-cased command, a space followed
+// by any prefix of -encodedcommand that is at least "-e", or the -ec alias,
+// ending at whitespace or the end of the command.
+func encodedCommandFlagPattern() *regexp.Regexp {
+	const flag = "-encodedcommand"
+	alts := []string{"-ec"}
+	for n := len(flag); n >= 2; n-- {
+		alts = append(alts, flag[:n])
+	}
+	return regexp.MustCompile(` (?:` + strings.Join(alts, "|") + `)(?:$|\s)`)
+}
 
 func NewExecToolWithConfig(
 	workingDir string,
@@ -247,7 +293,7 @@ func (t *ExecTool) Parameters() map[string]any {
 			},
 			"background": map[string]any{
 				"type":        "string",
-				"description": "Run in background immediately",
+				"description": "Run in background immediately (at most 8 running sessions; a session still running after 1 hour is killed)",
 			},
 			"pty": map[string]any{
 				"type":        "string",
@@ -259,7 +305,7 @@ func (t *ExecTool) Parameters() map[string]any {
 			},
 			"timeout": map[string]any{
 				"type":        "integer",
-				"description": "Timeout in seconds (0 = no timeout)",
+				"description": "Timeout in seconds for this run; 0 or omitted uses the configured default; larger values are capped by tools.exec.timeout_seconds",
 			},
 		},
 		"required": []string{"action"},
@@ -310,12 +356,9 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 
 	// GHSA-pv8c-p6jf-3fpp: block exec from remote channels (e.g. Telegram webhooks)
 	// unless explicitly opted-in via config. Fail-closed: empty channel = blocked.
+	// The channel comes only from the trusted tool context, never from args.
 	if !t.allowRemote {
-		channel := ToolChannel(ctx)
-		if channel == "" {
-			channel, _ = args["__channel"].(string)
-		}
-		channel = strings.TrimSpace(channel)
+		channel := strings.TrimSpace(ToolChannel(ctx))
 		if channel == "" || !constants.IsInternalChannel(channel) {
 			return ErrorResult("exec is restricted to internal channels")
 		}
@@ -332,6 +375,11 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 	}
 	isPty := getBoolArg("pty")
 	isBackground := getBoolArg("background")
+
+	timeout, err := t.effectiveTimeout(args)
+	if err != nil {
+		return ErrorResult(err.Error())
+	}
 
 	if isPty {
 		if runtime.GOOS == "windows" {
@@ -390,15 +438,65 @@ func (t *ExecTool) executeRun(ctx context.Context, args map[string]any) *ToolRes
 		return t.runBackground(ctx, command, cwd, isPty)
 	}
 
-	return t.runSync(ctx, command, cwd)
+	return t.runSync(ctx, command, cwd, timeout)
 }
 
-func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult {
+// effectiveTimeout resolves the per-call "timeout" argument (seconds) against
+// the configured exec timeout: absent or 0 uses the configured value, a
+// positive value is capped by the configured value when that is set, and the
+// configured value 0 means no cap. Negative, fractional or non-numeric values
+// are rejected.
+func (t *ExecTool) effectiveTimeout(args map[string]any) (time.Duration, error) {
+	errInvalid := errors.New("timeout must be a non-negative integer")
+	var seconds int64
+	switch v := args["timeout"].(type) {
+	case nil:
+		return t.timeout, nil
+	case float64:
+		if v != math.Trunc(v) || v < 0 || v > math.MaxInt32 {
+			return 0, errInvalid
+		}
+		seconds = int64(v)
+	case int:
+		seconds = int64(v)
+	case int64:
+		seconds = v
+	case string:
+		n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		if err != nil {
+			return 0, errInvalid
+		}
+		seconds = n
+	default:
+		return 0, errInvalid
+	}
+	if seconds < 0 || seconds > math.MaxInt32 {
+		return 0, errInvalid
+	}
+	if seconds == 0 {
+		return t.timeout, nil
+	}
+	requested := time.Duration(seconds) * time.Second
+	if t.timeout > 0 && requested > t.timeout {
+		return t.timeout, nil
+	}
+	return requested, nil
+}
+
+// execWaitDelay bounds how long a finished command's output pipes may be held
+// open by processes it left running in the background.
+const execWaitDelay = 2 * time.Second
+
+// waitDelayNote is appended to the output when background processes kept the
+// output pipes open after the command itself finished.
+const waitDelayNote = "\n(processos em segundo plano mantiveram a saída aberta; saída capturada até o fim do comando)"
+
+func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout time.Duration) *ToolResult {
 	// timeout == 0 means no timeout
 	var cmdCtx context.Context
 	var cancel context.CancelFunc
-	if t.timeout > 0 {
-		cmdCtx, cancel = context.WithTimeout(ctx, t.timeout)
+	if timeout > 0 {
+		cmdCtx, cancel = context.WithTimeout(ctx, timeout)
 	} else {
 		cmdCtx, cancel = context.WithCancel(ctx)
 	}
@@ -413,6 +511,9 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 	if cwd != "" {
 		cmd.Dir = cwd
 	}
+	// A grandchild left in the background (e.g. "sleep 30 &") inherits the
+	// output pipes; without a WaitDelay, Wait would block until it exits.
+	cmd.WaitDelay = execWaitDelay
 
 	prepareCommandForTermination(cmd)
 
@@ -463,7 +564,7 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 
 	if err != nil {
 		if errors.Is(cmdCtx.Err(), context.DeadlineExceeded) {
-			msg := fmt.Sprintf("Command timed out after %v", t.timeout)
+			msg := fmt.Sprintf("Command timed out after %v", timeout)
 			if output != "" {
 				msg += "\n\nPartial output before timeout:\n" + output
 			}
@@ -471,10 +572,19 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string) *ToolResult
 				ForLLM:  msg,
 				ForUser: msg,
 				IsError: true,
-				Err:     fmt.Errorf("command timeout: %w", err),
+				Err:     fmt.Errorf("command timeout after %v: %w (%w)", timeout, cmdCtx.Err(), err),
 			}
 		}
 
+		// The command itself finished; only processes it left in the
+		// background kept the output pipes open past execWaitDelay.
+		if errors.Is(err, exec.ErrWaitDelay) && cmdCtx.Err() == nil {
+			err = nil
+			output += waitDelayNote
+		}
+	}
+
+	if err != nil {
 		// Extract detailed exit information
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -585,9 +695,7 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		session.stdinWriter = stdinWriter
 	}
 
-	// Background sessions use the same startup path so isolation stays consistent
-	// with synchronous exec runs.
-	if err := isolation.Start(cmd); err != nil {
+	releaseIO := func() {
 		if session.ptyMaster != nil {
 			_ = session.ptyMaster.Close()
 		}
@@ -595,6 +703,19 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 			_ = outputReader.Close()
 			_ = outputWriter.Close()
 		}
+	}
+
+	// Reserve the slot before starting so concurrent runs cannot exceed the cap.
+	if err := t.sessionManager.AddIfBelow(session, maxRunningBackgroundSessions); err != nil {
+		releaseIO()
+		return ErrorResult(err.Error())
+	}
+
+	// Background sessions use the same startup path so isolation stays consistent
+	// with synchronous exec runs.
+	if err := isolation.Start(cmd); err != nil {
+		t.sessionManager.Remove(session.ID)
+		releaseIO()
 		return ErrorResult(fmt.Sprintf("failed to start command: %v", err))
 	}
 	if outputWriter != nil {
@@ -603,8 +724,9 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		_ = outputWriter.Close()
 	}
 
+	session.mu.Lock()
 	session.PID = cmd.Process.Pid
-	t.sessionManager.Add(session)
+	session.mu.Unlock()
 
 	// PTY mode: read from ptyMaster and wait for process
 	// Note: On Linux, closing ptyMaster doesn't interrupt blocking Read() calls,
@@ -620,16 +742,12 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 						})
 					session.mu.Lock()
 					session.Status = "error"
+					session.markEndedLocked()
 					session.mu.Unlock()
 				}
 			}()
 			cmd.Wait() // Wait for process to exit
-			session.mu.Lock()
-			if cmd.ProcessState != nil {
-				session.ExitCode = cmd.ProcessState.ExitCode()
-			}
-			session.Status = "done"
-			session.mu.Unlock()
+			session.markExited(cmd.ProcessState)
 		}()
 
 		go func() {
@@ -709,13 +827,7 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 				_ = stdinWriter.Close()
 			}
 			cmd.Wait()
-
-			session.mu.Lock()
-			if cmd.ProcessState != nil {
-				session.ExitCode = cmd.ProcessState.ExitCode()
-			}
-			session.Status = "done"
-			session.mu.Unlock()
+			session.markExited(cmd.ProcessState)
 		}()
 	}
 
@@ -1140,9 +1252,8 @@ func (t *ExecTool) executeSendKeys(args map[string]any) *ToolResult {
 // PowerShell ($env:VAR) and CMD (%VAR%) to their actual values.
 func expandPowerShellEnvVars(cmd string) string {
 	// Handle PowerShell style: $env:VAR and ${env:VAR}
-	rePs := regexp.MustCompile(`\$\{?env:(\w+)\}?`)
-	cmd = rePs.ReplaceAllStringFunc(cmd, func(match string) string {
-		varName := rePs.FindStringSubmatch(match)[1]
+	cmd = psEnvVarPattern.ReplaceAllStringFunc(cmd, func(match string) string {
+		varName := psEnvVarPattern.FindStringSubmatch(match)[1]
 		if val := os.Getenv(varName); val != "" {
 			return val
 		}
@@ -1150,9 +1261,8 @@ func expandPowerShellEnvVars(cmd string) string {
 	})
 
 	// Handle CMD style: %VAR%
-	reCmd := regexp.MustCompile(`%([^%]+)%`)
-	return reCmd.ReplaceAllStringFunc(cmd, func(match string) string {
-		varName := reCmd.FindStringSubmatch(match)[1]
+	return cmdEnvVarPattern.ReplaceAllStringFunc(cmd, func(match string) string {
+		varName := cmdEnvVarPattern.FindStringSubmatch(match)[1]
 		if val := os.Getenv(varName); val != "" {
 			return val
 		}
@@ -1194,14 +1304,19 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 	}
 
 	if t.restrictToWorkspace {
-		// Block path traversal patterns including .../.../ variants
-		if regexp.MustCompile(`\.\.(?:[\\/]\.\.)*[\\/]`).MatchString(cmd) {
+		// Block path traversal: ".." followed by a separator (including
+		// .../.../ variants), ".." as a path token of its own, ".." attached
+		// to a one-letter option, and "cd.." without a space.
+		if pathTraversalPattern.MatchString(cmd) ||
+			dotDotTokenPattern.MatchString(cmd) ||
+			dotDotShortOptionPattern.MatchString(cmd) ||
+			cdDotDotPattern.MatchString(cmd) {
 			return "Command blocked by safety guard (path traversal detected)"
 		}
 
 		cwdPath, err := filepath.Abs(cwd)
 		if err != nil {
-			return ""
+			return "Command blocked by safety guard (cannot resolve working directory)"
 		}
 
 		// Web URL schemes whose path components (starting with //) should be exempt
@@ -1268,7 +1383,7 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 
 			p, err := commandPathAbs(commandPathTextFromMatch(cmd, loc[0], loc[1]), cwdPath)
 			if err != nil {
-				continue
+				return "Command blocked by safety guard (cannot resolve path)"
 			}
 
 			// Windows-specific: normalize paths to block ADS and extended-length paths
@@ -1296,7 +1411,7 @@ func (t *ExecTool) guardCommand(command, cwd string) string {
 
 			rel, err := filepath.Rel(cwdPath, p)
 			if err != nil {
-				continue
+				return "Command blocked by safety guard (path outside working dir)"
 			}
 
 			if strings.HasPrefix(rel, "..") {

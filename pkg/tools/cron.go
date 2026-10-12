@@ -668,12 +668,7 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 			return "ok"
 		}
 
-		args := map[string]any{
-			"action":    "run",
-			"command":   job.Payload.Command,
-			"__channel": channel,
-			"__chat_id": chatID,
-		}
+		args := map[string]any{"action": "run", "command": job.Payload.Command}
 
 		// The scheduler is trusted, not a remote chat user: a command job was
 		// created from the CLI or through the cron tool's own remote gate

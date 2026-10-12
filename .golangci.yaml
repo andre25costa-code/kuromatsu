@@ -94,6 +94,7 @@ linters:
         - calcular
         - problemas
         - incorpore
+        - processos
     mnd:
       checks:
         - argument
