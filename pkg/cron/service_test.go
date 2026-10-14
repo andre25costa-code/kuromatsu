@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 	_ "time/tzdata" // TestComputeNextRun_AppliesTZ needs zone data on any host
+
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
 func TestSaveStore_FilePermissions(t *testing.T) {
@@ -1047,5 +1049,34 @@ func TestSetMaxSleep_NonPositiveFallsBackToDefault(t *testing.T) {
 		if cs.maxSleep != defaultMaxSleep {
 			t.Fatalf("SetMaxSleep(%v) left maxSleep = %v, want %v", d, cs.maxSleep, defaultMaxSleep)
 		}
+	}
+}
+
+func TestSaveStoreFailure_LogsThroughLogger(t *testing.T) {
+	dir := t.TempDir()
+	blocker := filepath.Join(dir, "file.txt")
+	if err := os.WriteFile(blocker, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(dir, "log.txt")
+	if err := logger.EnableFileLogging(logPath); err != nil {
+		t.Fatal(err)
+	}
+	defer logger.DisableFileLogging()
+
+	// The store path sits under a regular file, so every write fails.
+	cs := NewCronService(filepath.Join(blocker, "jobs.json"), nil)
+	_, err := cs.AddJob("failing-save", CronSchedule{Kind: "every", EveryMS: int64Ptr(60000)}, "msg", "cli", "direct")
+	if err == nil {
+		t.Fatal("AddJob with an unwritable store path returned no error")
+	}
+
+	data, readErr := os.ReadFile(logPath)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	logged := string(data)
+	if !strings.Contains(logged, `"level":"error"`) || !strings.Contains(logged, `"component":"cron"`) {
+		t.Errorf("store write failure not logged as error/cron:\n%s", logged)
 	}
 }

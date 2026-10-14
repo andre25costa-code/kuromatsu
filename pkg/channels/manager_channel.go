@@ -4,9 +4,9 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
-	"log"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
 func toChannelHashes(cfg *config.Config) map[string]string {
@@ -14,12 +14,12 @@ func toChannelHashes(cfg *config.Config) map[string]string {
 	ch := cfg.Channels
 	marshal, err := json.Marshal(ch)
 	if err != nil {
-		log.Printf("[manager_channel] failed to marshal channels config: %v", err)
+		logger.ErrorCF("channels", "failed to marshal channels config", map[string]any{"error": err.Error()})
 		return result
 	}
 	var channelConfig map[string]map[string]any
 	if err := json.Unmarshal(marshal, &channelConfig); err != nil {
-		log.Printf("[manager_channel] failed to unmarshal channels config: %v", err)
+		logger.ErrorCF("channels", "failed to unmarshal channels config", map[string]any{"error": err.Error()})
 		return result
 	}
 
@@ -30,7 +30,9 @@ func toChannelHashes(cfg *config.Config) map[string]string {
 		hiddenValues(key, value, ch.Get(key))
 		valueBytes, err := json.Marshal(value)
 		if err != nil {
-			log.Printf("[manager_channel] failed to marshal channel %s config: %v", key, err)
+			logger.ErrorCF("channels", "failed to marshal channel config", map[string]any{
+				"channel": key, "error": err.Error(),
+			})
 			continue
 		}
 		hash := md5.Sum(valueBytes)

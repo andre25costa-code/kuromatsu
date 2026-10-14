@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"reflect"
 	"regexp"
@@ -312,9 +311,8 @@ func (cs *CronService) checkJobs() {
 	// The loop wakes at least every maxSleep; only rewrite jobs.json when a
 	// job actually became due.
 	if len(dueJobIDs) > 0 {
-		if err := cs.saveStoreUnsafe(); err != nil {
-			log.Printf("[cron] failed to save store: %v", err)
-		}
+		// saveStoreUnsafe logs its own failure.
+		_ = cs.saveStoreUnsafe()
 	}
 
 	cs.mu.Unlock()
@@ -343,13 +341,15 @@ func (cs *CronService) executeJobByID(jobID string) {
 	cs.mu.RUnlock()
 
 	if callbackJob == nil {
-		log.Printf("[cron] job %s not found, skipping", jobID)
+		logger.WarnCF("cron", "job not found, skipping", map[string]any{"job_id": jobID})
 		return
 	}
 
 	// Log job execution start
-	log.Printf("[cron] ▶ executing job '%s' (id: %s, schedule: %s, channel: %s)",
-		callbackJob.Name, jobID, callbackJob.Schedule.Kind, callbackJob.Payload.Channel)
+	logger.InfoCF("cron", "executing job", map[string]any{
+		"job_id": jobID, "name": callbackJob.Name,
+		"schedule": callbackJob.Schedule.Kind, "channel": callbackJob.Payload.Channel,
+	})
 
 	var err error
 	if onJob != nil {
@@ -383,7 +383,7 @@ func (cs *CronService) executeJobByID(jobID string) {
 		}
 	}
 	if job == nil {
-		log.Printf("[cron] job %s disappeared before state update", jobID)
+		logger.WarnCF("cron", "job disappeared before state update", map[string]any{"job_id": jobID})
 		cs.mu.Unlock()
 		return
 	}
@@ -400,7 +400,9 @@ func (cs *CronService) executeJobByID(jobID string) {
 			first := startTime
 			job.State.FirstFailureAtMS = &first
 		}
-		log.Printf("[cron] ✗ job '%s' failed after %dms: %v", job.Name, execDuration, err)
+		logger.WarnCF("cron", "job failed", map[string]any{
+			"job_id": job.ID, "name": job.Name, "duration_ms": execDuration, "error": err.Error(),
+		})
 	case RunStatusCanceled:
 		job.State.LastError = err.Error()
 		logger.InfoCF("cron", "Job run canceled", map[string]any{
@@ -458,12 +460,13 @@ func (cs *CronService) executeJobByID(jobID string) {
 	}
 
 	if err == nil {
-		log.Printf("[cron] ✓ job '%s' completed in %dms, next run: %s", job.Name, execDuration, nextRunStr)
+		logger.InfoCF("cron", "job completed", map[string]any{
+			"job_id": job.ID, "name": job.Name, "duration_ms": execDuration, "next_run": nextRunStr,
+		})
 	}
 
-	if saveErr := cs.saveStoreUnsafe(); saveErr != nil {
-		log.Printf("[cron] failed to save store: %v", saveErr)
-	}
+	// saveStoreUnsafe logs its own failure.
+	_ = cs.saveStoreUnsafe()
 
 	runErr := ""
 	if err != nil {
@@ -550,14 +553,16 @@ func computeNextRunAt(schedule *CronSchedule, nowMS int64) *int64 {
 		}
 		nextTime, err := gronx.NextTickAfter(schedule.Expr, now, false)
 		if err != nil {
-			log.Printf("[cron] failed to compute next run for expr '%s': %v", schedule.Expr, err)
+			logger.WarnCF("cron", "failed to compute next run", map[string]any{
+				"expr": schedule.Expr, "error": err.Error(),
+			})
 			return nil
 		}
 
 		nextMS := nextTime.UnixMilli()
 		return &nextMS
 	default:
-		log.Printf("[cron] unknown schedule kind '%s'", schedule.Kind)
+		logger.WarnCF("cron", "unknown schedule kind", map[string]any{"kind": schedule.Kind})
 		return nil
 	}
 }
@@ -728,6 +733,7 @@ func (cs *CronService) loadStore() error {
 func (cs *CronService) saveStoreUnsafe() error {
 	data, err := json.MarshalIndent(cs.store, "", "  ")
 	if err != nil {
+		logger.ErrorCF("cron", "Failed to encode cron store", map[string]any{"error": err.Error()})
 		return err
 	}
 

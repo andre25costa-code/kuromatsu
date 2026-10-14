@@ -5,9 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers/protocoltypes"
 )
 
@@ -798,5 +801,35 @@ func TestParseResponse_WithFunctionThoughtSignature(t *testing.T) {
 			out.ToolCalls[0].ExtraContent.Google.ThoughtSignature,
 			"sig456",
 		)
+	}
+}
+
+func TestNewHTTPClient_InvalidProxyLogMasksCredentials(t *testing.T) {
+	logPath := filepath.Join(t.TempDir(), "log.txt")
+	if err := logger.EnableFileLogging(logPath); err != nil {
+		t.Fatal(err)
+	}
+	defer logger.DisableFileLogging()
+
+	client := NewHTTPClient("http://alice:s3cr3t@proxy.local:bad")
+	if client == nil {
+		t.Fatal("expected non-nil client even with invalid proxy")
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logged := string(data)
+	if !strings.Contains(logged, "invalid proxy URL ignored") {
+		t.Errorf("log lacks the invalid proxy message:\n%s", logged)
+	}
+	if !strings.Contains(logged, `"component":"providers"`) {
+		t.Errorf("log lacks the providers component:\n%s", logged)
+	}
+	for _, secret := range []string{"s3cr3t", "alice"} {
+		if strings.Contains(logged, secret) {
+			t.Errorf("log leaks %q:\n%s", secret, logged)
+		}
 	}
 }

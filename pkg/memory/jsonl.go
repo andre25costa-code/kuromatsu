@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -18,6 +17,7 @@ import (
 	"time"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/fileutil"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers/messageutil"
 )
@@ -316,13 +316,17 @@ func (s *JSONLStore) ResolveSessionKey(_ context.Context, sessionKey string) (st
 
 		data, readErr := os.ReadFile(filepath.Join(s.dir, entry.Name()))
 		if readErr != nil {
-			log.Printf("memory: skipping unreadable meta %s: %v", entry.Name(), readErr)
+			logger.WarnCF("memory", "skipping unreadable meta", map[string]any{
+				"file": entry.Name(), "error": readErr.Error(),
+			})
 			continue
 		}
 
 		var meta SessionMeta
 		if err := json.Unmarshal(data, &meta); err != nil {
-			log.Printf("memory: skipping corrupt meta %s: %v", entry.Name(), err)
+			logger.WarnCF("memory", "skipping corrupt meta", map[string]any{
+				"file": entry.Name(), "error": err.Error(),
+			})
 			continue
 		}
 
@@ -515,8 +519,9 @@ func readMessages(path string, skip int) ([]providers.Message, error) {
 			// Log so operators know data was skipped, but don't
 			// fail the entire read; this is the standard JSONL
 			// recovery pattern.
-			log.Printf("memory: skipping corrupt line %d in %s: %v",
-				lineNum, filepath.Base(path), err)
+			logger.WarnCF("memory", "skipping corrupt line", map[string]any{
+				"line": lineNum, "file": filepath.Base(path), "error": err.Error(),
+			})
 			continue
 		}
 		if messageutil.IsTransientAssistantThoughtMessage(msg) {

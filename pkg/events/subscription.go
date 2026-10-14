@@ -3,11 +3,13 @@ package events
 import (
 	"context"
 	"errors"
-	"log"
+	"fmt"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
 const defaultSubscriberBuffer = 16
@@ -230,7 +232,9 @@ func (s *eventSubscription) dispatch(ctx context.Context, evt Event) {
 			defer s.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					log.Printf("events: subscriber %q goroutine panic recovered: %v\n%s", s.name, r, debug.Stack())
+					logger.ErrorCF("events", "subscriber goroutine panic recovered", map[string]any{
+						"subscriber": s.name, "panic": fmt.Sprint(r), "stack": string(debug.Stack()),
+					})
 				}
 			}()
 			s.handle(ctx, evt)
@@ -261,10 +265,9 @@ func (s *eventSubscription) handle(ctx context.Context, evt Event) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf(
-					"events: subscriber %q timeout-handler goroutine panic recovered: %v\n%s",
-					s.name, r, debug.Stack(),
-				)
+				logger.ErrorCF("events", "subscriber timeout-handler goroutine panic recovered", map[string]any{
+					"subscriber": s.name, "panic": fmt.Sprint(r), "stack": string(debug.Stack()),
+				})
 				done <- handlerResult{panicked: true}
 			}
 		}()
@@ -288,7 +291,9 @@ func (s *eventSubscription) invokeHandler(ctx context.Context, evt Event) (resul
 			if recovered := recover(); recovered != nil {
 				s.counters.panicked.Add(1)
 				result.panicked = true
-				log.Printf("events: subscriber %q recovered panic: %v", s.name, recovered)
+				logger.WarnCF("events", "subscriber recovered panic", map[string]any{
+					"subscriber": s.name, "panic": fmt.Sprint(recovered),
+				})
 			}
 		}()
 	}
@@ -319,10 +324,9 @@ func (s *eventSubscription) watchContext(ctx context.Context) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				log.Printf(
-					"events: subscriber %q watchContext goroutine panic recovered: %v\n%s",
-					s.name, r, debug.Stack(),
-				)
+				logger.ErrorCF("events", "subscriber watchContext goroutine panic recovered", map[string]any{
+					"subscriber": s.name, "panic": fmt.Sprint(r), "stack": string(debug.Stack()),
+				})
 			}
 		}()
 		select {
