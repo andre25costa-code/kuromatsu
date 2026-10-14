@@ -1740,6 +1740,25 @@ func TestExecuteJob_AgentTurnErrorReturnsError(t *testing.T) {
 	}
 }
 
+// An agent turn whose time limit ran out is a failure even when the agent
+// returns no error, and its partial reply is not published.
+func TestExecuteJob_AgentTurnCutByDeadlineIsFailure(t *testing.T) {
+	executor := &stubJobExecutor{response: "partial reply"}
+	tool := newTestCronToolWithExecutorAndConfig(t, executor, config.DefaultConfig())
+	job := &cron.CronJob{ID: "msg"}
+	job.Payload.Message = "summarize"
+
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
+	defer cancel()
+	_, err := tool.ExecuteJob(ctx, job)
+	if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		t.Fatalf("ExecuteJob() error = %v, want a deadline failure", err)
+	}
+	if executor.publishedResp != "" {
+		t.Fatalf("published %q from a turn cut by its deadline", executor.publishedResp)
+	}
+}
+
 // Shutdown while a command job runs is neither a failure nor a success.
 func TestExecuteJob_CommandCanceledIsNeutral(t *testing.T) {
 	if runtime.GOOS == "windows" {
@@ -1751,7 +1770,12 @@ func TestExecuteJob_CommandCanceledIsNeutral(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	svc.SetOnJob(func(job *cron.CronJob) (string, error) { return tool.ExecuteJob(ctx, job) })
+	returned := make(chan error, 1)
+	svc.SetOnJob(func(job *cron.CronJob) (string, error) {
+		res, err := tool.ExecuteJob(ctx, job)
+		returned <- err
+		return res, err
+	})
 	svc.SetMaxSleep(200 * time.Millisecond)
 
 	everyMS := int64(600_000)
@@ -1780,6 +1804,15 @@ func TestExecuteJob_CommandCanceledIsNeutral(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.AfterFunc(100*time.Millisecond, cancel)
+
+	select {
+	case err := <-returned:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("ExecuteJob() error = %v, want context.Canceled", err)
+		}
+	case <-time.After(4 * time.Second):
+		t.Fatal("the command job did not return after cancel")
+	}
 
 	deadline := time.Now().Add(4 * time.Second)
 	for {
