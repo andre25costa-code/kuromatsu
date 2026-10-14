@@ -60,13 +60,18 @@ func cronListCmd(w io.Writer, storePath string) {
 	}
 }
 
-func cronRemoveCmd(w io.Writer, storePath, jobID string) {
+func cronRemoveCmd(w io.Writer, storePath, jobID string) error {
 	cs := cron.NewCronService(storePath, nil)
-	if cs.RemoveJob(jobID) {
+	removed, err := cs.RemoveJob(jobID)
+	if err != nil {
+		return fmt.Errorf("job %s: %w", jobID, err)
+	}
+	if removed {
 		fmt.Fprintf(w, "✓ Removed job %s\n", jobID)
 	} else {
 		fmt.Fprintf(w, "✗ Job %s not found\n", jobID)
 	}
+	return nil
 }
 
 func cronSetJobEnabled(w io.Writer, storePath, jobID string, enabled bool) error {

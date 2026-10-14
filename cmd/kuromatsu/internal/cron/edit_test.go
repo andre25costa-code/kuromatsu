@@ -58,3 +58,17 @@ func TestEditCommand_MessageOnlyAndTZWithoutCron(t *testing.T) {
 	require.Error(t, runEdit(t, store, job.ID, "--tz", "UTC"))
 	require.Error(t, runEdit(t, store, job.ID), "an edit with no field must fail")
 }
+
+func TestEditCommand_CronWithoutTZKeepsZone(t *testing.T) {
+	store := filepath.Join(t.TempDir(), "jobs.json")
+	job := addEveryJob(t, store)
+	require.NoError(t, runEdit(t, store, job.ID, "--cron", "0 7 * * *", "--tz", "America/Sao_Paulo"))
+
+	require.NoError(t, runEdit(t, store, job.ID, "--cron", "0 6 * * *"))
+	got, _ := cron.NewCronService(store, nil).GetJob(job.ID)
+	assert.Equal(t, cron.CronSchedule{Kind: "cron", Expr: "0 6 * * *", TZ: "America/Sao_Paulo"}, got.Schedule)
+
+	require.NoError(t, runEdit(t, store, job.ID, "--cron", "0 5 * * *", "--tz", ""))
+	got, _ = cron.NewCronService(store, nil).GetJob(job.ID)
+	assert.Empty(t, got.Schedule.TZ, "--tz \"\" returns the job to local time")
+}

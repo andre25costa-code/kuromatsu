@@ -80,7 +80,9 @@ func TestHistory_PrunesRemovedJobs(t *testing.T) {
 		t.Fatalf("history of %s has %d runs, want 1", removed.ID, n)
 	}
 
-	cs.RemoveJob(removed.ID)
+	if _, err = cs.RemoveJob(removed.ID); err != nil {
+		t.Fatal(err)
+	}
 	cs.executeJobByID(kept)
 
 	if n := len(cs.History(removed.ID)); n != 0 {

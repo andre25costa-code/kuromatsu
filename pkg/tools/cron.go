@@ -156,7 +156,7 @@ func (t *CronTool) Parameters() map[string]any {
 			},
 			"tz": map[string]any{
 				"type":        "string",
-				"description": "Optional IANA time zone for cron_expr (e.g. 'America/Sao_Paulo'); only valid together with cron_expr. Default: the host's local time.",
+				"description": "Optional IANA time zone for cron_expr (e.g. 'America/Sao_Paulo'); only valid together with cron_expr. Default: the host's local time; an update of cron_expr without tz keeps the job's current zone.",
 			},
 			"job_id": map[string]any{
 				"type":        "string",
@@ -454,6 +454,10 @@ func (t *CronTool) updateJob(ctx context.Context, args map[string]any) *ToolResu
 		return errResult
 	}
 	if hasSchedule {
+		// A new cron_expr without tz keeps the job's zone; pass tz to change it.
+		if _, tzGiven := args["tz"]; !tzGiven && schedule.Kind == "cron" && job.Schedule.Kind == "cron" {
+			schedule.TZ = job.Schedule.TZ
+		}
 		job.Schedule = schedule
 		job.DeleteAfterRun = schedule.Kind == "at"
 		patches++
@@ -502,7 +506,11 @@ func (t *CronTool) removeJob(ctx context.Context, args map[string]any) *ToolResu
 		return ErrorResult(fmt.Sprintf("Job %s is not accessible from this channel", jobID))
 	}
 
-	if t.cronService.RemoveJob(jobID) {
+	removed, err := t.cronService.RemoveJob(jobID)
+	if err != nil {
+		return ErrorResult(fmt.Sprintf("Error removing job %s: %v", jobID, err))
+	}
+	if removed {
 		return SilentResult(fmt.Sprintf("Cron job removed: %s", jobID))
 	}
 	return ErrorResult(fmt.Sprintf("Job %s not found", jobID))

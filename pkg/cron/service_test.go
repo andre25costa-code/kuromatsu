@@ -76,7 +76,7 @@ func TestCronService_CRUD(t *testing.T) {
 	}
 
 	// Test EnableJob
-	if _, err := cs.EnableJob(job.ID, false); err != nil {
+	if _, err = cs.EnableJob(job.ID, false); err != nil {
 		t.Fatalf("EnableJob(false): %v", err)
 	}
 	if cs.store.Jobs[0].Enabled != false || cs.store.Jobs[0].State.NextRunAtMS != nil {
@@ -84,8 +84,8 @@ func TestCronService_CRUD(t *testing.T) {
 	}
 
 	// Test RemoveJob
-	removed := cs.RemoveJob(job.ID)
-	if !removed || len(cs.store.Jobs) != 0 {
+	removed, err := cs.RemoveJob(job.ID)
+	if err != nil || !removed || len(cs.store.Jobs) != 0 {
 		t.Error("RemoveJob failed")
 	}
 }
@@ -929,5 +929,123 @@ func TestListJobs_ReturnsCopy(t *testing.T) {
 	got := mustGetJob(t, cs, job.ID)
 	if got.Name != "job" || *got.Schedule.EveryMS != 60_000 || *got.State.NextRunAtMS == 0 {
 		t.Fatalf("ListJobs aliases the store: %+v", got)
+	}
+}
+
+// --- Fix round 1 ---
+
+func TestUpdateJob_FailureStreakResetOnlyOnScheduleOrPayloadChange(t *testing.T) {
+	result := errors.New("boom")
+	cs, _, id := scriptedService(t, &result)
+
+	// Give the job an on_anomaly payload: GetJob clones that pointer, and an
+	// unchanged clone must not count as a payload change.
+	withAnomaly := mustGetJob(t, cs, id)
+	withAnomaly.Payload.OnAnomaly = &CronAnomaly{Message: "explain"}
+	if err := cs.UpdateJob(withAnomaly); err != nil {
+		t.Fatal(err)
+	}
+	fail := func() {
+		t.Helper()
+		cs.executeJobByID(id)
+		cs.executeJobByID(id)
+		if got := mustGetJob(t, cs, id); got.State.ConsecutiveFailures != 2 || got.State.FirstFailureAtMS == nil {
+			t.Fatalf("precondition: streak = %+v", got.State)
+		}
+	}
+	update := func(change func(*CronJob)) CronJobState {
+		t.Helper()
+		job := mustGetJob(t, cs, id)
+		change(job)
+		if err := cs.UpdateJob(job); err != nil {
+			t.Fatal(err)
+		}
+		return mustGetJob(t, cs, id).State
+	}
+
+	fail()
+	st := update(func(j *CronJob) { j.Name = "renamed" })
+	if st.ConsecutiveFailures != 2 || st.FirstFailureAtMS == nil {
+		t.Fatalf("name-only update reset the streak: %+v", st)
+	}
+
+	st = update(func(j *CronJob) { j.Payload.Message = "new" })
+	if st.ConsecutiveFailures != 0 || st.FirstFailureAtMS != nil {
+		t.Fatalf("payload update kept the streak: %+v", st)
+	}
+
+	fail()
+	st = update(func(j *CronJob) { j.Schedule = CronSchedule{Kind: "every", EveryMS: int64Ptr(120_000)} })
+	if st.ConsecutiveFailures != 0 || st.FirstFailureAtMS != nil {
+		t.Fatalf("schedule update kept the streak: %+v", st)
+	}
+}
+
+// A one-shot job whose run was stopped by shutdown is kept, enabled, with a
+// retry time that survives a restart.
+func TestExecuteJob_CanceledAtJobIsKeptForRetry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	cs := NewCronService(path, func(*CronJob) (string, error) {
+		return "", fmt.Errorf("cron turn: %w", context.Canceled)
+	})
+	at := time.Now().Add(time.Hour).UnixMilli()
+	job, err := cs.AddJob("once", CronSchedule{Kind: "at", AtMS: &at}, "remind me", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	before := time.Now().UnixMilli()
+	cs.executeJobByID(job.ID)
+
+	kept, ok := cs.GetJob(job.ID)
+	if !ok {
+		t.Fatal("a canceled one-shot job was deleted")
+	}
+	if !kept.Enabled || kept.State.LastStatus != "canceled" || kept.State.NextRunAtMS == nil ||
+		*kept.State.NextRunAtMS <= before {
+		t.Fatalf("canceled one-shot job = enabled %v, state %+v; want enabled with a retry time",
+			kept.Enabled, kept.State)
+	}
+	retry := *kept.State.NextRunAtMS
+
+	restarted := NewCronService(path, nil)
+	if err := restarted.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer restarted.Stop()
+	after, ok := restarted.GetJob(job.ID)
+	if !ok || after.State.NextRunAtMS == nil || *after.State.NextRunAtMS != retry {
+		t.Fatalf("retry time lost on restart: %+v", after)
+	}
+}
+
+func TestRemoveJob_ReportsSaveFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	cs := NewCronService(path, nil)
+	job, err := cs.AddJob("job", CronSchedule{Kind: "every", EveryMS: int64Ptr(60_000)}, "msg", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A non-empty directory where jobs.json was makes the atomic rename fail.
+	if err = os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(filepath.Join(path, "blocker"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	removed, err := cs.RemoveJob(job.ID)
+	if err == nil {
+		t.Fatalf("RemoveJob = %v, nil; want the save error", removed)
+	}
+}
+
+func TestSetMaxSleep_NonPositiveFallsBackToDefault(t *testing.T) {
+	cs := NewCronService(filepath.Join(t.TempDir(), "jobs.json"), nil)
+	for _, d := range []time.Duration{0, -time.Second} {
+		cs.SetMaxSleep(d)
+		if cs.maxSleep != defaultMaxSleep {
+			t.Fatalf("SetMaxSleep(%v) left maxSleep = %v, want %v", d, cs.maxSleep, defaultMaxSleep)
+		}
 	}
 }

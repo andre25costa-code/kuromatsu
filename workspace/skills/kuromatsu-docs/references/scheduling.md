@@ -116,7 +116,9 @@ schedule/payload) zera a sequência.
 As últimas 20 execuções de cada job ficam em `runs.json`, ao lado de
 `jobs.json` (início, duração, status e erro truncado em 512 bytes). Só o
 gateway grava esse arquivo; a CLI só lê. Um job `at` removido depois de
-rodar perde o histórico junto.
+rodar perde o histórico junto. Um job `at` interrompido pelo desligamento
+não é apagado: continua ativo e roda de novo 1 min depois (ou logo após o
+reinício).
 
 ### Validação, fuso e CLI com o gateway rodando
 
@@ -124,13 +126,15 @@ rodar perde o histórico junto.
 `update`/`edit` só validam quando o schedule muda, então um job antigo com
 schedule vencido continua editável (mas `enable` de um `at` vencido falha).
 `tz` (IANA, ex. `America/Sao_Paulo`) vale só para `cron_expr` (tool) /
-`--cron` (CLI); sem ele, a expressão usa o fuso local do host.
+`--cron` (CLI); sem ele, a expressão usa o fuso local do host. Mudar só a
+expressão de um job cron mantém o fuso que ele já tinha.
 
 A CLI (`kuromatsu cron list|add|edit|enable|disable|remove|run-now|history`)
 pode alterar jobs com o gateway rodando: o gateway relê `jobs.json` quando
 o conteúdo muda (no máximo a cada 1 min, e antes de cada alteração e de
 cada leitura da tool), sem recalcular o próximo disparo. `run-now` só marca
-o job como devido; quem o executa é o gateway. Não há trava entre
+o job como devido; quem o executa é o gateway (um `run-now` feito enquanto o
+job roda, ou com o gateway parado, se perde). Não há trava entre
 processos: uma gravação da CLI no mesmo instante de uma gravação do gateway
 pode se perder.
 

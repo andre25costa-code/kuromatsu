@@ -1958,3 +1958,70 @@ func TestCronTool_TZParam(t *testing.T) {
 		t.Fatalf("schedule = %+v, want 0 8 * * * in UTC", got.Schedule)
 	}
 }
+
+// --- Fix round 1 ---
+
+func TestCronTool_NotifyAutoDisabled(t *testing.T) {
+	tool := newTestCronTool(t)
+
+	read := func() bus.OutboundMessage {
+		t.Helper()
+		select {
+		case msg := <-tool.msgBus.OutboundChan():
+			return msg
+		case <-time.After(2 * time.Second):
+			t.Fatal("timeout waiting for outbound message")
+			return bus.OutboundMessage{}
+		}
+	}
+
+	job := cron.CronJob{ID: "j1", Name: "backup"}
+	job.State.ConsecutiveFailures = 5
+	job.State.LastError = "auto-disabled after 5 consecutive failures: command failed: exit 3"
+	tool.NotifyAutoDisabled(job)
+
+	msg := read()
+	want := "Cron job 'backup' (j1) was disabled after 5 consecutive failures. " +
+		"Last error: command failed: exit 3. Re-enable with `kuromatsu cron enable j1`."
+	if msg.Content != want {
+		t.Fatalf("notification = %q, want %q", msg.Content, want)
+	}
+	if msg.Context.Channel != "cli" || msg.Context.ChatID != "direct" {
+		t.Fatalf("destination = %s/%s, want the cli/direct default", msg.Context.Channel, msg.Context.ChatID)
+	}
+
+	job.Payload.Channel, job.Payload.To = "telegram", "123"
+	tool.NotifyAutoDisabled(job)
+	if msg := read(); msg.Context.Channel != "telegram" || msg.Context.ChatID != "123" {
+		t.Fatalf("destination = %s/%s, want the job's telegram/123", msg.Context.Channel, msg.Context.ChatID)
+	}
+}
+
+func TestCronTool_UpdateCronExprKeepsTZ(t *testing.T) {
+	tool := newTestCronTool(t)
+	ctx := WithToolContext(context.Background(), "cli", "direct")
+	if r := tool.Execute(ctx, map[string]any{
+		"action": "add", "message": "standup", "cron_expr": "0 9 * * *", "tz": "America/Sao_Paulo",
+	}); r.IsError {
+		t.Fatalf("add failed: %s", r.ForLLM)
+	}
+	id := tool.cronService.ListJobs(true)[0].ID
+
+	if r := tool.Execute(ctx, map[string]any{"action": "update", "job_id": id, "cron_expr": "0 8 * * *"}); r.IsError {
+		t.Fatalf("update failed: %s", r.ForLLM)
+	}
+	got, _ := tool.cronService.GetJob(id)
+	if got.Schedule.Expr != "0 8 * * *" || got.Schedule.TZ != "America/Sao_Paulo" {
+		t.Fatalf("schedule = %+v, want 0 8 * * * still in America/Sao_Paulo", got.Schedule)
+	}
+
+	// An explicit empty tz returns the job to local time.
+	if r := tool.Execute(ctx, map[string]any{
+		"action": "update", "job_id": id, "cron_expr": "0 7 * * *", "tz": "",
+	}); r.IsError {
+		t.Fatalf("update failed: %s", r.ForLLM)
+	}
+	if got, _ := tool.cronService.GetJob(id); got.Schedule.TZ != "" {
+		t.Fatalf("tz = %q, want cleared", got.Schedule.TZ)
+	}
+}

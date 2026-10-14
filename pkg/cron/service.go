@@ -100,6 +100,9 @@ const (
 	// defaultMaxSleep bounds how long the run loop sleeps before it looks at
 	// jobs.json again for changes made by another process.
 	defaultMaxSleep = time.Minute
+	// canceledAtRetryDelay is when a one-shot job whose run was canceled by
+	// shutdown is tried again.
+	canceledAtRetryDelay = time.Minute
 )
 
 // ErrJobNotFound is returned by mutations on an unknown job ID.
@@ -236,6 +239,9 @@ func (cs *CronService) runLoop(stopChan chan struct{}) {
 		cs.reloadIfChangedUnsafe()
 		nextWake := cs.getNextWakeMS()
 		maxSleep := cs.maxSleep
+		if maxSleep <= 0 {
+			maxSleep = defaultMaxSleep // never spin
+		}
 		cs.mu.Unlock()
 
 		// Never sleep longer than maxSleep: a job added, enabled or marked
@@ -409,9 +415,18 @@ func (cs *CronService) executeJobByID(jobID string) {
 	// Compute next run time
 	var nextRunStr string
 	var autoDisabled *CronJob
-	if job.Schedule.Kind == "at" {
+	if job.Schedule.Kind == "at" && status == RunStatusCanceled {
+		// A one-shot job stopped by shutdown has not done its work yet: keep
+		// it and let it run again shortly (or after the restart, see
+		// recomputeNextRuns) instead of deleting it.
+		if job.Enabled {
+			retry := time.Now().Add(canceledAtRetryDelay).UnixMilli()
+			job.State.NextRunAtMS = &retry
+			nextRunStr = time.UnixMilli(retry).Format("2006-01-02 15:04:05")
+		}
+	} else if job.Schedule.Kind == "at" {
 		if job.DeleteAfterRun {
-			cs.removeJobUnsafe(job.ID)
+			_, _ = cs.removeJobUnsafe(job.ID)
 			nextRunStr = "(deleted)"
 		} else {
 			job.Enabled = false
@@ -561,9 +576,15 @@ func (cs *CronService) recomputeNextRuns() {
 	now := time.Now().UnixMilli()
 	for i := range cs.store.Jobs {
 		job := &cs.store.Jobs[i]
-		if job.Enabled {
-			job.State.NextRunAtMS = cs.computeNextRun(&job.Schedule, now)
+		if !job.Enabled {
+			continue
 		}
+		// A one-shot job whose run was canceled by shutdown keeps its retry
+		// time, although its own time has passed.
+		if job.Schedule.Kind == "at" && job.State.LastStatus == RunStatusCanceled && job.State.NextRunAtMS != nil {
+			continue
+		}
+		job.State.NextRunAtMS = cs.computeNextRun(&job.Schedule, now)
 	}
 }
 
@@ -611,6 +632,9 @@ func (cs *CronService) SetOnAutoDisable(fn func(CronJob)) {
 // SetMaxSleep caps how long the run loop sleeps before re-reading jobs.json.
 // Call it before Start.
 func (cs *CronService) SetMaxSleep(d time.Duration) {
+	if d <= 0 {
+		d = defaultMaxSleep
+	}
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	cs.maxSleep = d
@@ -920,7 +944,9 @@ func sameInt64(a, b *int64) bool {
 	return *a == *b
 }
 
-func (cs *CronService) RemoveJob(jobID string) bool {
+// RemoveJob deletes a job. It reports whether the job existed, and an error
+// when the deletion could not be saved.
+func (cs *CronService) RemoveJob(jobID string) (bool, error) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 
@@ -929,7 +955,7 @@ func (cs *CronService) RemoveJob(jobID string) bool {
 	return cs.removeJobUnsafe(jobID)
 }
 
-func (cs *CronService) removeJobUnsafe(jobID string) bool {
+func (cs *CronService) removeJobUnsafe(jobID string) (bool, error) {
 	before := len(cs.store.Jobs)
 	var jobs []CronJob
 	for _, job := range cs.store.Jobs {
@@ -940,15 +966,16 @@ func (cs *CronService) removeJobUnsafe(jobID string) bool {
 	cs.store.Jobs = jobs
 	removed := len(cs.store.Jobs) < before
 
+	var saveErr error
 	if removed {
-		if err := cs.saveStoreUnsafe(); err != nil {
-			log.Printf("[cron] failed to save store after remove: %v", err)
+		if saveErr = cs.saveStoreUnsafe(); saveErr != nil {
+			saveErr = fmt.Errorf("save cron store: %w", saveErr)
 		}
 	}
 
 	cs.notify()
 
-	return removed
+	return removed, saveErr
 }
 
 // EnableJob enables or disables a job and returns a copy of it. Enabling

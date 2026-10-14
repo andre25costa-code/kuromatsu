@@ -59,6 +59,10 @@ func newEditCommand(storePath func() string) *cobra.Command {
 				changed = true
 			}
 			if flags.Changed("cron") {
+				// Without --tz a cron job keeps its zone; --tz "" clears it.
+				if !flags.Changed("tz") && job.Schedule.Kind == "cron" {
+					tz = job.Schedule.TZ
+				}
 				job.Schedule = cron.CronSchedule{Kind: "cron", Expr: cronExp, TZ: tz}
 				job.DeleteAfterRun = false
 				changed = true
