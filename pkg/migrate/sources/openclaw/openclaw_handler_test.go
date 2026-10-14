@@ -298,8 +298,8 @@ func TestValidateMigratedConfig_RejectsUnknownChannelType(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Channels = config.ChannelsConfig{"x": &config.Channel{Type: "line"}}
 
-	require.Error(t, validateMigratedConfig(cfg))
-	require.NoError(t, validateMigratedConfig(config.DefaultConfig()))
+	require.Error(t, validateMigratedConfig(cfg, t.TempDir()))
+	require.NoError(t, validateMigratedConfig(config.DefaultConfig(), t.TempDir()))
 }
 
 func TestExecuteConfigMigration_InvalidResultLeavesDestinationUntouched(t *testing.T) {
@@ -340,4 +340,26 @@ func writtenChannels(t *testing.T, path string) map[string]map[string]any {
 	}
 	require.NoError(t, json.Unmarshal(raw, &doc))
 	return doc.Channels
+}
+
+func TestExecuteConfigMigration_FailedValidationRestoresSecretResolver(t *testing.T) {
+	t.Setenv("KUROMATSU_HOME", t.TempDir())
+	h, srcPath := newTestHandler(t, telegramOnlySource)
+
+	orig := buildStandardConfig
+	t.Cleanup(func() { buildStandardConfig = orig })
+	buildStandardConfig = func(c *KuromatsuConfig) *config.Config {
+		cfg := c.ToStandardConfig()
+		cfg.Channels = config.ChannelsConfig{"x": &config.Channel{Type: "line"}}
+		return cfg
+	}
+
+	dstDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dstDir, "tok.key"), []byte("s3cret\n"), 0o600))
+
+	require.Error(t, h.ExecuteConfigMigration(srcPath, filepath.Join(dstDir, "config.json")))
+
+	var s config.SecureString
+	require.NoError(t, s.UnmarshalText([]byte("file://tok.key")))
+	assert.Equal(t, "s3cret", s.String())
 }

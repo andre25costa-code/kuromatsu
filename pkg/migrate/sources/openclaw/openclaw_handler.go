@@ -110,7 +110,7 @@ func (o *OpenclawHandler) ExecuteConfigMigration(srcConfigPath, dstConfigPath st
 	}
 
 	incoming := buildStandardConfig(picoCfg)
-	if err := validateMigratedConfig(incoming); err != nil {
+	if err := validateMigratedConfig(incoming, filepath.Dir(dstConfigPath)); err != nil {
 		return fmt.Errorf("migrated config is invalid, nothing was written: %w", err)
 	}
 
@@ -118,11 +118,6 @@ func (o *OpenclawHandler) ExecuteConfigMigration(srcConfigPath, dstConfigPath st
 	if err := os.MkdirAll(dstDir, 0o755); err != nil {
 		return err
 	}
-	// SaveConfig does not use the secret resolver for the plain-text values the
-	// conversion produces, but validation left the resolver pointing at a deleted
-	// scratch directory, so point it back at the destination.
-	config.UseSecretDir(dstDir)
-
 	return config.SaveConfig(dstConfigPath, incoming)
 }
 
@@ -131,12 +126,16 @@ func (o *OpenclawHandler) ExecuteConfigMigration(srcConfigPath, dstConfigPath st
 // anything reaches the destination. The load runs with the process environment,
 // and relative file:// references would resolve against the scratch directory;
 // the conversion emits neither enc:// nor file:// values.
-func validateMigratedConfig(cfg *config.Config) error {
+func validateMigratedConfig(cfg *config.Config, dstDir string) error {
 	tmpDir, err := os.MkdirTemp("", "kuromatsu-migrate-check-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmpDir)
+	// LoadConfig repoints the process-wide secret resolver at the scratch
+	// directory; whatever the outcome, point it back at the destination before
+	// the scratch directory is removed.
+	defer config.UseSecretDir(dstDir)
 
 	tmpPath := filepath.Join(tmpDir, "config.json")
 	if err = config.SaveConfig(tmpPath, cfg); err != nil {
