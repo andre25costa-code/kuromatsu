@@ -32,6 +32,8 @@ func DefaultConfig() *Config {
 				Temperature:               nil, // nil means use provider default
 				MaxToolIterations:         50,
 				NonUserTurnMaxMinutes:     60,
+				UserTurnMaxMinutes:        30,
+				MaxRepeatedToolCalls:      3,
 				MemoryBudgetOverTokens:    1200, // FR-022 phase 1 initial values (ADR-020 P5: recalibrate
 				MemoryBudgetTokens:        600,  // from the load report once real memory grows)
 				SummarizeMessageThreshold: 20,

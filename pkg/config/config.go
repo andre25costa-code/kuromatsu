@@ -470,6 +470,9 @@ type SubTurnConfig struct {
 	DefaultTimeoutMinutes int `json:"default_timeout_minutes" env:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_DEFAULT_TIMEOUT_MINUTES"`
 	DefaultTokenBudget    int `json:"default_token_budget"    env:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_DEFAULT_TOKEN_BUDGET"`
 	ConcurrencyTimeoutSec int `json:"concurrency_timeout_sec" env:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_CONCURRENCY_TIMEOUT_SEC"`
+	// MaxConcurrentGlobal caps how many sub-turns of one depth level run at
+	// once across the whole process; <= 0 uses the built-in default (8).
+	MaxConcurrentGlobal int `json:"max_concurrent_global,omitempty" env:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_MAX_CONCURRENT_GLOBAL"`
 }
 
 type ToolFeedbackConfig struct {
@@ -492,6 +495,8 @@ type AgentDefaults struct {
 	Temperature               *float64           `json:"temperature,omitempty"            env:"KUROMATSU_AGENTS_DEFAULTS_TEMPERATURE"`
 	MaxToolIterations         int                `json:"max_tool_iterations"              env:"KUROMATSU_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
 	NonUserTurnMaxMinutes     int                `json:"non_user_turn_max_minutes"        env:"KUROMATSU_AGENTS_DEFAULTS_NON_USER_TURN_MAX_MINUTES"` // AC-028-5 cap on heartbeat/cron turns; 0 = off, default 60 (one heartbeat interval)
+	UserTurnMaxMinutes        int                `json:"user_turn_max_minutes"            env:"KUROMATSU_AGENTS_DEFAULTS_USER_TURN_MAX_MINUTES"`     // wall-clock cap on a whole user turn; 0 = off, default 30
+	MaxRepeatedToolCalls      int                `json:"max_repeated_tool_calls"          env:"KUROMATSU_AGENTS_DEFAULTS_MAX_REPEATED_TOOL_CALLS"`   // identical call with identical result: warn at this count, then end the turn; 0 = off, 1 is invalid, default 3
 	MemoryBudgetOverTokens    int                `json:"memory_budget_over_tokens"        env:"KUROMATSU_AGENTS_DEFAULTS_MEMORY_BUDGET_OVER_TOKENS"` // FR-022 phase 1: memory above this is budgeted; 0 = off
 	MemoryBudgetTokens        int                `json:"memory_budget_tokens"             env:"KUROMATSU_AGENTS_DEFAULTS_MEMORY_BUDGET_TOKENS"`      // FR-022 phase 1: size of the budgeted memory block
 	SummarizeMessageThreshold int                `json:"summarize_message_threshold"      env:"KUROMATSU_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
@@ -1534,6 +1539,9 @@ func LoadConfig(path string) (*Config, error) {
 	if err = cfg.ValidateSleep(); err != nil {
 		return nil, err
 	}
+	if err = cfg.ValidateAgentLoopGuards(); err != nil {
+		return nil, err
+	}
 	if err = cfg.ValidatePlatformPaths(); err != nil {
 		return nil, err
 	}
@@ -1880,6 +1888,19 @@ func (c *Config) ValidateModelList() error {
 		if err := c.ModelList[i].Validate(); err != nil {
 			return fmt.Errorf("model_list[%d]: %w", i, err)
 		}
+	}
+	return nil
+}
+
+// ValidateAgentLoopGuards rejects a repeated-tool-call limit of 1 or less
+// (other than 0, which turns the guard off): with 1 the guard would block
+// the very first call of every tool.
+func (c *Config) ValidateAgentLoopGuards() error {
+	if c == nil {
+		return nil
+	}
+	if n := c.Agents.Defaults.MaxRepeatedToolCalls; n != 0 && n < 2 {
+		return errors.New("agents.defaults.max_repeated_tool_calls must be 0 (off) or >= 2")
 	}
 	return nil
 }
