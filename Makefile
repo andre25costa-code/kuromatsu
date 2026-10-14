@@ -457,11 +457,11 @@ fmt:
 
 ## lint: Run linters
 lint:
-	@$(GOLANGCI_LINT) run --build-tags $(GO_BUILD_TAGS)
+	@$(GOLANGCI_LINT) run
 
 ## fix: Fix linting issues
 fix:
-	@$(GOLANGCI_LINT) run --fix --build-tags $(GO_BUILD_TAGS)
+	@$(GOLANGCI_LINT) run --fix
 
 ## deps: Download dependencies
 deps:
