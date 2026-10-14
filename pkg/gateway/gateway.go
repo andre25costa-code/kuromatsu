@@ -920,9 +920,11 @@ func setupCronTool(
 			// (see createHeartbeatHandler's comment for why that was a bug).
 			// The AC-028-5 cap is applied inside CronTool to LLM turns
 			// only; command jobs keep the exec tool's own timeout.
-			result := cronTool.ExecuteJob(ctx, job)
-			return result, nil
+			// The job's real error is returned so its status tells the truth.
+			return cronTool.ExecuteJob(ctx, job)
 		})
+		cronService.SetMaxConsecutiveFailures(cfg.Tools.Cron.MaxConsecutiveFailures)
+		cronService.SetOnAutoDisable(cronTool.NotifyAutoDisabled)
 	}
 
 	return cronService, nil

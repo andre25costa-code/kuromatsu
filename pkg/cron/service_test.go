@@ -1,14 +1,17 @@
 package cron
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"testing"
 	"time"
+	_ "time/tzdata" // TestComputeNextRun_AppliesTZ needs zone data on any host
 )
 
 func TestSaveStore_FilePermissions(t *testing.T) {
@@ -41,14 +44,16 @@ func int64Ptr(v int64) *int64 {
 	return &v
 }
 
-func setupService(handler JobHandler) (*CronService, string) {
-	tmpFile := fmt.Sprintf("test_cron_%d.json", time.Now().UnixNano())
+func setupService(t *testing.T, handler JobHandler) (*CronService, string) {
+	t.Helper()
+	// A temp dir, not the package dir: run history is written next to the store.
+	tmpFile := filepath.Join(t.TempDir(), "jobs.json")
 	cs := NewCronService(tmpFile, handler)
 	return cs, tmpFile
 }
 
 func TestCronService_CRUD(t *testing.T) {
-	cs, path := setupService(nil)
+	cs, path := setupService(t, nil)
 	defer os.Remove(path)
 
 	// Test AddJob
@@ -71,7 +76,9 @@ func TestCronService_CRUD(t *testing.T) {
 	}
 
 	// Test EnableJob
-	cs.EnableJob(job.ID, false)
+	if _, err := cs.EnableJob(job.ID, false); err != nil {
+		t.Fatalf("EnableJob(false): %v", err)
+	}
 	if cs.store.Jobs[0].Enabled != false || cs.store.Jobs[0].State.NextRunAtMS != nil {
 		t.Error("EnableJob(false) failed to clear state")
 	}
@@ -84,7 +91,7 @@ func TestCronService_CRUD(t *testing.T) {
 }
 
 func TestCronService_GetJobReturnsCopy(t *testing.T) {
-	cs, path := setupService(nil)
+	cs, path := setupService(t, nil)
 	defer os.Remove(path)
 
 	everyMS := int64(60_000)
@@ -126,7 +133,7 @@ func TestCronService_GetJobReturnsCopy(t *testing.T) {
 }
 
 func TestCronService_UpdateJobRecomputesNextRunOnScheduleOrEnabledChange(t *testing.T) {
-	cs, path := setupService(nil)
+	cs, path := setupService(t, nil)
 	defer os.Remove(path)
 
 	at := time.Now().Add(time.Hour).UnixMilli()
@@ -155,8 +162,8 @@ func TestCronService_UpdateJobRecomputesNextRunOnScheduleOrEnabledChange(t *test
 		t.Fatalf("next run should be recomputed, still %d", initialNextRun)
 	}
 
-	if disabled := cs.EnableJob(job.ID, false); disabled == nil {
-		t.Fatal("EnableJob(false) returned nil")
+	if disabled, err := cs.EnableJob(job.ID, false); err != nil || disabled == nil {
+		t.Fatalf("EnableJob(false) = %v, %v", disabled, err)
 	}
 	disabled, ok := cs.GetJob(job.ID)
 	if !ok {
@@ -176,7 +183,7 @@ func TestCronService_UpdateJobRecomputesNextRunOnScheduleOrEnabledChange(t *test
 }
 
 func TestCronService_UpdateJobPreservesRunStateOnPayloadOnlyChange(t *testing.T) {
-	cs, path := setupService(nil)
+	cs, path := setupService(t, nil)
 	defer os.Remove(path)
 
 	everyMS := int64(60_000)
@@ -215,7 +222,7 @@ func TestCronService_UpdateJobPreservesRunStateOnPayloadOnlyChange(t *testing.T)
 
 // 2. Test Cron Expression Calculation Logic
 func TestCronService_ComputeNextRun(t *testing.T) {
-	cs, path := setupService(nil)
+	cs, path := setupService(t, nil)
 	defer os.Remove(path)
 
 	now := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
@@ -254,7 +261,7 @@ func TestCronService_ExecutionFlow(t *testing.T) {
 		return "ok", nil
 	}
 
-	cs, path := setupService(handler)
+	cs, path := setupService(t, handler)
 	defer os.Remove(path)
 
 	// Start the service
@@ -326,7 +333,7 @@ func TestCronService_PersistenceIntegrity(t *testing.T) {
 }
 
 func TestCronService_ConcurrentAccess(t *testing.T) {
-	cs, path := setupService(nil)
+	cs, path := setupService(t, nil)
 	defer os.Remove(path)
 
 	cs.Start()
@@ -357,7 +364,7 @@ func TestCronService_ConcurrentAccess(t *testing.T) {
 			for j := range iterations {
 				jobs := cs.ListJobs(true)
 				if len(jobs) > 0 {
-					cs.EnableJob(jobs[0].ID, j%2 == 0)
+					_, _ = cs.EnableJob(jobs[0].ID, j%2 == 0)
 				}
 				time.Sleep(100 * time.Microsecond)
 			}
@@ -496,5 +503,431 @@ func TestAddJobWithPayload_DifferentCommandIsRejected(t *testing.T) {
 	kept, _ := cs.GetJob(first.ID)
 	if kept.Payload.Command != "uptime" {
 		t.Fatalf("existing job modified: command %q", kept.Payload.Command)
+	}
+}
+
+// --- Reliable status, auto-disable, validation, time zone, reload ---
+
+// fakeClock is a settable clock for the service's run timing.
+type fakeClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func (c *fakeClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.t
+}
+
+func (c *fakeClock) Set(t time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = t
+}
+
+// scriptedService returns a service whose handler returns *result, with an
+// injected clock and one recurring job.
+func scriptedService(t *testing.T, result *error) (*CronService, *fakeClock, string) {
+	t.Helper()
+	cs := NewCronService(filepath.Join(t.TempDir(), "jobs.json"), func(*CronJob) (string, error) {
+		if *result != nil {
+			return "", *result
+		}
+		return "ok", nil
+	})
+	clock := &fakeClock{t: time.Date(2026, 10, 1, 8, 0, 0, 0, time.UTC)}
+	cs.now = clock.Now
+	job, err := cs.AddJob("job", CronSchedule{Kind: "every", EveryMS: int64Ptr(60_000)}, "msg", "cli", "direct")
+	if err != nil {
+		t.Fatalf("AddJob: %v", err)
+	}
+	return cs, clock, job.ID
+}
+
+func mustGetJob(t *testing.T, cs *CronService, id string) *CronJob {
+	t.Helper()
+	job, ok := cs.GetJob(id)
+	if !ok {
+		t.Fatalf("job %s not found", id)
+	}
+	return job
+}
+
+func TestExecuteJob_HandlerErrorSetsErrorStatus(t *testing.T) {
+	result := errors.New("provider unreachable")
+	cs, _, id := scriptedService(t, &result)
+
+	cs.executeJobByID(id)
+
+	job := mustGetJob(t, cs, id)
+	if job.State.LastStatus != "error" || !strings.Contains(job.State.LastError, "provider unreachable") {
+		t.Fatalf("state = %+v, want error status with the handler error", job.State)
+	}
+	if job.State.ConsecutiveFailures != 1 || job.State.FirstFailureAtMS == nil {
+		t.Fatalf("failure streak = %d (first %v), want 1 with a start time",
+			job.State.ConsecutiveFailures, job.State.FirstFailureAtMS)
+	}
+}
+
+func TestExecuteJob_CanceledIsNeutral(t *testing.T) {
+	result := errors.New("boom")
+	cs, clock, id := scriptedService(t, &result)
+	t0 := clock.Now()
+	cs.executeJobByID(id)
+
+	clock.Set(t0.Add(10 * time.Minute))
+	result = fmt.Errorf("cron turn: %w", context.Canceled)
+	cs.executeJobByID(id)
+
+	job := mustGetJob(t, cs, id)
+	if job.State.LastStatus != "canceled" {
+		t.Fatalf("LastStatus = %q, want canceled", job.State.LastStatus)
+	}
+	if job.State.ConsecutiveFailures != 1 {
+		t.Fatalf("ConsecutiveFailures = %d, want 1 (unchanged by a canceled run)", job.State.ConsecutiveFailures)
+	}
+	if job.State.FirstFailureAtMS == nil || *job.State.FirstFailureAtMS != t0.UnixMilli() {
+		t.Fatalf("FirstFailureAtMS = %v, want %d", job.State.FirstFailureAtMS, t0.UnixMilli())
+	}
+}
+
+func TestAutoDisable_RequiresCountAndWindow(t *testing.T) {
+	t.Run("count and one hour reached", func(t *testing.T) {
+		result := errors.New("boom")
+		cs, clock, id := scriptedService(t, &result)
+		cs.SetMaxConsecutiveFailures(3)
+		var notified []CronJob
+		cs.SetOnAutoDisable(func(job CronJob) { notified = append(notified, job) })
+		t0 := clock.Now()
+
+		cs.executeJobByID(id)
+		clock.Set(t0.Add(30 * time.Minute))
+		cs.executeJobByID(id)
+		if job := mustGetJob(t, cs, id); !job.Enabled {
+			t.Fatalf("disabled after 2 failures: %+v", job.State)
+		}
+
+		clock.Set(t0.Add(61 * time.Minute))
+		cs.executeJobByID(id)
+		job := mustGetJob(t, cs, id)
+		if job.Enabled || job.State.NextRunAtMS != nil {
+			t.Fatalf("job still enabled after 3 failures over 61 min: enabled=%v next=%v",
+				job.Enabled, job.State.NextRunAtMS)
+		}
+		if !strings.HasPrefix(job.State.LastError, "auto-disabled after 3 consecutive failures: boom") {
+			t.Fatalf("LastError = %q", job.State.LastError)
+		}
+		if len(notified) != 1 || notified[0].ID != id {
+			t.Fatalf("onAutoDisable called %d times (%+v), want once for %s", len(notified), notified, id)
+		}
+	})
+
+	t.Run("one hour not reached", func(t *testing.T) {
+		result := errors.New("boom")
+		cs, clock, id := scriptedService(t, &result)
+		cs.SetMaxConsecutiveFailures(3)
+		calls := 0
+		cs.SetOnAutoDisable(func(CronJob) { calls++ })
+		t0 := clock.Now()
+		for _, offset := range []time.Duration{0, 5 * time.Minute, 10 * time.Minute} {
+			clock.Set(t0.Add(offset))
+			cs.executeJobByID(id)
+		}
+		job := mustGetJob(t, cs, id)
+		if !job.Enabled || job.State.ConsecutiveFailures != 3 || calls != 0 {
+			t.Fatalf("enabled=%v failures=%d calls=%d, want still enabled with 3 failures",
+				job.Enabled, job.State.ConsecutiveFailures, calls)
+		}
+	})
+}
+
+func TestAutoDisable_SuccessResetsCounter(t *testing.T) {
+	result := errors.New("boom")
+	cs, _, id := scriptedService(t, &result)
+
+	cs.executeJobByID(id)
+	result = nil
+	cs.executeJobByID(id)
+	if job := mustGetJob(t, cs, id); job.State.ConsecutiveFailures != 0 || job.State.FirstFailureAtMS != nil {
+		t.Fatalf("success did not reset the streak: %+v", job.State)
+	}
+	result = errors.New("boom again")
+	cs.executeJobByID(id)
+
+	if job := mustGetJob(t, cs, id); job.State.ConsecutiveFailures != 1 {
+		t.Fatalf("ConsecutiveFailures = %d, want 1", job.State.ConsecutiveFailures)
+	}
+}
+
+func TestAutoDisable_ZeroNeverDisables(t *testing.T) {
+	result := errors.New("boom")
+	cs, clock, id := scriptedService(t, &result)
+	cs.SetMaxConsecutiveFailures(0)
+	t0 := clock.Now()
+	for i := range 10 {
+		clock.Set(t0.Add(time.Duration(i) * time.Hour))
+		cs.executeJobByID(id)
+	}
+	if job := mustGetJob(t, cs, id); !job.Enabled || job.State.ConsecutiveFailures != 10 {
+		t.Fatalf("enabled=%v failures=%d, want enabled with 10 failures", job.Enabled, job.State.ConsecutiveFailures)
+	}
+}
+
+func TestEnableJob_ResetsFailureState(t *testing.T) {
+	result := errors.New("boom")
+	cs, clock, id := scriptedService(t, &result)
+	cs.SetMaxConsecutiveFailures(3)
+	t0 := clock.Now()
+	for _, offset := range []time.Duration{0, 30 * time.Minute, 61 * time.Minute} {
+		clock.Set(t0.Add(offset))
+		cs.executeJobByID(id)
+	}
+	if job := mustGetJob(t, cs, id); job.Enabled {
+		t.Fatal("precondition: job should be auto-disabled")
+	}
+
+	job, err := cs.EnableJob(id, true)
+	if err != nil {
+		t.Fatalf("EnableJob(true): %v", err)
+	}
+	if job.State.ConsecutiveFailures != 0 || job.State.FirstFailureAtMS != nil {
+		t.Fatalf("streak not reset: %+v", job.State)
+	}
+	if job.State.LastError != "boom" {
+		t.Fatalf("LastError = %q, want the prefix removed", job.State.LastError)
+	}
+
+	clock.Set(t0.Add(3 * time.Hour))
+	cs.executeJobByID(id)
+	job = mustGetJob(t, cs, id)
+	if !job.Enabled || job.State.ConsecutiveFailures != 1 {
+		t.Fatalf("enabled=%v failures=%d, want enabled with 1 failure", job.Enabled, job.State.ConsecutiveFailures)
+	}
+}
+
+func TestAddJob_RejectsInvalidSchedules(t *testing.T) {
+	past := time.Now().Add(-time.Minute).UnixMilli()
+	cases := []struct {
+		name     string
+		schedule CronSchedule
+		wantErr  string
+	}{
+		{"invalid expression", CronSchedule{Kind: "cron", Expr: "invalid"}, `invalid cron expression "invalid"`},
+		{"at in the past", CronSchedule{Kind: "at", AtMS: &past}, "'at' time is in the past"},
+		{
+			"unknown time zone",
+			CronSchedule{Kind: "cron", Expr: "0 9 * * *", TZ: "Mars/Olympus"},
+			`invalid time zone "Mars/Olympus"`,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "jobs.json")
+			cs := NewCronService(path, nil)
+			_, err := cs.AddJob("bad", tc.schedule, "msg", "cli", "direct")
+			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("AddJob err = %v, want %q", err, tc.wantErr)
+			}
+			if n := len(cs.ListJobs(true)); n != 0 {
+				t.Fatalf("store has %d jobs, want 0", n)
+			}
+			if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+				t.Fatalf("store file written for a rejected job (stat err %v)", statErr)
+			}
+		})
+	}
+}
+
+func TestUpdateJob_ValidatesOnlyChangedSchedule(t *testing.T) {
+	cs := NewCronService(filepath.Join(t.TempDir(), "jobs.json"), nil)
+	job, err := cs.AddJob("daily", CronSchedule{Kind: "cron", Expr: "0 9 * * *"}, "msg", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Schedule = CronSchedule{Kind: "cron", Expr: "invalid"}
+	if err := cs.UpdateJob(job); err == nil {
+		t.Fatal("UpdateJob to an invalid schedule succeeded")
+	}
+	if kept := mustGetJob(t, cs, job.ID); kept.Schedule.Expr != "0 9 * * *" {
+		t.Fatalf("schedule changed to %q", kept.Schedule.Expr)
+	}
+
+	// A legacy job already on disk with an expired 'at' stays editable.
+	past := time.Now().Add(-time.Hour).UnixMilli()
+	cs.mu.Lock()
+	cs.store.Jobs = append(cs.store.Jobs, CronJob{
+		ID:       "legacy",
+		Name:     "legacy",
+		Enabled:  true,
+		Schedule: CronSchedule{Kind: "at", AtMS: &past},
+		Payload:  CronPayload{Kind: "agent_turn", Message: "old", Channel: "cli", To: "direct"},
+	})
+	saveErr := cs.saveStoreUnsafe()
+	cs.mu.Unlock()
+	if saveErr != nil {
+		t.Fatal(saveErr)
+	}
+
+	legacy := mustGetJob(t, cs, "legacy")
+	legacy.Payload.Message = "new message"
+	if err := cs.UpdateJob(legacy); err != nil {
+		t.Fatalf("UpdateJob of a legacy job's message: %v", err)
+	}
+	if got := mustGetJob(t, cs, "legacy"); got.Payload.Message != "new message" {
+		t.Fatalf("message = %q", got.Payload.Message)
+	}
+	if _, err := cs.EnableJob("legacy", true); err == nil {
+		t.Fatal("EnableJob(true) of an expired 'at' job succeeded")
+	}
+}
+
+func TestComputeNextRun_AppliesTZ(t *testing.T) {
+	cs := NewCronService(filepath.Join(t.TempDir(), "jobs.json"), nil)
+	ref := time.Date(2026, 10, 11, 10, 0, 0, 0, time.UTC).UnixMilli()
+
+	cases := []struct {
+		tz   string
+		want time.Time
+	}{
+		{"America/Sao_Paulo", time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)},
+		{"UTC", time.Date(2026, 10, 12, 9, 0, 0, 0, time.UTC)},
+	}
+	for _, tc := range cases {
+		got := cs.computeNextRun(&CronSchedule{Kind: "cron", Expr: "0 9 * * *", TZ: tc.tz}, ref)
+		if got == nil {
+			t.Fatalf("%s: no next run", tc.tz)
+		}
+		if gotTime := time.UnixMilli(*got).UTC(); !gotTime.Equal(tc.want) {
+			t.Fatalf("%s: next run = %s, want %s", tc.tz, gotTime, tc.want)
+		}
+	}
+}
+
+// Two instances on one file: one plays the gateway, the other the CLI.
+func TestReload_CLIMutationNotOverwrittenByGateway(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	gateway := NewCronService(path, nil)
+	every := CronSchedule{Kind: "every", EveryMS: int64Ptr(600_000)}
+	first, err := gateway.AddJob("first", every, "a", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cli := NewCronService(path, nil)
+	if _, err := cli.EnableJob(first.ID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := gateway.AddJob("second", every, "b", "cli", "direct"); err != nil {
+		t.Fatal(err)
+	}
+
+	final := NewCronService(path, nil)
+	if jobs := final.ListJobs(true); len(jobs) != 2 {
+		t.Fatalf("file has %d jobs, want 2", len(jobs))
+	}
+	if got := mustGetJob(t, final, first.ID); got.Enabled {
+		t.Fatal("the gateway's save overwrote the CLI's disable")
+	}
+}
+
+func startedGateway(t *testing.T, path string, ran chan<- string) *CronService {
+	t.Helper()
+	gateway := NewCronService(path, func(job *CronJob) (string, error) {
+		select {
+		case ran <- job.ID:
+		default:
+		}
+		return "ok", nil
+	})
+	gateway.maxSleep = 200 * time.Millisecond
+	if err := gateway.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(gateway.Stop)
+	return gateway
+}
+
+func TestReload_KeepsRunNowFromOtherInstance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	seed := NewCronService(path, nil)
+	job, err := seed.AddJob("yearly", CronSchedule{Kind: "cron", Expr: "0 0 1 1 *"}, "msg", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ran := make(chan string, 1)
+	startedGateway(t, path, ran)
+	// Let the loop compute its wake time (next January) and go to sleep, so
+	// the run-now has to arrive through a maxSleep wake-up and reload.
+	time.Sleep(50 * time.Millisecond)
+
+	cli := NewCronService(path, nil)
+	if err := cli.RunNow(job.ID); err != nil {
+		t.Fatalf("RunNow: %v", err)
+	}
+
+	select {
+	case id := <-ran:
+		if id != job.ID {
+			t.Fatalf("ran %s, want %s", id, job.ID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the gateway did not run the job marked run-now by another instance")
+	}
+}
+
+func TestRunLoop_PicksUpJobAddedByOtherInstance(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	ran := make(chan string, 1)
+	gateway := startedGateway(t, path, ran)
+
+	cli := NewCronService(path, nil)
+	job, err := cli.AddJob("fast", CronSchedule{Kind: "every", EveryMS: int64Ptr(1000)}, "msg", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case id := <-ran:
+		if id != job.ID {
+			t.Fatalf("ran %s, want %s", id, job.ID)
+		}
+	case <-time.After(gateway.maxSleep + 2*time.Second):
+		t.Fatal("the gateway did not pick up a job added by another instance")
+	}
+}
+
+func TestRunNow_DisabledJobErrors(t *testing.T) {
+	cs := NewCronService(filepath.Join(t.TempDir(), "jobs.json"), nil)
+	job, err := cs.AddJob("job", CronSchedule{Kind: "every", EveryMS: int64Ptr(60_000)}, "msg", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = cs.EnableJob(job.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	err = cs.RunNow(job.ID)
+	if !errors.Is(err, ErrJobDisabled) || err.Error() != "job is disabled; enable it first" {
+		t.Fatalf("RunNow on a disabled job = %v, want %q", err, ErrJobDisabled)
+	}
+}
+
+func TestListJobs_ReturnsCopy(t *testing.T) {
+	cs := NewCronService(filepath.Join(t.TempDir(), "jobs.json"), nil)
+	job, err := cs.AddJob("job", CronSchedule{Kind: "every", EveryMS: int64Ptr(60_000)}, "msg", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	jobs := cs.ListJobs(true)
+	jobs[0].Name = "mutated"
+	*jobs[0].Schedule.EveryMS = 1
+	*jobs[0].State.NextRunAtMS = 0
+
+	got := mustGetJob(t, cs, job.ID)
+	if got.Name != "job" || *got.Schedule.EveryMS != 60_000 || *got.State.NextRunAtMS == 0 {
+		t.Fatalf("ListJobs aliases the store: %+v", got)
 	}
 }

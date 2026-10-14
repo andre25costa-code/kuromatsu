@@ -3,8 +3,10 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1231,8 +1233,9 @@ func TestCronTool_ExecuteJobPublishesErrorWhenExecDisabled(t *testing.T) {
 	job.Payload.To = "direct"
 	job.Payload.Command = "df -h"
 
-	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	// The job could not do its work: the user is told and the run fails.
+	if _, err := tool.ExecuteJob(context.Background(), job); err == nil {
+		t.Fatal("ExecuteJob() succeeded with command execution disabled, want error")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -1259,8 +1262,8 @@ func TestCronTool_ExecuteJobPublishesAgentResponse(t *testing.T) {
 	job.Payload.To = "chat-1"
 	job.Payload.Message = "send me a poem"
 
-	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	if got, err := tool.ExecuteJob(context.Background(), job); err != nil || got != "ok" {
+		t.Fatalf("ExecuteJob() = %q, %v, want ok", got, err)
 	}
 
 	if !strings.HasPrefix(executor.lastKey, "agent:cron-job-1-") {
@@ -1297,8 +1300,8 @@ func TestCronTool_ExecuteJobAgentIDOverride_BypassesDispatchRules(t *testing.T) 
 	job.Payload.Message = "check the sensors"
 	job.Payload.AgentID = "sensores"
 
-	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	if got, err := tool.ExecuteJob(context.Background(), job); err != nil || got != "ok" {
+		t.Fatalf("ExecuteJob() = %q, %v, want ok", got, err)
 	}
 	if executor.lastAgentID != "sensores" {
 		t.Fatalf(
@@ -1325,8 +1328,8 @@ func TestCronTool_ExecuteJobWithoutAgentIDUsesChannelRouting(t *testing.T) {
 	job.Payload.To = "chat-1"
 	job.Payload.Message = "send me a poem"
 
-	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	if got, err := tool.ExecuteJob(context.Background(), job); err != nil || got != "ok" {
+		t.Fatalf("ExecuteJob() = %q, %v, want ok", got, err)
 	}
 	if executor.lastAgentID != "" {
 		t.Fatalf(
@@ -1345,8 +1348,8 @@ func TestCronTool_ExecuteJobSkipsEmptyAgentResponse(t *testing.T) {
 	job.Payload.To = "chat-1"
 	job.Payload.Message = "say nothing"
 
-	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	if got, err := tool.ExecuteJob(context.Background(), job); err != nil || got != "ok" {
+		t.Fatalf("ExecuteJob() = %q, %v, want ok", got, err)
 	}
 
 	if executor.publishedResp != "" {
@@ -1363,8 +1366,8 @@ func TestCronTool_ExecuteJobSkipsWhenMessageToolAlreadySent(t *testing.T) {
 	job.Payload.To = "chat-1"
 	job.Payload.Message = "send weather"
 
-	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	if got, err := tool.ExecuteJob(context.Background(), job); err != nil || got != "ok" {
+		t.Fatalf("ExecuteJob() = %q, %v, want ok", got, err)
 	}
 
 	if executor.publishedResp != "" {
@@ -1379,8 +1382,8 @@ func TestCronTool_ExecuteJobRunsCommand(t *testing.T) {
 	job.Payload.To = "direct"
 	job.Payload.Command = "echo cron-test-ok"
 
-	if got := tool.ExecuteJob(context.Background(), job); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	if got, err := tool.ExecuteJob(context.Background(), job); err != nil || got != "ok" {
+		t.Fatalf("ExecuteJob() = %q, %v, want ok", got, err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -1409,9 +1412,9 @@ func TestCronTool_ExecuteJobReturnsErrorWithoutPublish(t *testing.T) {
 	job.Payload.To = "chat-1"
 	job.Payload.Message = "do something"
 
-	got := tool.ExecuteJob(context.Background(), job)
-	if !strings.Contains(got, "agent failure") {
-		t.Fatalf("ExecuteJob() = %q, want error message", got)
+	_, err := tool.ExecuteJob(context.Background(), job)
+	if err == nil || !strings.Contains(err.Error(), "agent failure") {
+		t.Fatalf("ExecuteJob() error = %v, want the agent failure", err)
 	}
 
 	if executor.publishedResp != "" {
@@ -1482,8 +1485,8 @@ func TestCronTool_QuietCommandSuccessPublishesNothing(t *testing.T) {
 	executor := &stubJobExecutor{response: "should not run"}
 	tool := newTestCronToolWithExecutorAndConfig(t, executor, config.DefaultConfig())
 
-	if got := tool.ExecuteJob(context.Background(), quietCommandJob("echo all good")); got != "ok" {
-		t.Fatalf("ExecuteJob() = %q, want ok", got)
+	if got, err := tool.ExecuteJob(context.Background(), quietCommandJob("echo all good")); err != nil || got != "ok" {
+		t.Fatalf("ExecuteJob() = %q, %v, want ok", got, err)
 	}
 	expectNoOutbound(t, tool)
 	if executor.lastPrompt != "" {
@@ -1640,5 +1643,285 @@ func TestCronTool_CommandJobToExternalChannelRunsUnderDefaultConfig(t *testing.T
 	tool.ExecuteJob(context.Background(), job)
 	if content := expectOutbound(t, tool); !strings.Contains(content, "scheduled-ok") {
 		t.Fatalf("outbound = %q, want the command output", content)
+	}
+}
+
+// --- Real job status, run-now, history, tz ---
+
+// newCronToolAt builds a cron tool over the store at storePath, with the
+// given exec timeout (0 = none).
+func newCronToolAt(t *testing.T, storePath string, executor JobExecutor, execTimeout time.Duration) *CronTool {
+	t.Helper()
+	tool, err := NewCronTool(cron.NewCronService(storePath, nil), executor, bus.NewMessageBus(), t.TempDir(), true,
+		execTimeout, config.DefaultConfig())
+	if err != nil {
+		t.Fatalf("NewCronTool() error: %v", err)
+	}
+	return tool
+}
+
+func commandJob(command string) *cron.CronJob {
+	job := &cron.CronJob{ID: "cmd-job", Name: "cmd-job"}
+	job.Payload.Channel, job.Payload.To = "cli", "direct"
+	job.Payload.Command = command
+	return job
+}
+
+func TestExecuteJob_CommandFailureReturnsError(t *testing.T) {
+	tool := newTestCronTool(t)
+
+	_, err := tool.ExecuteJob(context.Background(), commandJob("exit 3"))
+	if err == nil || !strings.Contains(err.Error(), "command failed") {
+		t.Fatalf("ExecuteJob() error = %v, want a command failure", err)
+	}
+	if content := expectOutbound(t, tool); !strings.Contains(content, "Error executing scheduled command") {
+		t.Fatalf("outbound = %q, want the failure published as before", content)
+	}
+}
+
+func TestExecuteJob_AnomalyIsNotFailure(t *testing.T) {
+	executor := &stubJobExecutor{response: "the check failed with code 3"}
+	tool := newTestCronToolWithExecutorAndConfig(t, executor, config.DefaultConfig())
+	job := commandJob("exit 3")
+	job.Payload.Quiet = true
+	job.Payload.OnAnomaly = &cron.CronAnomaly{Message: "Explain the failure."}
+
+	got, err := tool.ExecuteJob(context.Background(), job)
+	if err != nil || got != "ok" {
+		t.Fatalf("ExecuteJob() = %q, %v, want ok: the anomaly is the job's designed signal", got, err)
+	}
+	if executor.publishedResp != "the check failed with code 3" {
+		t.Fatalf("published = %q, want the anomaly delivered", executor.publishedResp)
+	}
+}
+
+func TestExecuteJob_AnomalyJobTimeoutIsFailure(t *testing.T) {
+	executor := &stubJobExecutor{response: "timed out"}
+	tool := newCronToolAt(t, filepath.Join(t.TempDir(), "jobs.json"), executor, time.Second)
+	job := commandJob(sleepFiveCommand())
+	job.Payload.OnAnomaly = &cron.CronAnomaly{Message: "Explain the failure."}
+
+	_, err := tool.ExecuteJob(context.Background(), job)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("ExecuteJob() error = %v, want the exec timeout", err)
+	}
+	if executor.lastPrompt == "" {
+		t.Fatal("the anomaly turn did not run before the failure was reported")
+	}
+}
+
+func TestExecuteJob_ExecDisabledReturnsError(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Tools.Exec.Enabled = false
+	tool := newTestCronToolWithConfig(t, cfg)
+
+	_, err := tool.ExecuteJob(context.Background(), commandJob("df -h"))
+	if err == nil || !strings.Contains(err.Error(), "command execution is disabled") {
+		t.Fatalf("ExecuteJob() error = %v, want %q", err, "command execution is disabled")
+	}
+}
+
+func TestExecuteJob_AgentTurnErrorReturnsError(t *testing.T) {
+	executor := &stubJobExecutor{err: errors.New("provider down")}
+	tool := newTestCronToolWithExecutorAndConfig(t, executor, config.DefaultConfig())
+	job := &cron.CronJob{ID: "msg"}
+	job.Payload.Message = "summarize"
+
+	_, err := tool.ExecuteJob(context.Background(), job)
+	if err == nil || !strings.Contains(err.Error(), "provider down") || errors.Is(err, context.Canceled) {
+		t.Fatalf("ExecuteJob() error = %v, want the provider failure", err)
+	}
+
+	// Shutdown during the turn is reported as canceled, not as a failure.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := tool.ExecuteJob(ctx, job); !errors.Is(err, context.Canceled) {
+		t.Fatalf("ExecuteJob() on a canceled context = %v, want context.Canceled", err)
+	}
+}
+
+// Shutdown while a command job runs is neither a failure nor a success.
+func TestExecuteJob_CommandCanceledIsNeutral(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a POSIX sleep")
+	}
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	tool := newCronToolAt(t, path, nil, 0)
+	svc := tool.cronService
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	svc.SetOnJob(func(job *cron.CronJob) (string, error) { return tool.ExecuteJob(ctx, job) })
+	svc.SetMaxSleep(200 * time.Millisecond)
+
+	everyMS := int64(600_000)
+	job, err := svc.AddJob("sleeper", cron.CronSchedule{Kind: "every", EveryMS: &everyMS}, "sleep", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Payload.Command = "sleep 5"
+	if err := svc.UpdateJob(job); err != nil {
+		t.Fatal(err)
+	}
+	// An existing failure streak, which the canceled run must leave alone.
+	primed, _ := svc.GetJob(job.ID)
+	first := time.Now().Add(-time.Minute).UnixMilli()
+	primed.State.ConsecutiveFailures = 2
+	primed.State.FirstFailureAtMS = &first
+	if err := svc.UpdateJob(primed); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Stop()
+	if err := svc.RunNow(job.ID); err != nil {
+		t.Fatal(err)
+	}
+	time.AfterFunc(100*time.Millisecond, cancel)
+
+	deadline := time.Now().Add(4 * time.Second)
+	for {
+		got, _ := svc.GetJob(job.ID)
+		if got.State.LastStatus != "" {
+			if got.State.LastStatus != "canceled" || !strings.Contains(got.State.LastError, "context canceled") {
+				t.Fatalf("state = %+v, want canceled", got.State)
+			}
+			if got.State.ConsecutiveFailures != 2 || got.State.FirstFailureAtMS == nil ||
+				*got.State.FirstFailureAtMS != first {
+				t.Fatalf("failure streak changed by a canceled run: %+v", got.State)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the job run was not recorded in time")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func TestCronTool_ListReflectsCLIChangeImmediately(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jobs.json")
+	tool := newCronToolAt(t, path, nil, 0)
+	everyMS := int64(600_000)
+	job, err := tool.cronService.AddJob(
+		"report", cron.CronSchedule{Kind: "every", EveryMS: &everyMS}, "send", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cli := cron.NewCronService(path, nil)
+	if _, err := cli.EnableJob(job.ID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	result := tool.Execute(WithToolContext(context.Background(), "cli", "direct"), map[string]any{"action": "list"})
+	if result.IsError || !strings.Contains(result.ForLLM, "disabled") {
+		t.Fatalf("list = %q, want the job disabled by the other instance", result.ForLLM)
+	}
+}
+
+func TestCronTool_ListIncludesDisabledWithStatus(t *testing.T) {
+	tool := newTestCronTool(t)
+	everyMS := int64(600_000)
+	on, err := tool.cronService.AddJob("on", cron.CronSchedule{Kind: "every", EveryMS: &everyMS}, "a", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	off, err := tool.cronService.AddJob(
+		"off", cron.CronSchedule{Kind: "cron", Expr: "0 9 * * *", TZ: "UTC"}, "b", "cli", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tool.cronService.EnableJob(off.ID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	result := tool.Execute(WithToolContext(context.Background(), "cli", "direct"), map[string]any{"action": "list"})
+	if result.IsError {
+		t.Fatalf("list failed: %s", result.ForLLM)
+	}
+	wantOn := fmt.Sprintf("- on (id: %s, every 600s, enabled, next: ", on.ID)
+	wantOff := fmt.Sprintf("- off (id: %s, 0 9 * * *, tz UTC, disabled, next: -, last: -)", off.ID)
+	if !strings.Contains(result.ForLLM, wantOn) || !strings.Contains(result.ForLLM, wantOff) {
+		t.Fatalf("list = %q, want lines starting %q and %q", result.ForLLM, wantOn, wantOff)
+	}
+}
+
+func TestCronTool_RunNowAndHistoryAccess(t *testing.T) {
+	tool := newTestCronTool(t)
+	job := addTestCronJob(t, tool, "own", "telegram", "chat-1", "")
+
+	other := WithToolContext(context.Background(), "telegram", "chat-2")
+	for _, action := range []string{"run-now", "history"} {
+		result := tool.Execute(other, map[string]any{"action": action, "job_id": job.ID})
+		if !result.IsError || !strings.Contains(result.ForLLM, "not accessible") {
+			t.Fatalf("%s from another chat = %q, want not accessible", action, result.ForLLM)
+		}
+	}
+
+	own := WithToolContext(context.Background(), "telegram", "chat-1")
+	if result := tool.Execute(own, map[string]any{"action": "run-now", "job_id": job.ID}); result.IsError {
+		t.Fatalf("run-now on own job failed: %s", result.ForLLM)
+	}
+	got, _ := tool.cronService.GetJob(job.ID)
+	if got.State.NextRunAtMS == nil || *got.State.NextRunAtMS > time.Now().UnixMilli() {
+		t.Fatalf("run-now did not mark the job due: %+v", got.State)
+	}
+	result := tool.Execute(own, map[string]any{"action": "history", "job_id": job.ID})
+	if result.IsError || !strings.Contains(result.ForLLM, "No runs recorded") {
+		t.Fatalf("history = %q, want an empty history", result.ForLLM)
+	}
+
+	if _, err := tool.cronService.EnableJob(job.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	result = tool.Execute(own, map[string]any{"action": "run-now", "job_id": job.ID})
+	if !result.IsError || !strings.Contains(result.ForLLM, "job is disabled; enable it first") {
+		t.Fatalf("run-now on a disabled job = %q", result.ForLLM)
+	}
+}
+
+func TestCronTool_TZParam(t *testing.T) {
+	tool := newTestCronTool(t)
+	ctx := WithToolContext(context.Background(), "cli", "direct")
+
+	result := tool.Execute(ctx, map[string]any{
+		"action": "add", "message": "standup", "cron_expr": "0 9 * * 1-5", "tz": "America/Sao_Paulo",
+	})
+	if result.IsError {
+		t.Fatalf("add with tz failed: %s", result.ForLLM)
+	}
+	jobs := tool.cronService.ListJobs(true)
+	if len(jobs) != 1 || jobs[0].Schedule.TZ != "America/Sao_Paulo" {
+		t.Fatalf("jobs = %+v, want one job in America/Sao_Paulo", jobs)
+	}
+	id := jobs[0].ID
+
+	for name, args := range map[string]map[string]any{
+		"tz with every_seconds":           {"action": "add", "message": "x", "every_seconds": float64(600), "tz": "UTC"},
+		"tz with update but no cron_expr": {"action": "update", "job_id": id, "tz": "UTC"},
+	} {
+		res := tool.Execute(ctx, args)
+		if !res.IsError || !strings.Contains(res.ForLLM, "tz only applies to cron_expr") {
+			t.Fatalf("%s = %q, want %q", name, res.ForLLM, "tz only applies to cron_expr")
+		}
+	}
+
+	result = tool.Execute(ctx, map[string]any{
+		"action": "add", "message": "y", "cron_expr": "0 9 * * *", "tz": "Mars/Olympus",
+	})
+	if !result.IsError || !strings.Contains(result.ForLLM, "invalid time zone") {
+		t.Fatalf("add with an unknown tz = %q, want invalid time zone", result.ForLLM)
+	}
+
+	result = tool.Execute(ctx, map[string]any{"action": "update", "job_id": id, "cron_expr": "0 8 * * *", "tz": "UTC"})
+	if result.IsError {
+		t.Fatalf("update with tz failed: %s", result.ForLLM)
+	}
+	got, _ := tool.cronService.GetJob(id)
+	if got.Schedule.Expr != "0 8 * * *" || got.Schedule.TZ != "UTC" {
+		t.Fatalf("schedule = %+v, want 0 8 * * * in UTC", got.Schedule)
 	}
 }
