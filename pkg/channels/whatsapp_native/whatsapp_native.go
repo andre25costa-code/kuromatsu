@@ -5,7 +5,7 @@
 //
 // Copyright (c) 2026 PicoClaw contributors
 
-package whatsapp
+package whatsappnative
 
 import (
 	"context"
