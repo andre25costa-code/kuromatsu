@@ -91,6 +91,49 @@ em "agendar" a mesma coisa turno após turno. Prefira sempre
 raciocínio — não só é mais barato, é a diferença entre "um erro repetido"
 e "N efeitos colaterais reais repetidos".
 
+### Status, histórico e auto-desligamento
+
+`state.lastStatus` é `ok`, `error` ou `canceled`, com a mensagem em
+`state.lastError`. Conta como falha (`error`): exec desligado num job de
+comando; comando sem tratamento de anomalia (`quiet`, `anomaly_regex`,
+`on_anomaly`) que termina com erro; comando com tratamento de anomalia que
+estoura o timeout do exec; turno de agente com erro (inclusive o teto
+`non_user_turn_max_minutes`). Uma anomalia num job que a trata **não** é
+falha: é o sinal previsto, entregue como antes. Um job interrompido pelo
+desligamento ou reload do gateway fica `canceled`, que não conta nem como
+falha nem como sucesso.
+
+`tools.cron.max_consecutive_failures` (default 5; 0 = nunca;
+env `KUROMATSU_TOOLS_CRON_MAX_CONSECUTIVE_FAILURES`) desliga um job depois
+de N falhas seguidas, **desde que** já tenha passado pelo menos 1 h desde a
+primeira delas, para que uma queda curta do provedor não desligue um job de
+alta frequência. O `lastError` ganha o prefixo
+`auto-disabled after N consecutive failures: ` e o destino do job
+(`payload.channel`/`.to`, default `cli`/`direct`) recebe um aviso com o
+comando para religar. `kuromatsu cron enable <id>` (ou `update` mudando
+schedule/payload) zera a sequência.
+
+As últimas 20 execuções de cada job ficam em `runs.json`, ao lado de
+`jobs.json` (início, duração, status e erro truncado em 512 bytes). Só o
+gateway grava esse arquivo; a CLI só lê. Um job `at` removido depois de
+rodar perde o histórico junto.
+
+### Validação, fuso e CLI com o gateway rodando
+
+`add` recusa expressão cron inválida, `at` no passado e fuso inexistente;
+`update`/`edit` só validam quando o schedule muda, então um job antigo com
+schedule vencido continua editável (mas `enable` de um `at` vencido falha).
+`tz` (IANA, ex. `America/Sao_Paulo`) vale só para `cron_expr` (tool) /
+`--cron` (CLI); sem ele, a expressão usa o fuso local do host.
+
+A CLI (`kuromatsu cron list|add|edit|enable|disable|remove|run-now|history`)
+pode alterar jobs com o gateway rodando: o gateway relê `jobs.json` quando
+o conteúdo muda (no máximo a cada 1 min, e antes de cada alteração e de
+cada leitura da tool), sem recalcular o próximo disparo. `run-now` só marca
+o job como devido; quem o executa é o gateway. Não há trava entre
+processos: uma gravação da CLI no mesmo instante de uma gravação do gateway
+pode se perder.
+
 ## Reflexos (`agents.defaults.reflexes`)
 
 Regex → ação determinística (`reply` com template, `command` — roda um
