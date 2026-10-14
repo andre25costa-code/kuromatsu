@@ -600,9 +600,10 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 
 // initiateShutdown cancels ctx BEFORE running the full shutdown sequence --
 // not only via a deferred cancel() in Run, which would otherwise fire only
-// after shutdownGateway itself already returned. ctx is the same context
-// every in-flight turn's completion() call received (agentLoop.Run(ctx) ->
-// runTurnWithSteering(ctx, ...), never rerooted along the way), and
+// after shutdownGateway itself already returned. Every in-flight turn's
+// completion() call received ctx or a context derived from it
+// (agentLoop.Run(ctx) -> runTurnWithSteering(ctx, ...), which only adds the
+// user-turn deadline; sub-turns derive from Run's ctx too), and
 // completion() already arms context.AfterFunc(ctx, ...) to flip
 // llama.cpp's abort_callback on cancellation (ADR-015 point 5). Canceling
 // first lets an in-flight decode unwind immediately instead of blocking

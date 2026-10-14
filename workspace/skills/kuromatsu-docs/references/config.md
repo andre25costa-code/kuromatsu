@@ -30,7 +30,7 @@ setado por variável de ambiente, sempre no padrão
 `KUROMATSU_<CAMINHO_EM_MAIUSCULO>_<CAMPO>` (ex.: `Agents.Defaults.Workspace`
 → `KUROMATSU_AGENTS_DEFAULTS_WORKSPACE`; alguns blocos usam `envPrefix` no
 struct tag em vez de repetir o prefixo campo a campo, ex.: subturn). Hoje
-existem 119 dessas variáveis — **não copiadas aqui uma a uma de propósito**:
+existem 125 dessas variáveis — **não copiadas aqui uma a uma de propósito**:
 uma lista hardcoded ficaria desatualizada no primeiro campo novo. Para a
 lista exaustiva e sempre correta:
 
@@ -55,11 +55,31 @@ falhar o boot):
 - `ValidateSleep` — `sleep.unconscious_model` (se `sleep.enabled`) e
   `evolution.model` (se a evolução usa cold path) têm que resolver para um
   provider **não-nativo** (ADR-018) — ver `sleep.md`.
+- `ValidateAgentLoopGuards` — `agents.defaults.max_repeated_tool_calls`
+  tem que ser `0` (desligado) ou `>= 2`; com `1` (ou negativo) o boot falha
+  com `agents.defaults.max_repeated_tool_calls must be 0 (off) or >= 2`.
 - `ValidatePlatformPaths` — rejeita um caminho absoluto estilo Windows
   (`C:\...`, `\\...`) num workspace configurado quando o processo está
   rodando em SO não-Windows, em vez de falhar de forma confusa depois.
 - `ValidateFocus` — nomes de janela referenciados em `origins`/`escalate_to`
   existem de fato (ver `scheduling.md`).
+
+## Guardas do loop do agente
+
+Três limites de recursos no loop do agente, todos em `agents.defaults`:
+
+| Chave | Default | Env | O que faz |
+|---|---|---|---|
+| `max_repeated_tool_calls` | `3` (`0` desliga; `1` é inválido) | `KUROMATSU_AGENTS_DEFAULTS_MAX_REPEATED_TOOL_CALLS` | Quando a mesma tool é chamada com os mesmos argumentos e devolve o mesmo resultado N-1 vezes seguidas, a N-ésima chamada não executa: o modelo recebe um aviso. Se insistir, o turno termina com uma mensagem pedindo para reformular. Polling cuja saída muda nunca conta como repetição. |
+| `user_turn_max_minutes` | `30` (`0` = sem teto) | `KUROMATSU_AGENTS_DEFAULTS_USER_TURN_MAX_MINUTES` | Teto de tempo de um turno de usuário inteiro (mensagem de canal ou CLI, incluindo o dreno das mensagens de steering enfileiradas). No estouro, o usuário recebe `Error processing message: turn exceeded agents.defaults.user_turn_max_minutes (<N> min)`. Cron, heartbeat e sistema não usam este teto: usam `non_user_turn_max_minutes` (default 60). |
+| `subturn.max_concurrent_global` | `8` (`<= 0` usa o default) | `KUROMATSU_AGENTS_DEFAULTS_SUBTURN_MAX_CONCURRENT_GLOBAL` | Máximo de sub-turnos simultâneos **por nível de profundidade** no processo inteiro (além do limite por pai, `subturn.max_concurrent`). Com os defaults (profundidade 3), no máximo 24 sub-turnos rodam ao mesmo tempo. Um filho que não consegue vaga em `subturn.concurrency_timeout_sec` falha com timeout de concorrência. Com memória apertada, reduza. |
+
+O teto de 30 min vale também na CLI e com o modelo nativo, que é lento: um
+turno legítimo muito longo é cortado. Para desligar, use
+`"user_turn_max_minutes": 0`.
+
+Sub-turnos assíncronos herdam o contexto do processo (o de `Run`), não o do
+turno pai: continuam depois que o pai termina, mas param no desligamento.
 
 ## Estrutura de alto nível do `Config`
 

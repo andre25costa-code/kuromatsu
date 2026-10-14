@@ -19,8 +19,14 @@ func (al *AgentLoop) processMessageSync(ctx context.Context, msg bus.InboundMess
 }
 
 func (al *AgentLoop) runTurnWithSteering(ctx context.Context, initialMsg bus.InboundMessage) {
+	// One user-turn deadline covers the initial message and the drain of
+	// queued steering; replies and errors are published on ctx.
+	turnCtx, cancel := al.userTurnContext(ctx)
+	defer cancel()
+
 	// Process the initial message
-	response, err := al.processMessage(ctx, initialMsg)
+	response, err := al.processMessage(turnCtx, initialMsg)
+	err = al.userTurnError(turnCtx, err)
 	if err != nil {
 		if !al.maybePublishError(ctx, initialMsg.Channel, initialMsg.ChatID, initialMsg.SessionKey, err) {
 			return // context canceled
@@ -44,7 +50,8 @@ func (al *AgentLoop) runTurnWithSteering(ctx context.Context, initialMsg bus.Inb
 		return
 	}
 
-	continued, continueErr := al.drainQueuedSteeringContinuations(ctx, target)
+	continued, continueErr := al.drainQueuedSteeringContinuations(turnCtx, target)
+	continueErr = al.userTurnError(turnCtx, continueErr)
 	if continueErr != nil {
 		logger.WarnCF("agent", "Failed to continue queued steering",
 			map[string]any{

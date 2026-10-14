@@ -127,6 +127,13 @@ still required.
 Shell commands requested from a chat are off by default; enable them only for channels you
 trust with `"tools": { "exec": { "allow_remote": true } }`.
 
+Agent-loop guards (all under `agents.defaults`): `user_turn_max_minutes` caps a whole user
+turn, **30 minutes by default** — this also applies to the CLI and to turns on the slow native
+model, so a very long legitimate turn ends with an error naming the key; set it to `0` to turn
+the cap off. `max_repeated_tool_calls` (default 3, `0` = off) ends a turn that keeps making the
+same tool call with the same result, and `subturn.max_concurrent_global` (default 8 per depth
+level) caps concurrent sub-turns process-wide.
+
 Scheduling:
 `kuromatsu cron add --command '…' --quiet` for deterministic routines, `HEARTBEAT.md` for
 periodic tasks that need judgment. The workspace (`AGENT.md`, `SOUL.md`, `USER.md`,

@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -43,11 +44,58 @@ func (al *AgentLoop) ProcessDirect(
 // ProcessDirectWithChannel is the direct entry point for a user turn (the CLI
 // and any caller acting on behalf of a person): the message carries SenderID
 // "cli", so focus routing, reflexes and telemetry treat it as origin user.
+//
+// The whole turn runs under the user-turn deadline (userTurnContext).
+// ProcessDirect delegates here, so the deadline is applied exactly once.
 func (al *AgentLoop) ProcessDirectWithChannel(
 	ctx context.Context,
 	content, sessionKey, channel, chatID string,
 ) (string, error) {
-	return al.processDirectAs(ctx, content, sessionKey, channel, chatID, "cli")
+	// Hooks and MCP servers outlive this turn: start them on the caller's
+	// context, not on the turn context canceled when the turn returns.
+	if err := al.ensureHooksInitialized(ctx); err != nil {
+		return "", err
+	}
+	if err := al.ensureMCPInitialized(ctx); err != nil {
+		return "", err
+	}
+
+	turnCtx, cancel := al.userTurnContext(ctx)
+	defer cancel()
+	response, err := al.processDirectAs(turnCtx, content, sessionKey, channel, chatID, "cli")
+	return response, al.userTurnError(turnCtx, err)
+}
+
+// userTurnContext derives the context for one whole user turn: a deadline
+// of agents.defaults.user_turn_max_minutes, or ctx unchanged when it is 0.
+// One deadline covers the entire turn, including the drain of steering
+// messages queued while it ran; apply it once per turn, at the entry point
+// (ProcessDirectWithChannel, runTurnWithSteering), never in shared helpers
+// such as processDirectAs, which cron also uses. The deadline only feeds
+// processing: publishing the reply or the error uses the caller's context.
+func (al *AgentLoop) userTurnContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if al.userTurnTimeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, al.userTurnTimeout)
+}
+
+// userTurnError names the setting when the turn failed because the turn
+// context's deadline expired. The result still matches
+// context.DeadlineExceeded, and is not context.Canceled, so
+// maybePublishError reports it to the user.
+func (al *AgentLoop) userTurnError(turnCtx context.Context, err error) error {
+	if err == nil || al.userTurnTimeout <= 0 {
+		return err
+	}
+	if errors.Is(err, context.DeadlineExceeded) && turnCtx.Err() == context.DeadlineExceeded {
+		return fmt.Errorf(
+			"turn exceeded agents.defaults.user_turn_max_minutes (%d min): %w",
+			al.userTurnMaxMinutes,
+			err,
+		)
+	}
+	return err
 }
 
 // ProcessCronWithChannel is the entry point for a scheduled job's turn. It

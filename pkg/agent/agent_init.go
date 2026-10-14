@@ -118,6 +118,11 @@ func NewAgentLoop(
 		}
 	}
 	al.activeReqCond = sync.NewCond(&al.activeReqMu)
+	if m := cfg.Agents.Defaults.UserTurnMaxMinutes; m > 0 {
+		al.userTurnMaxMinutes = m
+		al.userTurnTimeout = time.Duration(m) * time.Minute
+	}
+	al.subTurnSlots = newSubTurnSlots(al.getSubTurnConfig())
 	al.refreshRuntimeEventLogger(cfg)
 	al.providerFactory = providers.CreateProviderFromConfig
 	al.sleep = newSleepScheduler(cfg, registry, al.providerFactory, rs)
