@@ -60,7 +60,6 @@ type services struct {
 	ChannelManager    *channels.Manager
 	DeviceService     *devices.Service
 	HealthServer      *health.Server
-	VoiceAgentCancel  context.CancelFunc
 	manualReloadChan  chan struct{}
 	reloading         atomic.Bool
 
@@ -530,14 +529,6 @@ func setupAndStartServices(
 
 	logChannelVoiceCapabilities(runningServices.ChannelManager, transcriber != nil, ttsAvailable)
 
-	if transcriber != nil {
-		// Start Voice Agent Orchestrator after channels are ready.
-		vaCtx, vaCancel := context.WithCancel(context.Background())
-		runningServices.VoiceAgentCancel = vaCancel
-		voiceAgent := asr.NewAgent(msgBus, transcriber)
-		voiceAgent.Start(vaCtx)
-	}
-
 	healthAddr := net.JoinHostPort(listenResult.ProbeHost, strconv.Itoa(cfg.Gateway.Port))
 	fmt.Printf(
 		"✓ Health endpoints available at http://%s/health, /ready and /reload (POST)\n",
@@ -578,9 +569,6 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 	// reload should not stop channel manager
 	if !isReload && runningServices.ChannelManager != nil {
 		runningServices.ChannelManager.StopAll(shutdownCtx)
-	}
-	if runningServices.VoiceAgentCancel != nil {
-		runningServices.VoiceAgentCancel()
 	}
 	if runningServices.DeviceService != nil {
 		runningServices.DeviceService.Stop()
@@ -786,12 +774,6 @@ func restartServices(
 	al.SetTranscriber(transcriber)
 	if transcriber != nil {
 		logger.InfoCF("voice", "Transcription re-enabled (agent-level)", map[string]any{"provider": transcriber.Name()})
-
-		// Start Voice Agent Orchestrator on reload
-		vaCtx, vaCancel := context.WithCancel(context.Background())
-		runningServices.VoiceAgentCancel = vaCancel
-		voiceAgent := asr.NewAgent(msgBus, transcriber)
-		voiceAgent.Start(vaCtx)
 	} else {
 		logger.InfoCF("voice", "Transcription disabled", nil)
 	}
