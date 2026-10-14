@@ -211,6 +211,43 @@ toolLoop:
 			continue
 		}
 
+		// Repeated-tool-call guard. The signature is taken before hooks may
+		// rewrite the call, and the same signature is recorded after it runs.
+		toolSig := toolCallSignature(toolName, toolArgs)
+		repeatLimit := al.cfg.Agents.Defaults.MaxRepeatedToolCalls
+		switch checkRepeatedToolCall(exec, toolSig, repeatLimit) {
+		case repeatGuardWarn:
+			exec.allResponsesHandled = false
+			logger.WarnCF("agent", "Repeated tool call blocked; warning the model",
+				map[string]any{
+					"agent_id":  ts.agent.ID,
+					"tool":      toolName,
+					"iteration": iteration,
+					"repeats":   repeatLimit - 1,
+				})
+			messages = al.answerSkippedToolCall(
+				ts, messages, tc,
+				fmt.Sprintf(repeatedToolCallWarning, toolName, repeatLimit-1),
+			)
+			continue
+		case repeatGuardStop:
+			exec.allResponsesHandled = false
+			exec.repeatGuardTripped = true
+			exec.repeatGuardTool = toolName
+			logger.WarnCF("agent", "Repeated tool call after warning; ending turn",
+				map[string]any{
+					"agent_id":  ts.agent.ID,
+					"tool":      toolName,
+					"iteration": iteration,
+					"skipped":   len(normalizedToolCalls) - i,
+				})
+			for j := i; j < len(normalizedToolCalls); j++ {
+				messages = al.answerSkippedToolCall(ts, messages, normalizedToolCalls[j], repeatedToolCallSkipMessage)
+			}
+			exec.messages = messages
+			return ToolControlBreak
+		}
+
 		if al.hooks != nil {
 			toolReq, decision := al.hooks.BeforeTool(turnCtx, &ToolCallHookRequest{
 				Meta:      ts.eventMeta("runTurn", "turn.tool.before"),
@@ -227,6 +264,7 @@ toolLoop:
 			case HookActionRespond:
 				if toolReq != nil && toolReq.HookResult != nil {
 					hookResult := toolReq.HookResult
+					recordToolResult(exec, toolSig, hookResult)
 
 					argsJSON, _ := json.Marshal(toolArgs)
 					argsPreview := utils.Truncate(string(argsJSON), 200)
@@ -663,6 +701,7 @@ toolLoop:
 		if toolResult == nil {
 			toolResult = tools.ErrorResult("hook returned nil tool result")
 		}
+		recordToolResult(exec, toolSig, toolResult)
 
 		if len(toolResult.Media) > 0 && toolResult.ResponseHandled {
 			parts := make([]bus.MediaPart, 0, len(toolResult.Media))
@@ -910,6 +949,37 @@ toolLoop:
 		"agent_id": ts.agent.ID, "iteration": iteration,
 	})
 	return ToolControlContinue
+}
+
+// answerSkippedToolCall answers a tool call held back by the
+// repeated-tool-call guard: a turn.tool.skipped event and a role="tool"
+// message keyed to the call's ToolCallID (the same shape denyByTurnProfile
+// uses), so every tool_call keeps its result in the history.
+func (al *AgentLoop) answerSkippedToolCall(
+	ts *turnState,
+	messages []providers.Message,
+	tc providers.ToolCall,
+	content string,
+) []providers.Message {
+	al.emitEvent(
+		runtimeevents.KindAgentToolExecSkipped,
+		ts.eventMeta("runTurn", "turn.tool.skipped"),
+		ToolExecSkippedPayload{
+			Tool:   tc.Name,
+			Reason: repeatedToolCallReason,
+		},
+	)
+	msg := providers.Message{
+		Role:       "tool",
+		Content:    content,
+		ToolCallID: tc.ID,
+	}
+	messages = append(messages, msg)
+	if !ts.opts.NoHistory {
+		ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
+		ts.recordPersistedMessage(msg)
+	}
+	return messages
 }
 
 // suspendedToolSkipReason is the tool-result content every pending tool
