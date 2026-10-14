@@ -5,9 +5,10 @@ name: 🌲 Build Native (nativellm) amd64 Image
 # than the regular pure-Go image (docker/Dockerfile). It's not part of the
 # release pipeline -- run it by hand when you need a fresh native image.
 #
-# Runs on GitHub's standard amd64 runner -- this is also the real deploy
-# target's architecture (the Oracle box turned out to be x86_64, not ARM64
-# as first assumed; ADR-012 corrects ADR-011). Same-arch build means no
+# Runs on GitHub's standard amd64 runner -- this is also the deploy target's
+# architecture: the reference VM (Google Cloud e2-micro; the pinned baseline
+# AVX2+FMA+F16C also covers the Oracle E2.1.Micro used earlier) is x86_64,
+# not ARM64 as first assumed (ADR-012 corrects ADR-011). Same-arch build means no
 # cross-toolchain and no QEMU either way; the runner's 16 GB RAM just avoids
 # the dev machine's ~8 GB ceiling that OOM-killed this same build locally.
 on:
@@ -99,10 +100,10 @@ jobs:
           path: /tmp/localllm-integration-test-linux-amd64
           retention-days: 14
 
-      # Deploy the image manually (Oracle/Docker path):
-      #   scp kuromatsu-native-amd64.tar.gz oracle:~/
-      #   ssh oracle 'gunzip -c kuromatsu-native-amd64.tar.gz | docker load'
-      #   ssh oracle 'docker compose -f docker/docker-compose.native.yml --profile gateway up -d'
+      # Deploy the image manually (Docker path):
+      #   scp kuromatsu-native-amd64.tar.gz "$DEPLOY_HOST":~/
+      #   ssh "$DEPLOY_HOST" 'gunzip -c kuromatsu-native-amd64.tar.gz | docker load'
+      #   ssh "$DEPLOY_HOST" 'docker compose -f docker/docker-compose.native.yml --profile gateway up -d'
       # Deploy the raw binaries manually (systemd path, AC-020-4):
       #   scp kuromatsu-native-linux-amd64 nativebench-linux-amd64 "$DEPLOY_HOST":/tmp/
       #   ssh "$DEPLOY_HOST" 'sudo install -m755 /tmp/kuromatsu-native-linux-amd64 /opt/kuromatsu/bin/kuromatsu && sudo install -m755 /tmp/nativebench-linux-amd64 /opt/kuromatsu/bin/nativebench && sudo systemctl restart kuromatsu'

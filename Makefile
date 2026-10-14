@@ -286,11 +286,13 @@ llama-lib:
 	@echo "Static libs in $(LLAMA_BUILD_DIR)/lib:"
 	@ls $(LLAMA_BUILD_DIR)/lib/*.a
 
-## llama-lib-x86-64: PRIMARY deploy target (ADR-012). Pinned CPU baseline for
-## the real Oracle box (VM.Standard.E2.1.Micro -- AMD EPYC 7551 "Naples",
-## Zen1: AVX2+FMA+F16C, no AVX-512/AVX-VNNI). GGML_NATIVE=OFF on purpose: the
-## build host (GitHub Actions runner, or a dev machine) may have a newer CPU
-## with AVX-512, which would SIGILL on the Oracle box if auto-detected.
+## llama-lib-x86-64: PRIMARY deploy target (ADR-012). Pinned CPU baseline.
+## Reference deploy VM: Google Cloud e2-micro. The pinned baseline
+## AVX2+FMA+F16C (no AVX-512/AVX-VNNI) also covers the Oracle
+## VM.Standard.E2.1.Micro (AMD EPYC 7551, Zen1) used earlier.
+## GGML_NATIVE=OFF on purpose: the build host (GitHub Actions runner, or a dev
+## machine) may have a newer CPU with AVX-512, which would SIGILL on the
+## reference VM if auto-detected.
 ## Always a native compile (build host and target are both amd64) -- no
 ## cross-toolchain, no QEMU, ever.
 llama-lib-x86-64:
@@ -307,7 +309,7 @@ llama-lib-x86-64:
 	@cp -f $(LLAMA_BUILD_DIR_X86_64)/lib/*.a $(LLAMA_BUILD_DIR)/lib/
 
 ## llama-lib-arm64: SECONDARY/future target (superseded as the primary path
-## by ADR-012 -- the real Oracle box turned out to be x86_64, not ARM64).
+## by ADR-012 -- the reference VM is x86_64, not ARM64).
 ## Kept for a possible future ARM64 deploy (Raspberry Pi, or if an A1 shape
 ## becomes available). True cross-compile for linux/arm64 (Ampere/Neoverse-N1
 ## class -- dotprod yes, i8mm NO), running natively on an amd64 build host via
@@ -533,7 +535,7 @@ docker-build-native:
 		-t kuromatsu:native-amd64 --load .
 
 ## docker-save-native: Package the built native image as a portable .tar.gz for
-## `scp` to the Oracle box -- the deploy target never builds anything, it only
+## `scp` to the reference VM -- the deploy target never builds anything, it only
 ## `docker load`s this file (ADR-012, S32).
 docker-save-native: docker-build-native
 	@mkdir -p $(BUILD_DIR)
