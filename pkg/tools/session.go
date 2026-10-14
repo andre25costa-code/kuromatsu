@@ -253,7 +253,7 @@ func (sm *SessionManager) cleanupOldSessions() {
 		status, start, end := session.Status, session.StartTime, session.EndTime
 		session.mu.Unlock()
 		switch {
-		case status == "done" || status == "exited":
+		case status == "done" || status == "exited" || status == "error":
 			if end < doneCutoff {
 				delete(sm.sessions, id)
 			}

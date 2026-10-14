@@ -80,6 +80,50 @@ func TestSessionManager_CleanupUsesEndTime(t *testing.T) {
 	require.ErrorIs(t, err, ErrSessionNotFound)
 }
 
+// TestSessionManager_CleanupRemovesErroredSessions verifies sessions that
+// ended in "error" (the panic path) are removed like finished ones.
+func TestSessionManager_CleanupRemovesErroredSessions(t *testing.T) {
+	sm := NewSessionManager()
+	t.Cleanup(sm.Stop)
+	recentEnd := time.Now().Unix()
+	oldEnd := time.Now().Add(-31 * time.Minute).Unix()
+	sm.Add(&ProcessSession{ID: "error-recent", Status: "error", EndTime: recentEnd})
+	sm.Add(&ProcessSession{ID: "error-old", Status: "error", EndTime: oldEnd})
+
+	sm.cleanupOldSessions()
+
+	_, err := sm.Get("error-recent")
+	require.NoError(t, err)
+	_, err = sm.Get("error-old")
+	require.ErrorIs(t, err, ErrSessionNotFound)
+}
+
+// TestShellTool_BackgroundCapRefusalStartsNothing verifies a run refused by
+// the cap leaves no session behind and that a later run still works once a
+// slot frees up.
+func TestShellTool_BackgroundCapRefusalStartsNothing(t *testing.T) {
+	tool, err := NewExecTool("", false)
+	require.NoError(t, err)
+	sm := NewSessionManager()
+	t.Cleanup(sm.Stop)
+	tool.sessionManager = sm
+	for i := 0; i < maxRunningBackgroundSessions; i++ {
+		sm.Add(&ProcessSession{ID: fmt.Sprint(i), Status: "running"})
+	}
+	for i := 0; i < 50; i++ {
+		res := tool.Execute(context.Background(),
+			map[string]any{"action": "run", "command": "echo x", "background": true})
+		require.True(t, res.IsError)
+	}
+	require.Len(t, sm.List(), maxRunningBackgroundSessions)
+
+	sm.Remove("0")
+	res := tool.Execute(context.Background(),
+		map[string]any{"action": "run", "command": "echo x", "background": true})
+	require.False(t, res.IsError, "result: %s", res.ForLLM)
+	require.Len(t, sm.List(), maxRunningBackgroundSessions)
+}
+
 // TestSessionManager_AddIfBelowConcurrent verifies the cap holds under
 // concurrent inserts.
 func TestSessionManager_AddIfBelowConcurrent(t *testing.T) {

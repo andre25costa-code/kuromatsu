@@ -516,6 +516,7 @@ func (t *ExecTool) runSync(ctx context.Context, command, cwd string, timeout tim
 	cmd.WaitDelay = execWaitDelay
 
 	prepareCommandForTermination(cmd)
+	prepareContextCommandForTermination(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -657,10 +658,14 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 
 	var outputReader *os.File
 	var outputWriter *os.File
+	var stdinReader *os.File
 	var stdinWriter io.WriteCloser
+	var tty *os.File
 
 	if ptyEnabled {
-		ptmx, tty, err := pty.Open()
+		var ptmx *os.File
+		var err error
+		ptmx, tty, err = pty.Open()
 		if err != nil {
 			return ErrorResult(fmt.Sprintf("failed to create PTY: %v", err))
 		}
@@ -686,22 +691,35 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		}
 		cmd.Stdout = outputWriter
 		cmd.Stderr = outputWriter
-		stdinWriter, err = cmd.StdinPipe()
+		// An explicit pipe (rather than cmd.StdinPipe) keeps both ends in our
+		// hands, so a run refused before Start can close them.
+		var stdinW *os.File
+		stdinReader, stdinW, err = os.Pipe()
 		if err != nil {
 			_ = outputReader.Close()
 			_ = outputWriter.Close()
 			return ErrorResult(fmt.Sprintf("failed to create stdin pipe: %v", err))
 		}
+		cmd.Stdin = stdinReader
+		stdinWriter = stdinW
 		session.stdinWriter = stdinWriter
 	}
 
+	// releaseIO closes every descriptor created above when the run does not start.
 	releaseIO := func() {
 		if session.ptyMaster != nil {
 			_ = session.ptyMaster.Close()
 		}
+		if tty != nil {
+			_ = tty.Close()
+		}
 		if outputReader != nil {
 			_ = outputReader.Close()
 			_ = outputWriter.Close()
+		}
+		if stdinReader != nil {
+			_ = stdinReader.Close()
+			_ = stdinWriter.Close()
 		}
 	}
 
@@ -722,6 +740,10 @@ func (t *ExecTool) runBackground(ctx context.Context, command, cwd string, ptyEn
 		// The child holds its own copy; closing ours lets the reader see EOF
 		// once the process (and anything it spawned) exits.
 		_ = outputWriter.Close()
+	}
+	if stdinReader != nil {
+		// Only the child reads stdin; it holds its own copy of this end.
+		_ = stdinReader.Close()
 	}
 
 	session.mu.Lock()
