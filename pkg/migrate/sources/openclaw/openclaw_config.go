@@ -3,8 +3,10 @@ package openclaw
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
@@ -112,23 +114,38 @@ type OpenClawAgentTools struct {
 	AlsoAllow []string `json:"alsoAllow"`
 }
 
+// OpenClawChannels keeps the two channels Kuromatsu can run. Every other key
+// under "channels" is kept raw in Others so the migration can report it as
+// ignored without describing each source channel.
 type OpenClawChannels struct {
-	Telegram    *OpenClawTelegramConfig    `json:"telegram"`
-	Discord     *OpenClawDiscordConfig     `json:"discord"`
-	Slack       *OpenClawSlackConfig       `json:"slack"`
-	WhatsApp    *OpenClawWhatsAppConfig    `json:"whatsapp"`
-	Signal      *OpenClawSignalConfig      `json:"signal"`
-	Matrix      *OpenClawMatrixConfig      `json:"matrix"`
-	GoogleChat  *OpenClawGoogleChatConfig  `json:"googlechat"`
-	Teams       *OpenClawTeamsConfig       `json:"msteams"`
-	IRC         *OpenClawIrcConfig         `json:"irc"`
-	Mattermost  *OpenClawMattermostConfig  `json:"mattermost"`
-	Feishu      *OpenClawFeishuConfig      `json:"feishu"`
-	IMessage    *OpenClawIMessageConfig    `json:"imessage"`
-	BlueBubbles *OpenClawBlueBubblesConfig `json:"bluebubbles"`
-	QQ          *OpenClawQQConfig          `json:"qq"`
-	DingTalk    *OpenClawDingTalkConfig    `json:"dingtalk"`
-	MaixCam     *OpenClawMaixCamConfig     `json:"maixcam"`
+	Telegram *OpenClawTelegramConfig    `json:"telegram"`
+	WhatsApp *OpenClawWhatsAppConfig    `json:"whatsapp"`
+	Others   map[string]json.RawMessage `json:"-"`
+}
+
+// UnmarshalJSON decodes telegram and whatsapp and keeps the remaining keys raw.
+func (c *OpenClawChannels) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*c = OpenClawChannels{}
+	if v, ok := raw["telegram"]; ok {
+		if err := json.Unmarshal(v, &c.Telegram); err != nil {
+			return fmt.Errorf("channels.telegram: %w", err)
+		}
+		delete(raw, "telegram")
+	}
+	if v, ok := raw["whatsapp"]; ok {
+		if err := json.Unmarshal(v, &c.WhatsApp); err != nil {
+			return fmt.Errorf("channels.whatsapp: %w", err)
+		}
+		delete(raw, "whatsapp")
+	}
+	if len(raw) > 0 {
+		c.Others = raw
+	}
+	return nil
 }
 
 type OpenClawTelegramConfig struct {
@@ -140,24 +157,6 @@ type OpenClawTelegramConfig struct {
 	UseMarkdownV2 *bool    `json:"useMarkdownV2"`
 }
 
-type OpenClawDiscordConfig struct {
-	Token       *string         `json:"token"`
-	Guilds      json.RawMessage `json:"guilds"`
-	DmPolicy    *string         `json:"dmPolicy"`
-	GroupPolicy *string         `json:"groupPolicy"`
-	AllowFrom   []string        `json:"allowFrom"`
-	Enabled     *bool           `json:"enabled"`
-}
-
-type OpenClawSlackConfig struct {
-	BotToken    *string  `json:"botToken"`
-	AppToken    *string  `json:"appToken"`
-	DmPolicy    *string  `json:"dmPolicy"`
-	GroupPolicy *string  `json:"groupPolicy"`
-	AllowFrom   []string `json:"allowFrom"`
-	Enabled     *bool    `json:"enabled"`
-}
-
 type OpenClawWhatsAppConfig struct {
 	AuthDir     *string  `json:"authDir"`
 	DmPolicy    *string  `json:"dmPolicy"`
@@ -165,114 +164,6 @@ type OpenClawWhatsAppConfig struct {
 	GroupPolicy *string  `json:"groupPolicy"`
 	Enabled     *bool    `json:"enabled"`
 	BridgeURL   *string  `json:"bridgeUrl"`
-}
-
-type OpenClawSignalConfig struct {
-	HttpUrl   *string  `json:"httpUrl"`
-	HttpHost  *string  `json:"httpHost"`
-	HttpPort  *int     `json:"httpPort"`
-	Account   *string  `json:"account"`
-	DmPolicy  *string  `json:"dmPolicy"`
-	AllowFrom []string `json:"allowFrom"`
-	Enabled   *bool    `json:"enabled"`
-}
-
-type OpenClawMatrixConfig struct {
-	Homeserver  *string  `json:"homeserver"`
-	UserID      *string  `json:"userId"`
-	AccessToken *string  `json:"accessToken"`
-	Rooms       []string `json:"rooms"`
-	DmPolicy    *string  `json:"dmPolicy"`
-	AllowFrom   []string `json:"allowFrom"`
-	Enabled     *bool    `json:"enabled"`
-}
-
-type OpenClawGoogleChatConfig struct {
-	ServiceAccountFile *string `json:"serviceAccountFile"`
-	WebhookPath        *string `json:"webhookPath"`
-	BotUser            *string `json:"botUser"`
-	DmPolicy           *string `json:"dmPolicy"`
-	Enabled            *bool   `json:"enabled"`
-}
-
-type OpenClawTeamsConfig struct {
-	AppID       *string  `json:"appId"`
-	AppPassword *string  `json:"appPassword"`
-	TenantID    *string  `json:"tenantId"`
-	DmPolicy    *string  `json:"dmPolicy"`
-	AllowFrom   []string `json:"allowFrom"`
-	Enabled     *bool    `json:"enabled"`
-}
-
-type OpenClawIrcConfig struct {
-	Host      *string  `json:"host"`
-	Port      *int     `json:"port"`
-	TLS       *bool    `json:"tls"`
-	Nick      *string  `json:"nick"`
-	Password  *string  `json:"password"`
-	Channels  []string `json:"channels"`
-	DmPolicy  *string  `json:"dmPolicy"`
-	AllowFrom []string `json:"allowFrom"`
-	Enabled   *bool    `json:"enabled"`
-}
-
-type OpenClawMattermostConfig struct {
-	BotToken  *string  `json:"botToken"`
-	BaseURL   *string  `json:"baseUrl"`
-	DmPolicy  *string  `json:"dmPolicy"`
-	AllowFrom []string `json:"allowFrom"`
-	Enabled   *bool    `json:"enabled"`
-}
-
-type OpenClawFeishuConfig struct {
-	AppID             *string  `json:"appId"`
-	AppSecret         *string  `json:"appSecret"`
-	Domain            *string  `json:"domain"`
-	DmPolicy          *string  `json:"dmPolicy"`
-	Enabled           *bool    `json:"enabled"`
-	VerificationToken *string  `json:"verificationToken"`
-	EncryptKey        *string  `json:"encryptKey"`
-	AllowFrom         []string `json:"allowFrom"`
-}
-
-type OpenClawIMessageConfig struct {
-	CliPath   *string  `json:"cliPath"`
-	DbPath    *string  `json:"dbPath"`
-	DmPolicy  *string  `json:"dmPolicy"`
-	AllowFrom []string `json:"allowFrom"`
-	Enabled   *bool    `json:"enabled"`
-}
-
-type OpenClawBlueBubblesConfig struct {
-	ServerURL *string  `json:"serverUrl"`
-	Password  *string  `json:"password"`
-	DmPolicy  *string  `json:"dmPolicy"`
-	AllowFrom []string `json:"allowFrom"`
-	Enabled   *bool    `json:"enabled"`
-}
-
-type OpenClawQQConfig struct {
-	AppID     *string  `json:"appId"`
-	AppSecret *string  `json:"appSecret"`
-	DmPolicy  *string  `json:"dmPolicy"`
-	AllowFrom []string `json:"allowFrom"`
-	Enabled   *bool    `json:"enabled"`
-}
-
-type OpenClawDingTalkConfig struct {
-	AppID     *string  `json:"appId"`
-	AppSecret *string  `json:"appSecret"`
-	DmPolicy  *string  `json:"dmPolicy"`
-	AllowFrom []string `json:"allowFrom"`
-	Enabled   *bool    `json:"enabled"`
-}
-
-type OpenClawMaixCamConfig struct {
-	Host      *string  `json:"host"`
-	Port      *int     `json:"port"`
-	DmPolicy  *string  `json:"dmPolicy"`
-	AllowFrom []string `json:"allowFrom"`
-	Enabled   *bool    `json:"enabled"`
 }
 
 type OpenClawSkills struct {
@@ -329,25 +220,6 @@ func GetProviderConfigFromDir(dir string) map[string]ProviderConfig {
 		result[mappedName] = prov
 	}
 	return result
-}
-
-func (c *OpenClawConfig) IsChannelEnabled(name string) bool {
-	switch name {
-	case "telegram":
-		return c.Channels.Telegram == nil || c.Channels.Telegram.Enabled == nil || *c.Channels.Telegram.Enabled
-	case "discord":
-		return c.Channels.Discord == nil || c.Channels.Discord.Enabled == nil || *c.Channels.Discord.Enabled
-	case "slack":
-		return c.Channels.Slack == nil || c.Channels.Slack.Enabled == nil || *c.Channels.Slack.Enabled
-	case "matrix":
-		return c.Channels.Matrix == nil || c.Channels.Matrix.Enabled == nil || *c.Channels.Matrix.Enabled
-	case "whatsapp":
-		return c.Channels.WhatsApp == nil || c.Channels.WhatsApp.Enabled == nil || *c.Channels.WhatsApp.Enabled
-	case "feishu":
-		return c.Channels.Feishu == nil || c.Channels.Feishu.Enabled == nil || *c.Channels.Feishu.Enabled
-	default:
-		return false
-	}
 }
 
 func (c *OpenClawConfig) GetDefaultModel() (provider, model string) {
@@ -663,29 +535,11 @@ func (c *OpenClawConfig) convertChannels(warnings *[]string) ChannelsConfig {
 	}
 
 	// Channels present in the source that Kuromatsu cannot run are reported, never emitted.
-	ignored := []struct {
-		name    string
-		present bool
-	}{
-		{"discord", c.Channels.Discord != nil},
-		{"slack", c.Channels.Slack != nil},
-		{"feishu", c.Channels.Feishu != nil},
-		{"qq", c.Channels.QQ != nil},
-		{"dingtalk", c.Channels.DingTalk != nil},
-		{"maixcam", c.Channels.MaixCam != nil},
-		{"matrix", c.Channels.Matrix != nil},
-		{"signal", c.Channels.Signal != nil},
-		{"googlechat", c.Channels.GoogleChat != nil},
-		{"msteams", c.Channels.Teams != nil},
-		{"irc", c.Channels.IRC != nil},
-		{"mattermost", c.Channels.Mattermost != nil},
-		{"imessage", c.Channels.IMessage != nil},
-		{"bluebubbles", c.Channels.BlueBubbles != nil},
-	}
-	for _, ch := range ignored {
-		if ch.present {
-			*warnings = append(*warnings, fmt.Sprintf("Channel '%s': not supported by Kuromatsu; ignored", ch.name))
+	for _, name := range slices.Sorted(maps.Keys(c.Channels.Others)) {
+		if string(c.Channels.Others[name]) == "null" { // a null entry means the channel is absent
+			continue
 		}
+		*warnings = append(*warnings, fmt.Sprintf("Channel '%s': not supported by Kuromatsu; ignored", name))
 	}
 
 	return channels

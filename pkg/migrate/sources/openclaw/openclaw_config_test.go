@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -398,6 +399,40 @@ func TestConvertToKuromatsuWithUnsupportedChannelsOnly(t *testing.T) {
 	}
 }
 
+func TestConvertChannels_WarnsForEveryUnknownChannelKey(t *testing.T) {
+	out, warnings := convertFromJSON(t, `{
+		"channels": {
+			"telegram": {"botToken": "t", "allowFrom": ["123"]},
+			"onebot": {"enabled": true},
+			"line": {"enabled": true},
+			"foo": {"anything": 1},
+			"discord": {"enabled": true, "token": "d"},
+			"slack": null
+		}
+	}`)
+
+	var ignored []string
+	for _, w := range warnings {
+		if strings.HasSuffix(w, ": not supported by Kuromatsu; ignored") {
+			ignored = append(ignored, w)
+		}
+	}
+	want := []string{
+		"Channel 'discord': not supported by Kuromatsu; ignored",
+		"Channel 'foo': not supported by Kuromatsu; ignored",
+		"Channel 'line': not supported by Kuromatsu; ignored",
+		"Channel 'onebot': not supported by Kuromatsu; ignored",
+	}
+	if !slices.Equal(ignored, want) {
+		t.Fatalf("ignored-channel warnings = %q, want %q", ignored, want)
+	}
+
+	std := out.Channels.ToStandardChannels()
+	if len(std) != 1 || std["telegram"] == nil {
+		t.Fatalf("expected only telegram, got %v", std)
+	}
+}
+
 func TestOpenClawAgentModel(t *testing.T) {
 	model := &OpenClawAgentModel{
 		Primary:   strPtr("anthropic/claude-3-opus"),
@@ -421,38 +456,6 @@ func TestOpenClawAgentModel(t *testing.T) {
 	primary2 := model2.GetPrimary()
 	if primary2 != "claude-3-opus" {
 		t.Errorf("expected primary 'claude-3-opus' from Simple, got '%s'", primary2)
-	}
-}
-
-func TestChannelEnabled(t *testing.T) {
-	cfg := &OpenClawConfig{
-		Channels: &OpenClawChannels{
-			Telegram: &OpenClawTelegramConfig{
-				Enabled: boolPtr(true),
-			},
-			Discord: &OpenClawDiscordConfig{
-				Enabled: boolPtr(false),
-			},
-			Slack: &OpenClawSlackConfig{
-				Enabled: boolPtr(true),
-			},
-		},
-	}
-
-	if !cfg.IsChannelEnabled("telegram") {
-		t.Error("telegram should be enabled")
-	}
-	if cfg.IsChannelEnabled("discord") {
-		t.Error("discord should be disabled")
-	}
-	if !cfg.IsChannelEnabled("slack") {
-		t.Error("slack should be enabled (explicitly set)")
-	}
-	if !cfg.IsChannelEnabled("matrix") {
-		t.Error("matrix should be enabled (nil config defaults to enabled)")
-	}
-	if cfg.IsChannelEnabled("line") {
-		t.Error("line should return false (not in switch cases)")
 	}
 }
 
@@ -713,8 +716,4 @@ func TestGetProviderConfigFromDirNotExist(t *testing.T) {
 
 func strPtr(s string) *string {
 	return &s
-}
-
-func boolPtr(b bool) *bool {
-	return &b
 }
