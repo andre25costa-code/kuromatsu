@@ -89,7 +89,6 @@ INSTALL_TMP_SUFFIX=.new
 
 # Workspace and Skills
 KUROMATSU_HOME?=$(HOME)/.kuromatsu
-WORKSPACE_DIR?=$(KUROMATSU_HOME)/workspace
 
 LNCMD=ln -sf
 
@@ -556,18 +555,15 @@ help:
 	@echo "Examples:"
 	@echo "  make build              # Build for current platform"
 	@echo "  make install            # Install to ~/.local/bin"
-	@echo "  make uninstall          # Remove from /usr/local/bin"
-	@echo "  make install-skills     # Install skills to workspace"
+	@echo "  make uninstall          # Remove from $(INSTALL_BIN_DIR)"
 	@echo "  make docker-build       # Build minimal Docker image"
 	@echo "  make docker-test        # Test MCP tools in Docker"
 	@echo ""
 	@echo "Environment Variables:"
 	@echo "  INSTALL_PREFIX          # Installation prefix (default: ~/.local)"
-	@echo "  WORKSPACE_DIR           # Workspace directory (default: ~/.kuromatsu/workspace)"
 	@echo "  VERSION                 # Version string (default: git describe)"
 	@echo ""
 	@echo "Current Configuration:"
 	@echo "  Platform: $(PLATFORM)/$(ARCH)"
 	@echo "  Binary: $(BINARY_PATH)"
 	@echo "  Install Prefix: $(INSTALL_PREFIX)"
-	@echo "  Workspace: $(WORKSPACE_DIR)"
