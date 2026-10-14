@@ -19,8 +19,8 @@ parecidos e, se insistir, o turno escala pra uma janela maior.
 ## Isolamento entre agentes/sessões (achado de segurança, corrigido 2026-09-16)
 
 Duas tools guardavam estado global sem checar a que sessão/agente ele
-pertencia — corrigido no audit (`docs/internal-audit-2026-09-16.md`,
-SEC-01/SEC-02):
+pertencia — corrigido num audit interno de 2026-09-16
+(SEC-01/SEC-02):
 
 - **`exec` (sessões de shell em background)**: cada `ProcessSession` agora
   tem um `owner` derivado da identidade real do runtime (workspace + agent

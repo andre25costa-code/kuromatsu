@@ -68,7 +68,7 @@ channels.RegisterSafeFactory(config.ChannelTelegram, NewTelegramChannel)
 
 Cada sub-pacote se registra no próprio `init()`; o Gateway dispara isso com
 um blank import (`_ "github.com/andre25costa-code/kuromatsu/pkg/channels/telegram"`
-em `cmd/kuromatsu/internal/gateway/helpers.go`). O Manager só faz
+em `pkg/gateway/gateway.go`). O Manager só faz
 `InitChannelList()` (decodifica settings por tipo) e busca a fábrica pelo
 nome — nenhuma mudança no Manager é necessária para adicionar um canal.
 
@@ -140,7 +140,7 @@ ainda não está bem definido. Não é um bug esquecido; é uma decisão adiada.
    `BaseChannel`/Manager.
 3. Registrar o tipo de settings em `channelSettingsFactory`
    (`pkg/config/config_channel.go`) e adicionar o blank import em
-   `cmd/kuromatsu/internal/gateway/helpers.go`.
+   `pkg/gateway/gateway.go`.
 4. Testar com `go test ./pkg/channels/<nome>/... -v`.
 
 Convenção de config: cada entrada de `channel_list` tem campos comuns no

@@ -9,9 +9,9 @@ Fonte real: `pkg/config/` (schema principal em `config.go`, `config_struct.go`).
   se setado, senão o diretório default (`~/.kuromatsu` fora do Windows).
   **O diretório de trabalho (workspace) não substitui essa seleção** — uma
   cópia de `config.json` dentro do workspace nunca é a config ativa
-  (achado real do audit de 2026-09-16, ver `docs/internal-audit-2026-09-16.md`:
-  uma cópia obsoleta em `workspace/config.json` causou confusão justamente
-  por parecer autoritativa sem ser).
+  (achado real de um audit interno de 2026-09-16: uma cópia obsoleta em
+  `workspace/config.json` causou confusão justamente por parecer
+  autoritativa sem ser).
 - **`.security.yml`** — chaves de API e outros segredos, indexados pelo
   `model_name` do `model_list` (nunca em `config.json`).
 - `Config.SourcePath` (campo não persistido, populado por `LoadConfig`)

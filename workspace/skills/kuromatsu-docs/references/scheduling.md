@@ -79,10 +79,9 @@ tarefa que não precisa de raciocínio.
 **Cuidado com erro técnico virando resposta ao usuário**: um job cujo
 payload é uma mensagem de LLM, se uma tool dentro do turno falhar, o
 próprio modelo formula a resposta final — inclusive podendo errar o
-diagnóstico do que aconteceu (ver `docs/internal-audit-2026-09-16.md`,
+diagnóstico do que aconteceu (achado de um audit interno de 2026-09-16,
 seção "Mensagem espontânea no Telegram"). Confirmado ao vivo em 2026-09-21
-(ver `BACKLOG.md`, "Incidente ao vivo") que esse é exatamente o mecanismo
-por trás de um caso real: um job com `payload.message` em vez de
+que esse é exatamente o mecanismo por trás de um caso real: um job com `payload.message` em vez de
 `payload.command` acabou custando 7 cron jobs duplicados, porque
 `cron add` não é idempotente por `job_id` e o modelo, seguindo uma
 instrução de `HEARTBEAT.md` que não fazia sentido nesse servidor, insistiu
