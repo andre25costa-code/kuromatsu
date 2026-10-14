@@ -124,16 +124,3 @@ func runtimeScopeFromInboundContext(ctx InboundContext) runtimeevents.Scope {
 		MessageID: ctx.MessageID,
 	}
 }
-
-func runtimeScopeFromAudioChunk(chunk AudioChunk) runtimeevents.Scope {
-	return runtimeevents.Scope{
-		Channel: chunk.Channel,
-		ChatID:  chunk.ChatID,
-	}
-}
-
-func runtimeScopeFromVoiceControl(ctrl VoiceControl) runtimeevents.Scope {
-	return runtimeevents.Scope{
-		ChatID: ctrl.ChatID,
-	}
-}

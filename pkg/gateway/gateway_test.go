@@ -427,8 +427,11 @@ func TestShutdownGatewayClosesMessageBus(t *testing.T) {
 	if evt.Kind != runtimeevents.KindBusCloseCompleted {
 		t.Fatalf("shutdown event kind = %q, want %q", evt.Kind, runtimeevents.KindBusCloseCompleted)
 	}
-	if err := msgBus.PublishVoiceControl(context.Background(), bus.VoiceControl{}); !errors.Is(err, bus.ErrBusClosed) {
-		t.Fatalf("PublishVoiceControl after shutdown error = %v, want %v", err, bus.ErrBusClosed)
+	if err := msgBus.PublishInbound(context.Background(), bus.InboundMessage{
+		Context: bus.InboundContext{Channel: "test", ChatID: "chat-1", ChatType: "direct", SenderID: "user-1"},
+		Content: "after shutdown",
+	}); !errors.Is(err, bus.ErrBusClosed) {
+		t.Fatalf("PublishInbound after shutdown error = %v, want %v", err, bus.ErrBusClosed)
 	}
 }
 
