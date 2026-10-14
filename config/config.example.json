@@ -305,7 +305,8 @@
       "enabled": true,
       "exec_timeout_minutes": 5,
       "allow_command": true,
-      "command_allowed_remotes": []
+      "command_allowed_remotes": [],
+      "max_consecutive_failures": 5
     },
     "mcp": {
       "enabled": false,

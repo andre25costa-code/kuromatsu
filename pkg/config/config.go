@@ -1001,6 +1001,9 @@ type CronToolsConfig struct {
 	ExecTimeoutMinutes    int      `json:"exec_timeout_minutes"    env:"KUROMATSU_TOOLS_CRON_EXEC_TIMEOUT_MINUTES"`
 	AllowCommand          bool     `json:"allow_command"           env:"KUROMATSU_TOOLS_CRON_ALLOW_COMMAND"`
 	CommandAllowedRemotes []string `json:"command_allowed_remotes" env:"KUROMATSU_TOOLS_CRON_COMMAND_ALLOWED_REMOTES"`
+	// MaxConsecutiveFailures disables a job after this many failed runs in
+	// a row, once at least an hour has passed since the first; 0 never does.
+	MaxConsecutiveFailures int `json:"max_consecutive_failures" env:"KUROMATSU_TOOLS_CRON_MAX_CONSECUTIVE_FAILURES"`
 }
 
 type ExecConfig struct {

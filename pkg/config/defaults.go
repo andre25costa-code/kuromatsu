@@ -422,8 +422,9 @@ func DefaultConfig() *Config {
 				ToolConfig: ToolConfig{
 					Enabled: true,
 				},
-				ExecTimeoutMinutes: 5,
-				AllowCommand:       true,
+				ExecTimeoutMinutes:     5,
+				AllowCommand:           true,
+				MaxConsecutiveFailures: 5,
 			},
 			Exec: ExecConfig{
 				ToolConfig: ToolConfig{
