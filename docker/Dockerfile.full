@@ -40,5 +40,9 @@ COPY --from=builder /src/build/kuromatsu /usr/local/bin/kuromatsu
 # Create kuromatsu home directory
 RUN /usr/local/bin/kuromatsu onboard
 
-ENTRYPOINT ["kuromatsu"]
-CMD ["gateway"]
+# First-run entrypoint: runs onboard when the mounted home is empty,
+# otherwise starts the gateway (same as the other images).
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
