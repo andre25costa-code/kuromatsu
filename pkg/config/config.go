@@ -472,7 +472,7 @@ type SubTurnConfig struct {
 	ConcurrencyTimeoutSec int `json:"concurrency_timeout_sec" env:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_CONCURRENCY_TIMEOUT_SEC"`
 	// MaxConcurrentGlobal caps how many sub-turns of one depth level run at
 	// once across the whole process; <= 0 uses the built-in default (8).
-	MaxConcurrentGlobal int `json:"max_concurrent_global,omitempty" env:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_MAX_CONCURRENT_GLOBAL"`
+	MaxConcurrentGlobal int `json:"max_concurrent_global" env:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_MAX_CONCURRENT_GLOBAL"`
 }
 
 type ToolFeedbackConfig struct {

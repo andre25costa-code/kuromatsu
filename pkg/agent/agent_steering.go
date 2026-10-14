@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/bus"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
@@ -26,7 +27,8 @@ func (al *AgentLoop) runTurnWithSteering(ctx context.Context, initialMsg bus.Inb
 
 	// Process the initial message
 	response, err := al.processMessage(turnCtx, initialMsg)
-	err = al.userTurnError(turnCtx, err)
+	err = al.userTurnError(ctx, turnCtx, err)
+	overrunReported := errors.Is(err, context.DeadlineExceeded)
 	if err != nil {
 		if !al.maybePublishError(ctx, initialMsg.Channel, initialMsg.ChatID, initialMsg.SessionKey, err) {
 			return // context canceled
@@ -51,7 +53,8 @@ func (al *AgentLoop) runTurnWithSteering(ctx context.Context, initialMsg bus.Inb
 	}
 
 	continued, continueErr := al.drainQueuedSteeringContinuations(turnCtx, target)
-	continueErr = al.userTurnError(turnCtx, continueErr)
+	continueErr = al.userTurnError(ctx, turnCtx, continueErr)
+	drainOverrun := false
 	if continueErr != nil {
 		logger.WarnCF("agent", "Failed to continue queued steering",
 			map[string]any{
@@ -59,6 +62,7 @@ func (al *AgentLoop) runTurnWithSteering(ctx context.Context, initialMsg bus.Inb
 				"chat_id": target.ChatID,
 				"error":   continueErr.Error(),
 			})
+		drainOverrun = errors.Is(continueErr, context.DeadlineExceeded) && !overrunReported
 	} else if continued != "" {
 		finalResponse = continued
 	}
@@ -66,6 +70,29 @@ func (al *AgentLoop) runTurnWithSteering(ctx context.Context, initialMsg bus.Inb
 	// Publish final response
 	if finalResponse != "" {
 		al.PublishResponseIfNeeded(ctx, target.Channel, target.ChatID, target.SessionKey, finalResponse)
+	}
+	// The deadline expired while a queued message was being answered: the
+	// user still gets the overrun error for it (once per turn).
+	if drainOverrun {
+		al.maybePublishError(ctx, target.Channel, target.ChatID, target.SessionKey, continueErr)
+	}
+}
+
+// drainAfterPendingStop answers the steering messages queued behind a turn
+// that was stopped (/stop) before its worker started. Each drained message
+// is a user turn, so the drain runs under one user-turn deadline; the reply
+// and any error are published on ctx.
+func (al *AgentLoop) drainAfterPendingStop(ctx context.Context, target *continuationTarget) {
+	turnCtx, cancel := al.userTurnContext(ctx)
+	defer cancel()
+
+	continued, err := al.drainQueuedSteeringContinuations(turnCtx, target)
+	if err = al.userTurnError(ctx, turnCtx, err); err != nil {
+		al.maybePublishError(ctx, target.Channel, target.ChatID, target.SessionKey, err)
+		return
+	}
+	if continued != "" {
+		al.PublishResponseIfNeeded(ctx, target.Channel, target.ChatID, target.SessionKey, continued)
 	}
 }
 

@@ -63,16 +63,18 @@ func (al *AgentLoop) ProcessDirectWithChannel(
 	turnCtx, cancel := al.userTurnContext(ctx)
 	defer cancel()
 	response, err := al.processDirectAs(turnCtx, content, sessionKey, channel, chatID, "cli")
-	return response, al.userTurnError(turnCtx, err)
+	return response, al.userTurnError(ctx, turnCtx, err)
 }
 
 // userTurnContext derives the context for one whole user turn: a deadline
 // of agents.defaults.user_turn_max_minutes, or ctx unchanged when it is 0.
 // One deadline covers the entire turn, including the drain of steering
 // messages queued while it ran; apply it once per turn, at the entry point
-// (ProcessDirectWithChannel, runTurnWithSteering), never in shared helpers
-// such as processDirectAs, which cron also uses. The deadline only feeds
-// processing: publishing the reply or the error uses the caller's context.
+// (ProcessDirectWithChannel, runTurnWithSteering, drainAfterPendingStop),
+// never in shared helpers such as processDirectAs, which cron also uses.
+// The deadline only feeds processing: publishing the reply or the error uses
+// the caller's context. It is read once at startup; changing
+// user_turn_max_minutes needs a restart.
 func (al *AgentLoop) userTurnContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if al.userTurnTimeout <= 0 {
 		return ctx, func() {}
@@ -80,15 +82,17 @@ func (al *AgentLoop) userTurnContext(ctx context.Context) (context.Context, cont
 	return context.WithTimeout(ctx, al.userTurnTimeout)
 }
 
-// userTurnError names the setting when the turn failed because the turn
-// context's deadline expired. The result still matches
+// userTurnError names the setting when the turn failed because the
+// user-turn deadline expired: turnCtx (derived from ctx by userTurnContext)
+// hit its deadline while ctx itself is still live, so a deadline the caller
+// set is never blamed on user_turn_max_minutes. The result still matches
 // context.DeadlineExceeded, and is not context.Canceled, so
 // maybePublishError reports it to the user.
-func (al *AgentLoop) userTurnError(turnCtx context.Context, err error) error {
+func (al *AgentLoop) userTurnError(ctx, turnCtx context.Context, err error) error {
 	if err == nil || al.userTurnTimeout <= 0 {
 		return err
 	}
-	if errors.Is(err, context.DeadlineExceeded) && turnCtx.Err() == context.DeadlineExceeded {
+	if errors.Is(err, context.DeadlineExceeded) && turnCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
 		return fmt.Errorf(
 			"turn exceeded agents.defaults.user_turn_max_minutes (%d min): %w",
 			al.userTurnMaxMinutes,

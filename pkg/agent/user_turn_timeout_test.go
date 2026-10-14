@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -159,5 +160,177 @@ func TestProcessCron_NotSubjectToUserTurnTimeout(t *testing.T) {
 	}
 	if response != "slow answer" {
 		t.Fatalf("response = %q, want %q", response, "slow answer")
+	}
+}
+
+// firstAnswerThenBlockProvider answers its first call at once, after running
+// onFirst, and blocks every later call until ctx ends.
+type firstAnswerThenBlockProvider struct {
+	mu      sync.Mutex
+	calls   int
+	onFirst func()
+}
+
+func (p *firstAnswerThenBlockProvider) Chat(
+	ctx context.Context, _ []providers.Message, _ []providers.ToolDefinition, _ string, _ map[string]any,
+) (*providers.LLMResponse, error) {
+	p.mu.Lock()
+	p.calls++
+	first := p.calls == 1
+	p.mu.Unlock()
+	if first {
+		if p.onFirst != nil {
+			p.onFirst()
+		}
+		return &providers.LLMResponse{Content: "first answer"}, nil
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (*firstAnswerThenBlockProvider) GetDefaultModel() string { return "first-then-block-model" }
+
+func telegramInbound(chatID, senderID string) bus.InboundMessage {
+	return bus.InboundMessage{
+		Context: bus.InboundContext{
+			Channel:  "telegram",
+			ChatID:   chatID,
+			ChatType: "direct",
+			SenderID: senderID,
+		},
+		Channel:  "telegram",
+		ChatID:   chatID,
+		SenderID: senderID,
+		Content:  "hello",
+	}
+}
+
+// startRun runs al.Run until the test ends.
+func startRun(t *testing.T, al *AgentLoop) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		_ = al.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-runDone
+	})
+}
+
+// collectOutbound gathers outbound contents until want returns true or 5s pass.
+func collectOutbound(t *testing.T, msgBus *bus.MessageBus, want func([]string) bool) []string {
+	t.Helper()
+	var got []string
+	deadline := time.After(5 * time.Second)
+	for !want(got) {
+		select {
+		case out := <-msgBus.OutboundChan():
+			got = append(got, out.Content)
+		case <-deadline:
+			t.Fatalf("outbound messages so far %q; expected messages did not arrive within 5s", got)
+		}
+	}
+	return got
+}
+
+func indexContaining(msgs []string, substr string) int {
+	for i, m := range msgs {
+		if strings.Contains(m, substr) {
+			return i
+		}
+	}
+	return -1
+}
+
+func TestRun_PendingStopDrainUserTurnTimeoutPublishesError(t *testing.T) {
+	msgBus := bus.NewMessageBus()
+	defer msgBus.Close()
+	al := newUserTurnTimeoutLoop(t, msgBus, ctxBlockingProvider{})
+
+	// A message queued behind a turn that was stopped before its worker ran:
+	// the worker answers the queue instead of the new message.
+	inbound := telegramInbound("chat-stop", "user-stop")
+	sessionKey, agentID, ok := al.resolveSteeringTarget(inbound)
+	if !ok {
+		t.Fatal("resolveSteeringTarget failed")
+	}
+	queued := providers.Message{Role: "user", Content: "queued"}
+	if err := al.enqueueSteeringMessage(sessionKey, agentID, queued); err != nil {
+		t.Fatalf("enqueueSteeringMessage: %v", err)
+	}
+	al.markPendingStop(sessionKey)
+
+	startRun(t, al)
+	if err := msgBus.PublishInbound(context.Background(), inbound); err != nil {
+		t.Fatalf("PublishInbound: %v", err)
+	}
+
+	got := collectOutbound(t, msgBus, func(msgs []string) bool {
+		return indexContaining(msgs, "user_turn_max_minutes") >= 0
+	})
+	msg := got[indexContaining(got, "user_turn_max_minutes")]
+	if !strings.HasPrefix(msg, "Error processing message: ") {
+		t.Fatalf("outbound %q is not the processing-error message", msg)
+	}
+	assertUserTurnTimeoutMessage(t, msg)
+	if al.takePendingStop(sessionKey) {
+		t.Fatal("pending stop was not consumed by the worker")
+	}
+}
+
+func TestRun_SteeringDrainUserTurnTimeoutPublishesError(t *testing.T) {
+	msgBus := bus.NewMessageBus()
+	defer msgBus.Close()
+	inbound := telegramInbound("chat-drain", "user-drain")
+	provider := &firstAnswerThenBlockProvider{}
+	al := newUserTurnTimeoutLoop(t, msgBus, provider)
+	al.userTurnTimeout = 300 * time.Millisecond
+
+	sessionKey, agentID, ok := al.resolveSteeringTarget(inbound)
+	if !ok {
+		t.Fatal("resolveSteeringTarget failed")
+	}
+	// While the first message is answered, the user sends another one; it is
+	// drained after the turn and its continuation runs past the deadline.
+	provider.onFirst = func() {
+		more := providers.Message{Role: "user", Content: "more"}
+		if err := al.enqueueSteeringMessage(sessionKey, agentID, more); err != nil {
+			t.Errorf("enqueueSteeringMessage: %v", err)
+		}
+	}
+
+	startRun(t, al)
+	if err := msgBus.PublishInbound(context.Background(), inbound); err != nil {
+		t.Fatalf("PublishInbound: %v", err)
+	}
+
+	got := collectOutbound(t, msgBus, func(msgs []string) bool {
+		return indexContaining(msgs, "user_turn_max_minutes") >= 0
+	})
+	errIdx := indexContaining(got, "user_turn_max_minutes")
+	assertUserTurnTimeoutMessage(t, got[errIdx])
+	if !strings.HasPrefix(got[errIdx], "Error processing message: ") {
+		t.Fatalf("outbound %q is not the processing-error message", got[errIdx])
+	}
+	if answerIdx := indexContaining(got, "first answer"); answerIdx < 0 || answerIdx > errIdx {
+		t.Fatalf("outbound %q: want the first answer delivered before the overrun error", got)
+	}
+}
+
+func TestProcessDirect_CallerDeadlineNotBlamedOnUserTurnCap(t *testing.T) {
+	al := newUserTurnTimeoutLoop(t, bus.NewMessageBus(), ctxBlockingProvider{})
+	al.userTurnTimeout = 5 * time.Second
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err := al.ProcessDirect(ctx, "hello", "caller-deadline")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
+	}
+	if strings.Contains(err.Error(), "user_turn_max_minutes") {
+		t.Fatalf("err %q blames user_turn_max_minutes for the caller's own deadline", err)
 	}
 }

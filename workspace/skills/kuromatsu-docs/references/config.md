@@ -78,8 +78,19 @@ O teto de 30 min vale também na CLI e com o modelo nativo, que é lento: um
 turno legítimo muito longo é cortado. Para desligar, use
 `"user_turn_max_minutes": 0`.
 
-Sub-turnos assíncronos herdam o contexto do processo (o de `Run`), não o do
-turno pai: continuam depois que o pai termina, mas param no desligamento.
+O teto não interrompe um sub-turno síncrono em andamento: se o prazo vence
+enquanto o turno espera um filho, ele só retorna quando o filho termina, o
+que é limitado por `subturn.default_timeout_minutes`. Logo, 30 min não é um
+limite rígido nesse caso.
+
+Sub-turnos herdam o contexto do processo (o de `Run`), não o do turno pai:
+continuam depois que o pai termina, mas param no desligamento.
+
+**Exige reinício:** `user_turn_max_minutes`, `subturn.max_concurrent_global`
+e `subturn.max_depth` (que dimensiona os pools por nível) são lidos uma vez,
+na partida. O reload de config em execução não os aplica; reinicie o
+processo depois de mudá-los. `max_repeated_tool_calls` vale já no próximo
+turno.
 
 ## Estrutura de alto nível do `Config`
 

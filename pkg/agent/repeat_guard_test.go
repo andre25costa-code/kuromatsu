@@ -343,3 +343,34 @@ func TestRepeatGuard_IdenticalCallsInSameResponse(t *testing.T) {
 	}
 	t.Fatal("no tool message for call_3")
 }
+
+func TestRepeatGuard_HookRespondCountsTowardGuard(t *testing.T) {
+	provider := &repeatCountingProvider{LLMProvider: &toolLimitOnlyProvider{}}
+	al := newRepeatGuardLoop(t, provider, 3, 10)
+	tool := &repeatCountingTool{Tool: &toolLimitTestTool{}}
+	al.RegisterTool(tool)
+	// The hook answers every call with the same result instead of the tool.
+	if err := al.MountHook(NamedHook("respond-hook", &respondHook{
+		respondTools: map[string]bool{"tool_limit_test_tool": true},
+	})); err != nil {
+		t.Fatalf("MountHook: %v", err)
+	}
+
+	response := runRepeatGuardTurn(t, al)
+
+	want := fmt.Sprintf(repeatedToolCallResponse, "tool_limit_test_tool")
+	if response != want {
+		t.Fatalf("response = %q, want %q", response, want)
+	}
+	if got := tool.calls.Load(); got != 0 {
+		t.Fatalf("tool executed %d times, want 0 (the hook answers)", got)
+	}
+	if got := provider.calls.Load(); got != 4 {
+		t.Fatalf("provider called %d times, want 4", got)
+	}
+	history := repeatGuardHistory(t, al)
+	assertEveryToolCallAnswered(t, history)
+	if got := countToolMessagesContaining(history, "hook-responded: tool_limit_test_tool"); got != 2 {
+		t.Fatalf("hook answers in history = %d, want 2", got)
+	}
+}
