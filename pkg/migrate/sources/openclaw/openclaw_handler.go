@@ -90,6 +90,10 @@ func (o *OpenclawHandler) GetMigrateableDirs() []string {
 	return migrateableDirs
 }
 
+// buildStandardConfig turns the converted OpenClaw config into a Kuromatsu
+// config; it is a variable so tests can force an invalid result.
+var buildStandardConfig = (*KuromatsuConfig).ToStandardConfig
+
 func (o *OpenclawHandler) ExecuteConfigMigration(srcConfigPath, dstConfigPath string) error {
 	openclawCfg, err := LoadOpenClawConfig(srcConfigPath)
 	if err != nil {
@@ -105,12 +109,41 @@ func (o *OpenclawHandler) ExecuteConfigMigration(srcConfigPath, dstConfigPath st
 		fmt.Printf("  Warning: %s\n", w)
 	}
 
-	incoming := picoCfg.ToStandardConfig()
-	if err := os.MkdirAll(filepath.Dir(dstConfigPath), 0o755); err != nil {
-		return err
+	incoming := buildStandardConfig(picoCfg)
+	if err := validateMigratedConfig(incoming); err != nil {
+		return fmt.Errorf("migrated config is invalid, nothing was written: %w", err)
 	}
 
+	dstDir := filepath.Dir(dstConfigPath)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return err
+	}
+	// SaveConfig does not use the secret resolver for the plain-text values the
+	// conversion produces, but validation left the resolver pointing at a deleted
+	// scratch directory, so point it back at the destination.
+	config.UseSecretDir(dstDir)
+
 	return config.SaveConfig(dstConfigPath, incoming)
+}
+
+// validateMigratedConfig writes cfg to a scratch directory and loads it back
+// with config.LoadConfig, so a config the binary would refuse is caught before
+// anything reaches the destination. The load runs with the process environment,
+// and relative file:// references would resolve against the scratch directory;
+// the conversion emits neither enc:// nor file:// values.
+func validateMigratedConfig(cfg *config.Config) error {
+	tmpDir, err := os.MkdirTemp("", "kuromatsu-migrate-check-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	tmpPath := filepath.Join(tmpDir, "config.json")
+	if err = config.SaveConfig(tmpPath, cfg); err != nil {
+		return err
+	}
+	_, err = config.LoadConfig(tmpPath)
+	return err
 }
 
 func resolveSourceHome(override string) (string, error) {

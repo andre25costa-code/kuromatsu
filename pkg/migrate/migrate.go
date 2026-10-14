@@ -96,7 +96,7 @@ func (m *MigrateInstance) Run(opts Options) (*Result, error) {
 		return nil, err
 	}
 
-	fmt.Println("Migrating from Source to Kuromatsu")
+	fmt.Printf("Migrating from %s to Kuromatsu\n", handler.GetSourceName())
 	fmt.Printf("  Source:      %s\n", sourceHome)
 	fmt.Printf("  Target: %s\n", targetHome)
 	fmt.Println()

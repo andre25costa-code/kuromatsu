@@ -733,3 +733,10 @@ func (v SkillsRegistriesConfig) MarshalYAML() (any, error) {
 
 	return mm, nil
 }
+
+// UseSecretDir points the process-wide secret resolver at dir (the directory
+// that holds the config being worked on). Callers that load a config from a
+// scratch location use it afterwards to restore the resolver.
+func UseSecretDir(dir string) {
+	updateResolver(dir)
+}
