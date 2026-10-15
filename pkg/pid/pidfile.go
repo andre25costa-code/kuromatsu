@@ -45,6 +45,43 @@ func generateToken() string {
 	return hex.EncodeToString(b)
 }
 
+// RunningGateway reports whether the PID file in homePath names a live
+// kuromatsu gateway, and its PID. It only reads: a stale file is left in
+// place (WritePidFile removes it on the next start).
+func RunningGateway(homePath string) (pid int, running bool) {
+	pidMu.Lock()
+	defer pidMu.Unlock()
+
+	data, err := readPidFileUnlocked(pidFilePath(homePath))
+	if err != nil || data.PID == os.Getpid() {
+		return 0, false
+	}
+	if !livePID(data.PID) {
+		return 0, false
+	}
+	return data.PID, true
+}
+
+// livePID reports whether pid is a running kuromatsu process.
+//
+// PID 1 is typically init/systemd on the host or the entrypoint inside a
+// container. When a container stops and leaves behind a PID file on a
+// shared volume, the host's PID 1 (init) would pass the isProcessRunning
+// check, blocking new gateway starts. Treat recorded PID 1 as always stale.
+//
+// A live PID reused by an unrelated process (e.g. systemd-resolved after a
+// kill -9) is not a gateway either.
+func livePID(pid int) bool {
+	if pid == 1 || !isProcessRunning(pid) {
+		return false
+	}
+	if !isKuromatsuProcess(pid) {
+		logger.Warnf("found pid file (PID: %d) but process is not kuromatsu", pid)
+		return false
+	}
+	return true
+}
+
 // WritePidFile creates (or overwrites) the PID file atomically.
 // It returns an error if another gateway instance appears to be running
 // (a valid PID file exists with a live process).
@@ -58,20 +95,8 @@ func WritePidFile(homePath, host string, port int) (*PidFileData, error) {
 	if data, err := readPidFileUnlocked(pidPath); err == nil {
 		if os.Getpid() != data.PID {
 			logger.Infof("found pid file (PID: %d, version: %s)", data.PID, data.Version)
-			// PID 1 is typically init/systemd on the host or the entrypoint
-			// inside a container. When a container stops and leaves behind a
-			// PID file on a shared volume, the host's PID 1 (init) would
-			// pass the isProcessRunning check, blocking new gateway starts.
-			// Treat recorded PID 1 as always stale.
-			if data.PID != 1 && isProcessRunning(data.PID) {
-				// Verify the process is actually a kuromatsu instance.
-				// If the PID was reused by an unrelated process
-				// (e.g. systemd-resolved after a kill -9), treat
-				// the PID file as stale and proceed with startup.
-				if isKuromatsuProcess(data.PID) {
-					return nil, fmt.Errorf("gateway is already running (PID: %d, version: %s)", data.PID, data.Version)
-				}
-				logger.Warnf("found pid file (PID: %d) but process is not kuromatsu", data.PID)
+			if livePID(data.PID) {
+				return nil, fmt.Errorf("gateway is already running (PID: %d, version: %s)", data.PID, data.Version)
 			}
 			logger.Warnf("not running (PID: %d) so will remove the pid file: %s", data.PID, pidPath)
 		}

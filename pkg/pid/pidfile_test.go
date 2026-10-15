@@ -3,7 +3,9 @@ package pid
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -216,4 +218,76 @@ func TestReadPidFileUnlockedInvalidPID(t *testing.T) {
 	if err == nil {
 		t.Error("expected error for invalid PID")
 	}
+}
+
+// TestRunningGateway_StaleAndPID1 checks that a dead PID and a recorded
+// PID 1 are not reported as a running gateway, that the file is left in
+// place, and that a live process named kuromatsu is reported.
+func TestRunningGateway_StaleAndPID1(t *testing.T) {
+	write := func(t *testing.T, dir string, pid int) {
+		t.Helper()
+		raw, _ := json.Marshal(PidFileData{PID: pid})
+		if err := os.WriteFile(filepath.Join(dir, pidFileName), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("no file", func(t *testing.T) {
+		if pid, ok := RunningGateway(tmpDir(t)); ok {
+			t.Fatalf("RunningGateway = %d, true; want false", pid)
+		}
+	})
+
+	for _, tc := range []struct {
+		name string
+		pid  int
+	}{
+		{"stale", 99999999},
+		{"pid 1", 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := tmpDir(t)
+			write(t, dir, tc.pid)
+			if pid, ok := RunningGateway(dir); ok {
+				t.Fatalf("RunningGateway = %d, true; want false", pid)
+			}
+			if _, err := os.Stat(filepath.Join(dir, pidFileName)); err != nil {
+				t.Fatalf("pid file must be left in place: %v", err)
+			}
+		})
+	}
+
+	t.Run("live kuromatsu", func(t *testing.T) {
+		if runtime.GOOS != "linux" {
+			t.Skip("process name check via /proc is Linux-only")
+		}
+		sleep, err := exec.LookPath("sleep")
+		if err != nil {
+			t.Skip("no sleep binary")
+		}
+		dir := tmpDir(t)
+		// /proc/<pid>/comm holds the first 15 bytes of the executable name.
+		bin := filepath.Join(dir, "kuromatsu-sleep")
+		src, err := os.ReadFile(sleep)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = os.WriteFile(bin, src, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(bin, "30")
+		if err = cmd.Start(); err != nil {
+			t.Skipf("cannot start %s: %v", bin, err)
+		}
+		t.Cleanup(func() {
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+		})
+		write(t, dir, cmd.Process.Pid)
+
+		pid, ok := RunningGateway(dir)
+		if !ok || pid != cmd.Process.Pid {
+			t.Fatalf("RunningGateway = %d, %v; want %d, true", pid, ok, cmd.Process.Pid)
+		}
+	})
 }
