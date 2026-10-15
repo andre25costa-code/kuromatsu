@@ -148,9 +148,14 @@ type purgePlan struct {
 	unexpected []string
 }
 
-// realPath returns the absolute location of p with every symlink (and, on
-// Windows, junction and 8.3 short name) resolved, so two names for the same
-// directory compare equal.
+// realPath returns the absolute location of p with symlinks resolved and,
+// on Windows, 8.3 short names expanded, so most aliases of a directory
+// compare equal as strings.
+//
+// It does not see through Windows junctions: EvalSymlinks returns a
+// junction leaf unchanged and fails on a path through a junction. The
+// purge stays safe because a failure here refuses the purge and because
+// containsDir also compares file identity. Keep both.
 func realPath(p string) (string, error) {
 	abs, err := filepath.Abs(p)
 	if err != nil {
@@ -214,9 +219,11 @@ func preparePurge(
 			"refusing to delete %q: your home directory is unknown, so it cannot be protected", given)
 	}
 
-	// The same checks on the real locations: a symlink or junction in a
-	// parent component, or a short name, must not hide that the data
-	// directory is the user's home or one of its ancestors.
+	// The same checks on the real locations: a symlink in a parent
+	// component or a short name must not hide that the data directory is
+	// the user's home or one of its ancestors. Aliases realPath cannot
+	// resolve (junctions) either fail here, which refuses the purge, or are
+	// caught by the file-identity check in containsDir.
 	home, err = realPath(given)
 	if err != nil {
 		return nil, fmt.Errorf("resolve data directory: %w", err)
