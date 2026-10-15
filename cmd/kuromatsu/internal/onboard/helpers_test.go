@@ -160,7 +160,7 @@ func TestOnboard_FreshConfigAppliesDetectedProfile(t *testing.T) {
 	t.Setenv(config.EnvConfig, configPath)
 	withDetectedHardware(t, sysinfo.Hardware{TotalRAM: 512 << 20, CPUs: 1, NativeCPUOK: true})
 
-	onboard(false, false, "")
+	onboard(false, false, "", true)
 
 	m := readSavedConfig(t, configPath)
 	if got := m["heartbeat"].(map[string]any)["interval"]; got != float64(60) {
@@ -179,7 +179,7 @@ func TestOnboard_ExistingConfigProfileFlag(t *testing.T) {
 	t.Setenv(config.EnvConfig, configPath)
 	withDetectedHardware(t, sysinfo.Hardware{TotalRAM: 990 << 20, CPUs: 2, NativeCPUOK: true})
 
-	onboard(false, false, "") // fresh: Light
+	onboard(false, false, "", true) // fresh: Light
 	cfg, err := config.LoadConfigForEdit(configPath)
 	if err != nil {
 		t.Fatal(err)
@@ -189,12 +189,12 @@ func TestOnboard_ExistingConfigProfileFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	onboard(false, false, "") // existing, no flag: untouched
+	onboard(false, false, "", true) // existing, no flag: untouched
 	if got := readSavedConfig(t, configPath)["heartbeat"].(map[string]any)["interval"]; got != float64(45) {
 		t.Fatalf("existing config changed without --profile: interval = %v", got)
 	}
 
-	onboard(false, false, "performance")
+	onboard(false, false, "performance", true)
 	m := readSavedConfig(t, configPath)
 	if got := m["heartbeat"].(map[string]any)["interval"]; got != float64(15) {
 		t.Fatalf("--profile performance: interval = %v, want 15", got)
@@ -203,7 +203,7 @@ func TestOnboard_ExistingConfigProfileFlag(t *testing.T) {
 		t.Fatalf("--profile performance: n_ctx = %v, want 8192", got)
 	}
 
-	onboard(false, false, "auto")
+	onboard(false, false, "auto", true)
 	if got := nativeNCtx(t, readSavedConfig(t, configPath)); got != float64(2048) {
 		t.Fatalf("--profile auto on 990 MiB: n_ctx = %v, want 2048 (Light)", got)
 	}

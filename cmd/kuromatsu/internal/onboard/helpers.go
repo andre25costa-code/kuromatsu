@@ -1,6 +1,8 @@
 package onboard
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -59,7 +61,26 @@ func applyProfile(cfg *config.Config, name hwprofile.Name) {
 	}
 }
 
-func onboard(encrypt, force bool, profileFlag string) {
+// stdioIsTerminal reports whether stdin and stdout are both terminals.
+// It reads os.Stdin/os.Stdout at call time, so a test can swap them.
+func stdioIsTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+// interactive reports whether onboard runs the wizard: only on a terminal,
+// and never with --non-interactive or --enc (which keeps its own flow).
+func interactive(encrypt, nonInteractive bool) bool {
+	return !nonInteractive && !encrypt && stdioIsTerminal()
+}
+
+// terminalSecret reads a hidden line from the terminal.
+func terminalSecret() (string, error) {
+	b, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	return string(b), err
+}
+
+func onboard(encrypt, force bool, profileFlag string, nonInteractive bool) {
 	profile, profileAutoSet, err := parseProfileFlag(profileFlag)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
@@ -68,6 +89,19 @@ func onboard(encrypt, force bool, profileFlag string) {
 	profileRequested := profile != "" || profileAutoSet
 
 	configPath := internal.GetConfigPath()
+
+	if interactive(encrypt, nonInteractive) {
+		wio := wizardIO{in: bufio.NewReader(os.Stdin), out: os.Stdout, readSecret: terminalSecret}
+		err = runWizard(wio, configPath, force, profile, profileRequested)
+		if errors.Is(err, errWizardQuit) {
+			return
+		}
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
 
 	configExists := false
 	if _, statErr := os.Stat(configPath); statErr == nil {
