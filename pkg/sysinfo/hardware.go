@@ -11,7 +11,7 @@ type Hardware struct {
 	TotalRAM     uint64 // bytes; 0 = unknown
 	AvailableRAM uint64 // bytes; 0 = unknown
 	MemLimit     uint64 // cgroup memory limit in bytes; 0 = no limit or unknown
-	CPUs         int    // runtime.NumCPU() (honours CPU affinity on Linux)
+	CPUs         int    // runtime.NumCPU() (honors CPU affinity on Linux)
 	Arch         string // runtime.GOARCH
 	OS           string // runtime.GOOS
 

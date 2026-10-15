@@ -70,13 +70,13 @@ func onboard(encrypt, force bool, profileFlag string) {
 	configPath := internal.GetConfigPath()
 
 	configExists := false
-	if _, err := os.Stat(configPath); err == nil {
+	if _, statErr := os.Stat(configPath); statErr == nil {
 		configExists = true
 		if encrypt {
 			// Only ask for confirmation when *both* config and SSH key already exist,
 			// indicating a full re-onboard that would reset the config to defaults.
 			sshKeyPath, _ := credential.DefaultSSHKeyPath()
-			if _, err := os.Stat(sshKeyPath); err == nil {
+			if _, statErr := os.Stat(sshKeyPath); statErr == nil {
 				// Both exist — confirm a full reset.
 				fmt.Printf("Config already exists at %s\n", configPath)
 				fmt.Print("Overwrite config with defaults? (y/n): ")
