@@ -28,6 +28,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/onboard"
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/skills"
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/status"
+	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/uninstall"
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/version"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers/localllm"
@@ -143,6 +144,7 @@ kuromatsu --no-color status`,
 		skills.NewSkillsCommand(),
 		model.NewModelCommand(),
 		updater.NewUpdateCommand("kuromatsu", localllm.Built()),
+		uninstall.NewUninstallCommand(),
 		version.NewVersionCommand(),
 	)
 
