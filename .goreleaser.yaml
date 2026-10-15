@@ -37,16 +37,19 @@ builds:
       - loong64
       - arm
       - s390x
-      - mipsle
     goarm:
       - "6"
       - "7"
-    gomips:
-      - softfloat
     main: ./cmd/kuromatsu
+    # Besides invalid pairs, skip targets the pure-Go SQLite driver
+    # (modernc.org/libc) has no port for: they fail to compile.
     ignore:
       - goos: windows
         goarch: arm
+      - goos: freebsd
+        goarch: riscv64
+      - goos: netbsd
+        goarch: arm64
       - goos: netbsd
         goarch: s390x
       - goos: netbsd
