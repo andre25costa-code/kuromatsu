@@ -10,7 +10,8 @@ git:
     - ".*-nightly.*"
 
 builds:
-  - id: kuromatsu
+  - &build_base
+    id: kuromatsu
     env:
       - CGO_ENABLED=0
     tags:
@@ -56,6 +57,17 @@ builds:
         goarch: mips64
       - goos: netbsd
         goarch: arm
+
+  # Termux: a GOOS=android binary finds the system CA roots and avoids the
+  # syscalls Android's seccomp filter kills a GOOS=linux binary for. Only
+  # android/arm64 links without cgo. Separate id so nfpms/dockers (which
+  # select ids: [kuromatsu]) never package it.
+  - <<: *build_base
+    id: kuromatsu-android
+    goos:
+      - android
+    goarch:
+      - arm64
 
 dockers_v2:
   - id: kuromatsu
@@ -126,6 +138,14 @@ nfpms:
       - deb
     bindir: /usr/bin
 
+# Fixed, version-less name so installers and `kuromatsu update` can find it.
+# The native (llama.cpp) archive is built outside goreleaser by the release
+# workflow into dist-native/; it is checksummed and uploaded with the rest.
+checksum:
+  name_template: checksums.txt
+  extra_files:
+    - glob: ./dist-native/*.tar.gz
+
 changelog:
   sort: asc
   filters:
@@ -140,6 +160,8 @@ changelog:
 
 release:
   disable: '{{ isEnvSet "NIGHTLY_BUILD" }}'
+  extra_files:
+    - glob: ./dist-native/*.tar.gz
   footer: >-
 
     ---
