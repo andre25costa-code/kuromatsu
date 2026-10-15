@@ -120,6 +120,18 @@ func (p *startupBlockedProvider) GetDefaultModel() string {
 	return ""
 }
 
+// loadStartupConfig is the gateway's first config load. It applies the
+// configured timezone before any service starts; reloads use
+// config.LoadConfig directly and never touch time.Local.
+func loadStartupConfig(configPath string) (*config.Config, error) {
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		return nil, err
+	}
+	config.ApplyProcessTimezone(cfg)
+	return cfg, nil
+}
+
 // Run starts the gateway runtime using the configuration loaded from configPath.
 func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runErr error) {
 	startedAt := time.Now()
@@ -152,7 +164,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		}
 	}()
 
-	cfg, err := config.LoadConfig(configPath)
+	cfg, err := loadStartupConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("error loading config: %w", err)
 	}

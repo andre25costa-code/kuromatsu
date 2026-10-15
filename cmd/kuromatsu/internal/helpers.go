@@ -24,12 +24,15 @@ func GetConfigPath() string {
 	return filepath.Join(GetKuromatsuHome(), "config.json")
 }
 
+// LoadConfig loads the runtime config and, the first time in the process,
+// applies its timezone (see config.ApplyProcessTimezone).
 func LoadConfig() (*config.Config, error) {
 	cfg, err := config.LoadConfig(GetConfigPath())
 	if err != nil {
 		return nil, err
 	}
 	logger.SetLevelFromString(cfg.Gateway.LogLevel)
+	config.ApplyProcessTimezone(cfg)
 	return cfg, nil
 }
 

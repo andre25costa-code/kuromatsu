@@ -59,6 +59,10 @@ type Config struct {
 	// Sleep is the modo dormir bridge config (FR-010/ADR-006/018, Trilho C
 	// C5/E9 parte 2). Zero value keeps sleep disabled (BR-005).
 	Sleep SleepConfig `json:"sleep,omitempty" yaml:"-"`
+	// Timezone is the IANA zone (e.g. "America/Sao_Paulo") the process uses
+	// for local time. Empty keeps TZ or the system zone; TZ, when set, wins.
+	// Applied once at startup, so a change needs a restart.
+	Timezone string `json:"timezone,omitempty" yaml:"-" env:"KUROMATSU_TIMEZONE"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 
@@ -1546,6 +1550,11 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 	if err = cfg.ValidatePlatformPaths(); err != nil {
+		return nil, err
+	}
+	// Validation only: time.Local is set once per process by
+	// ApplyProcessTimezone, never on a (re)load.
+	if err = cfg.ValidateTimezone(); err != nil {
 		return nil, err
 	}
 	cfg.SourcePath, err = filepath.Abs(path)
