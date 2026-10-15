@@ -162,9 +162,14 @@ check_space() {
 # atomically.
 install_bin() {
 	tar -xzf "$TMP_DIR/$1" -C "$TMP_DIR" kuromatsu || die "could not extract kuromatsu from $1"
-	cp "$TMP_DIR/kuromatsu" "$2/.kuromatsu.new"
-	chmod 755 "$2/.kuromatsu.new"
-	mv -f "$2/.kuromatsu.new" "$2/kuromatsu"
+	# Stage next to the target and rename, so a failed copy never leaves a
+	# truncated binary; a failed stage is removed.
+	if ! { cp "$TMP_DIR/kuromatsu" "$2/.kuromatsu.new" &&
+		chmod 755 "$2/.kuromatsu.new" &&
+		mv -f "$2/.kuromatsu.new" "$2/kuromatsu"; }; then
+		rm -f "$2/.kuromatsu.new"
+		die "could not install $2/kuromatsu"
+	fi
 }
 
 # add_line FILE: appends PATH_LINE to FILE unless it is already there.

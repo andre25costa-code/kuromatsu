@@ -56,9 +56,11 @@ function Install-Kuromatsu {
             [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
             try {
                 Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $out
-            } catch [System.Net.WebException] {
+            } catch {
+                # Windows PowerShell throws WebException and PowerShell 7
+                # HttpResponseException; both carry .Response.StatusCode.
                 $resp = $_.Exception.Response
-                if ($resp -and [int]$resp.StatusCode -eq 404) {
+                if ($resp -and $resp.StatusCode -and [int]$resp.StatusCode -eq 404) {
                     if ($base -eq $defaultBase) {
                         throw 'no release published yet; build from source (README) or set KUROMATSU_INSTALL_BASE_URL'
                     }
@@ -113,12 +115,24 @@ function Install-Kuromatsu {
         Get-ChildItem -LiteralPath $dest -Filter 'kuromatsu.exe.uninstalled-*' -ErrorAction SilentlyContinue |
             ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
 
+        # Copy next to the target, then swap it in with one rename, so an
+        # interrupted copy never leaves a truncated kuromatsu.exe.
+        $staged = "$exe.new"
+        Copy-Item -LiteralPath (Join-Path $unpacked 'kuromatsu.exe') -Destination $staged -Force
         try {
-            Copy-Item -LiteralPath (Join-Path $unpacked 'kuromatsu.exe') -Destination $exe -Force
-        } catch [System.IO.IOException] {
-            throw "cannot replace ${exe}: stop the running kuromatsu first"
-        } catch [System.UnauthorizedAccessException] {
-            throw "cannot replace ${exe}: stop the running kuromatsu first"
+            if (Test-Path -LiteralPath $exe) {
+                [IO.File]::Replace($staged, $exe, [NullString]::Value)
+            } else {
+                [IO.File]::Move($staged, $exe)
+            }
+        } catch {
+            Remove-Item -LiteralPath $staged -Force -ErrorAction SilentlyContinue
+            $inner = $_.Exception
+            while ($inner.InnerException) { $inner = $inner.InnerException }
+            if ($inner -is [System.IO.IOException] -or $inner -is [System.UnauthorizedAccessException]) {
+                throw "cannot replace ${exe}: stop the running kuromatsu first"
+            }
+            throw
         }
         Write-Host "Installed $exe"
 
@@ -138,10 +152,18 @@ function Install-Kuromatsu {
             if ($raw -eq '') { $newPath = $dest }
             elseif ($raw.EndsWith(';')) { $newPath = "$raw$dest" }
             else { $newPath = "$raw;$dest" }
-            Set-ItemProperty -Path 'HKCU:\Environment' -Name Path -Value $newPath -Type $kind
             # Tells `kuromatsu uninstall` this entry is ours to remove; an entry
             # that was already there (e.g. a shared tools directory) stays.
-            Set-Content -LiteralPath (Join-Path $dest '.kuromatsu-path-added') -Value $dest -Encoding ASCII
+            # Written first: a marker without the entry is harmless, an entry
+            # without the marker would be left behind by uninstall.
+            $marker = Join-Path $dest '.kuromatsu-path-added'
+            Set-Content -LiteralPath $marker -Value $dest -Encoding ASCII
+            try {
+                Set-ItemProperty -Path 'HKCU:\Environment' -Name Path -Value $newPath -Type $kind
+            } catch {
+                Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+                throw
+            }
             $pathChanged = $true
             Write-Host "Added $dest to the user PATH"
             try {
