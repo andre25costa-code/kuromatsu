@@ -38,7 +38,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
 COPY --from=builder /src/build/kuromatsu /usr/local/bin/kuromatsu
 
 # Create kuromatsu home directory
-RUN /usr/local/bin/kuromatsu onboard
+RUN /usr/local/bin/kuromatsu onboard --non-interactive
 
 # First-run entrypoint: runs onboard when the mounted home is empty,
 # otherwise starts the gateway (same as the other images).

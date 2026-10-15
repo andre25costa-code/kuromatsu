@@ -2,10 +2,11 @@
 set -e
 
 # First-run: neither config nor workspace exists.
-# If config.json is already mounted but workspace is missing we skip onboard to
-# avoid the interactive "Overwrite? (y/n)" prompt hanging in a non-TTY container.
+# If config.json is already mounted but workspace is missing we skip onboard,
+# so a mounted config is never rewritten. --non-interactive keeps onboard from
+# prompting even when the container has a terminal (docker run -it).
 if [ ! -d "${HOME}/.kuromatsu/workspace" ] && [ ! -f "${HOME}/.kuromatsu/config.json" ]; then
-    kuromatsu onboard
+    kuromatsu onboard --non-interactive
     echo ""
     echo "First-run setup complete."
     echo "Add a model, then restart the container:"

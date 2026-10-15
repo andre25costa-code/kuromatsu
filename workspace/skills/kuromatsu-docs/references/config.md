@@ -63,6 +63,61 @@ falhar o boot):
   rodando em SO não-Windows, em vez de falhar de forma confusa depois.
 - `ValidateFocus` — nomes de janela referenciados em `origins`/`escalate_to`
   existem de fato (ver `scheduling.md`).
+- `ValidateTimezone` — `timezone`, se não vazio, tem que ser um nome IANA
+  que `time.LoadLocation` conheça; senão o boot falha com
+  `timezone "<valor>": ...`. Só valida: o `LoadConfig` nunca altera
+  `time.Local`.
+
+## Fuso horário (`timezone`)
+
+- Campo no topo do config: `"timezone": "America/Sao_Paulo"` (env
+  `KUROMATSU_TIMEZONE`). Vazio (default) = usa `TZ` ou o fuso do sistema.
+- Aplicado **uma vez por processo** (`config.ApplyProcessTimezone`, com
+  `sync.Once`) no primeiro carregamento de cada comando
+  (`internal.LoadConfig`) e no boot do gateway, antes de iniciar os
+  serviços. Os reloads do gateway não reaplicam (escrever em `time.Local`
+  com goroutines rodando seria data race): **mudar `timezone` exige
+  reiniciar**.
+- `TZ` definido no ambiente (ex.: `Environment=TZ=` num unit do systemd)
+  tem precedência sobre o campo.
+- No Windows o binário embute `time/tzdata` (~400 KB), porque o sistema não
+  tem a base zoneinfo; Linux, macOS e Android usam a do sistema.
+
+## Assistente do `onboard`
+
+Num terminal (stdin e stdout TTY), `kuromatsu onboard` roda um assistente em
+6 passos: idioma (linha `- Idioma preferido: pt-BR` / `- Preferred
+language: en` no `USER.md` do workspace), provedor de modelo com teste de
+conexão (`pkg/setup.ProbeModels`: Bearer para OpenAI-compatível e
+OpenRouter, nada para Ollama, `x-api-key` + `anthropic-version` para
+Anthropic, `x-goog-api-key` para Gemini), canal Telegram (token no
+`.security.yml` e o ID do dono em `allow_from`), perfil de hardware, fuso e
+predefinição de permissões. Grava uma vez, depois de um resumo; `q` sai sem
+gravar nada. Sem TTY, com `--non-interactive` ou com `--enc`, roda o fluxo
+antigo, sem perguntas (é o que o `install.sh`/`install.ps1` sem terminal e
+o Docker usam).
+
+Predefinições (`pkg/setup.ApplyPermissions`, também usadas pela web UI):
+
+| Chave | `seguro` | `assistente` | `avancado` |
+|---|---|---|---|
+| `agents.defaults.restrict_to_workspace` | true | true | true |
+| `tools.exec.enabled` | false | false | true |
+| `tools.exec.allow_remote` | false | false | false |
+| `tools.web.enabled` | false | true | true |
+| `tools.cron.enabled` | false | true | true |
+| `tools.cron.allow_command` | false | false | true |
+
+- Nenhuma liga `allow_remote`: o exec só roda em canais internos
+  (cli/system/subagent). Liberar no Telegram é edição manual.
+- `setup.MatchPermissions` devolve a predefinição cujos 6 valores batem, ou
+  `custom`. O `DefaultConfig()` bate exatamente com `avancado` (exec ligado
+  só em canais internos, cron com comandos).
+- Numa config nova, Enter no passo 6 escolhe `assistente` (exec desligado);
+  o `--non-interactive` mantém o `DefaultConfig()` (= `avancado`).
+- Reexecução: cada passo oferece `[0] Manter atual` como default (modelo,
+  canal, perfil e permissões); Enter em tudo não muda nenhuma dessas
+  chaves.
 
 ## Guardas do loop do agente
 
@@ -100,8 +155,10 @@ de chaves que já existem, gravado uma vez como valores explícitos:
 - no `kuromatsu onboard` de uma config nova, com o perfil detectado (uma
   linha `Hardware: ... → profile <nome> (applied)` mostra qual);
 - com `kuromatsu onboard --profile <ultra-light|light|balanced|performance|auto>`
-  numa config existente (`auto` = o detectado). Sem `--profile`, uma config
-  existente não muda.
+  numa config existente (`auto` = o detectado);
+- no passo 4 do assistente, escolhido explicitamente (numa config nova,
+  Enter usa o detectado; numa existente, Enter mantém o atual). Sem isso,
+  uma config existente não muda.
 
 O perfil é escolhido pela RAM efetiva (a menor entre a RAM total e o limite
 do cgroup) e pelo número de CPUs, nesta ordem:

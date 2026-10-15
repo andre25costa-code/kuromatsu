@@ -99,15 +99,49 @@ git clone https://github.com/andre25costa-code/kuromatsu.git
 cd kuromatsu
 go build -o kuromatsu ./cmd/kuromatsu   # on Windows: -o kuromatsu.exe
 
-./kuromatsu onboard                     # creates ~/.kuromatsu with config and workspace
-./kuromatsu model add -b https://openrouter.ai/api/v1 -k <your-key>
-                                        # any OpenAI-compatible endpoint: lists its models,
-                                        # saves the one you pick and makes it the default
+./kuromatsu onboard                     # setup wizard: creates ~/.kuromatsu with config and workspace
 ./kuromatsu agent -m "What can you do?" # talk to it from the terminal
 ./kuromatsu gateway                     # starts the agent and its channels
 ```
 
-For a local Ollama: `./kuromatsu model add -b http://localhost:11434/v1 -k ollama`.
+**First run.** In a terminal, `kuromatsu onboard` asks six questions, each with a default in
+brackets (Enter accepts it, `q` quits without writing anything):
+
+1. language (Português or English; written as a line in the workspace `USER.md`, which sets
+   the language the agent answers in);
+2. model provider (OpenAI-compatible, local Ollama, Anthropic, Gemini or OpenRouter), with a
+   connection test that lists the models to pick from; if the test fails you can retry, edit,
+   save anyway with a model id, or skip;
+3. channel: Telegram (bot token and **your** numeric Telegram ID, which becomes `allow_from`)
+   or none;
+4. hardware profile (see below);
+5. timezone (the `timezone` key);
+6. permission preset:
+
+| Key | Safe | Assistant | Advanced |
+|---|---|---|---|
+| `agents.defaults.restrict_to_workspace` | true | true | true |
+| `tools.exec.enabled` | false | false | true |
+| `tools.exec.allow_remote` | false | false | false |
+| `tools.web.enabled` | false | true | true |
+| `tools.cron.enabled` | false | true | true |
+| `tools.cron.allow_command` | false | false | true |
+
+No preset lets exec run from Telegram (`allow_remote` stays off: exec only runs from the
+terminal and internal channels); turning that on is a deliberate manual edit. On a new config,
+Enter at step 6 picks Assistant (exec off). `onboard --non-interactive` (also used when there
+is no terminal, e.g. installers and Docker) asks nothing and keeps the built-in defaults,
+which equal Advanced (exec on, internal channels only). Running `onboard` again starts from the
+current config: every step offers "Keep current" as its default, so Enter through all of them
+changes nothing in the config except filling in an empty `timezone`.
+
+The `timezone` key (an IANA name such as `America/Sao_Paulo`; env `KUROMATSU_TIMEZONE`) sets
+the local time of the process. The `TZ` variable, when set, wins over it, and a change takes
+effect after a restart. Empty keeps `TZ` or the system zone.
+
+To add or switch a model later: `./kuromatsu model add -b https://openrouter.ai/api/v1 -k <your-key>`
+(any OpenAI-compatible endpoint: lists its models, saves the one you pick and makes it the
+default). For a local Ollama: `./kuromatsu model add -b http://localhost:11434/v1 -k ollama`.
 `make build` produces the same binary with release flags under `build/`.
 
 With the in-process model (Linux x86-64 with AVX2; needs `cmake` and a C/C++ toolchain):
@@ -171,7 +205,8 @@ RAM and the cgroup limit) and CPUs and writes one of four profiles as plain conf
 Ultra-Light (< 768 MiB), Light (< 2 GiB), Balanced (< 8 GiB, or fewer than 4 CPUs) or
 Performance. A profile sets the native model's context size and threads, the memguard limits,
 the sub-turn limits and the heartbeat interval; Light equals the built-in defaults. An existing
-config only changes with `kuromatsu onboard --profile <ultra-light|light|balanced|performance|auto>`,
+config only changes with `kuromatsu onboard --profile <ultra-light|light|balanced|performance|auto>`
+or an explicit choice in the wizard,
 and `kuromatsu status` shows the detected hardware and which profile the config matches.
 
 Channels: **Telegram**, **WhatsApp** and the built-in **Pico** channel. Every channel is
