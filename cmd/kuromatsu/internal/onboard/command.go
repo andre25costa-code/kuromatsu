@@ -10,6 +10,7 @@ var embeddedFiles = kuromatsu.OnboardWorkspace
 
 func NewOnboardCommand() *cobra.Command {
 	var encrypt, force bool
+	var profile string
 
 	cmd := &cobra.Command{
 		Use:     "onboard",
@@ -18,7 +19,7 @@ func NewOnboardCommand() *cobra.Command {
 		// Run without subcommands → original onboard flow
 		Run: func(cmd *cobra.Command, args []string) {
 			if len(args) == 0 {
-				onboard(encrypt, force)
+				onboard(encrypt, force, profile)
 			} else {
 				_ = cmd.Help()
 			}
@@ -29,6 +30,9 @@ func NewOnboardCommand() *cobra.Command {
 		"Enable credential encryption (generates SSH key and prompts for passphrase)")
 	cmd.Flags().BoolVar(&force, "force", false,
 		"Overwrite existing workspace files (AGENT.md, SOUL.md, USER.md, memory...) with the templates")
+
+	cmd.Flags().StringVar(&profile, "profile", "",
+		"Apply a hardware profile to the config: ultra-light, light, balanced, performance or auto (detected)")
 
 	return cmd
 }

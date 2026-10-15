@@ -224,6 +224,14 @@ func nativeEntry(cfg *config.Config) *config.ModelConfig {
 	return nil
 }
 
+// FormatGiB renders a byte count as "0.97 GiB", or "unknown" for 0.
+func FormatGiB(bytes uint64) string {
+	if bytes == 0 {
+		return "unknown"
+	}
+	return fmt.Sprintf("%.2f GiB", float64(bytes)/float64(1<<30))
+}
+
 // effectiveHeartbeat mirrors the heartbeat service: 0 means the default,
 // anything else below the minimum is raised to it.
 func effectiveHeartbeat(minutes int) int {

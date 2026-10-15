@@ -14,9 +14,59 @@ import (
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/cliui"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/credential"
+	"github.com/andre25costa-code/kuromatsu/pkg/hwprofile"
+	"github.com/andre25costa-code/kuromatsu/pkg/sysinfo"
 )
 
-func onboard(encrypt, force bool) {
+// detect is a seam over sysinfo.Detect so tests can simulate hardware.
+var detect = sysinfo.Detect
+
+// profileAuto is the --profile value that applies the detected profile.
+const profileAuto = "auto"
+
+// parseProfileFlag validates --profile: "" (not given), "auto" or a
+// profile name.
+func parseProfileFlag(flag string) (name hwprofile.Name, auto bool, err error) {
+	switch {
+	case flag == "":
+		return "", false, nil
+	case strings.EqualFold(flag, profileAuto):
+		return "", true, nil
+	}
+	if n, ok := hwprofile.ParseName(flag); ok {
+		return n, false, nil
+	}
+	return "", false, fmt.Errorf(
+		"unknown --profile %q (use ultra-light, light, balanced, performance or auto)", flag)
+}
+
+// applyProfile applies the named profile, or the detected one when name is
+// empty, and prints what it did.
+func applyProfile(cfg *config.Config, name hwprofile.Name) {
+	hw := detect()
+	detected := hwprofile.Select(hw)
+	if name == "" {
+		name = detected
+		if hw.Budget() == 0 {
+			fmt.Println(hwprofile.UnknownRAMNote)
+		}
+	}
+	warnings := hwprofile.Apply(cfg, name, hw)
+	fmt.Printf("Hardware: %s RAM, %d CPUs → profile %s (applied)\n",
+		hwprofile.FormatGiB(hw.Budget()), hw.CPUs, name)
+	for _, w := range warnings {
+		fmt.Printf("Warning: %s\n", w)
+	}
+}
+
+func onboard(encrypt, force bool, profileFlag string) {
+	profile, profileAutoSet, err := parseProfileFlag(profileFlag)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+	profileRequested := profile != "" || profileAutoSet
+
 	configPath := internal.GetConfigPath()
 
 	configExists := false
@@ -42,7 +92,6 @@ func onboard(encrypt, force bool) {
 		}
 	}
 
-	var err error
 	if encrypt {
 		fmt.Println("\nSet up credential encryption")
 		fmt.Println("-----------------------------")
@@ -72,8 +121,14 @@ func onboard(encrypt, force bool) {
 			fmt.Printf("Error loading existing config: %v\n", err)
 			os.Exit(1)
 		}
+		// An existing config changes only on an explicit --profile.
+		if profileRequested {
+			applyProfile(cfg, profile)
+		}
 	} else {
+		// A new config starts from the detected profile (or the requested one).
 		cfg = config.DefaultConfig()
+		applyProfile(cfg, profile)
 	}
 	if err = config.SaveConfig(configPath, cfg); err != nil {
 		fmt.Printf("Error saving config: %v\n", err)
