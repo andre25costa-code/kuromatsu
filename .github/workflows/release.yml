@@ -35,9 +35,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
         run: |
-          if ! gh api "repos/${{ github.repository }}/git/ref/tags/${{ inputs.tag }}" --silent 2>/dev/null; then
-            echo "::error::Tag '${{ inputs.tag }}' does not exist. Create it first using the 'Create Tag' workflow."
+          if ! gh api "repos/${REPO}/git/ref/tags/${TAG}" --silent 2>/dev/null; then
+            echo "::error::Tag '${TAG}' does not exist. Create it first using the 'Create Tag' workflow."
             exit 1
           fi
 
@@ -46,6 +48,18 @@ jobs:
         with:
           ref: ${{ inputs.tag }}
           submodules: recursive
+
+      # .git is not in the Docker build context, so the version stamped into
+      # the binary comes from here. Same format as goreleaser: the tag
+      # without its leading "v".
+      - name: Resolve version and commit
+        id: version
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -58,6 +72,8 @@ jobs:
           tags: kuromatsu:native-amd64
           build-args: |
             LLAMA_BUILD_JOBS=4
+            VERSION=${{ steps.version.outputs.version }}
+            GIT_COMMIT=${{ steps.version.outputs.commit }}
           outputs: type=docker,dest=/tmp/native.tar
 
       # The archive layout matches the goreleaser archives (binary + LICENSE
@@ -97,9 +113,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
         run: |
-          if ! gh api "repos/${{ github.repository }}/git/ref/tags/${{ inputs.tag }}" --silent 2>/dev/null; then
-            echo "::error::Tag '${{ inputs.tag }}' does not exist. Create it first using the 'Create Tag' workflow."
+          if ! gh api "repos/${REPO}/git/ref/tags/${TAG}" --silent 2>/dev/null; then
+            echo "::error::Tag '${TAG}' does not exist. Create it first using the 'Create Tag' workflow."
             exit 1
           fi
 
@@ -168,8 +186,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          DRAFT: ${{ inputs.draft }}
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          gh release edit "${{ inputs.tag }}" \
-            --draft=${{ inputs.draft }} \
-            --prerelease=${{ inputs.prerelease }}
+          gh release edit "$TAG" \
+            --draft="$DRAFT" \
+            --prerelease="$PRERELEASE"
 

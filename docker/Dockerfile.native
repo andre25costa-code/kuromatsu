@@ -44,7 +44,12 @@ COPY . .
 # isn't fighting the same ceiling.
 ARG LLAMA_BUILD_JOBS=1
 RUN make llama-lib-x86-64 LLAMA_BUILD_JOBS=${LLAMA_BUILD_JOBS}
-RUN make build-native-x86-64
+# .git is not in the build context (.dockerignore), so the Makefile cannot
+# derive these; the release workflow passes the tag and commit. Declared
+# after the llama.cpp build so a new version does not invalidate its cache.
+ARG VERSION=dev
+ARG GIT_COMMIT=dev
+RUN make build-native-x86-64 VERSION=${VERSION} GIT_COMMIT=${GIT_COMMIT}
 RUN make nativebench-x86-64
 RUN make localllm-integration-test-x86-64
 
