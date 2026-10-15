@@ -21,8 +21,8 @@ const NativeModelName = nativeModelName
 // was built with the nativellm cgo engine AND this CPU has the build's
 // instruction-set baseline (on a CPU without it, loading the model would
 // die with SIGILL, so it is never wired as default or fallback). It is a
-// seam so tests can exercise ApplyNativeFallback's wiring logic
-// (AC-003-1/-2) without an actual nativellm+cgo build; nativeEngineBuilt
+// seam so tests can exercise ApplyNativeFallback's wiring logic without
+// an actual nativellm+cgo build; nativeEngineBuilt
 // and nativeCPUOK are the seams for its two halves.
 var nativeBuilt = func() bool { return nativeEngineBuilt() && nativeCPUOK() }
 
