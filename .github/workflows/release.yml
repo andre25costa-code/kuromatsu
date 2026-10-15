@@ -31,6 +31,16 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Verify tag exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh api "repos/${{ github.repository }}/git/ref/tags/${{ inputs.tag }}" --silent 2>/dev/null; then
+            echo "::error::Tag '${{ inputs.tag }}' does not exist. Create it first using the 'Create Tag' workflow."
+            exit 1
+          fi
+
       - name: Checkout tag (with llama.cpp submodule)
         uses: actions/checkout@v7
         with:
