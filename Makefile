@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test integration-test build-all llama-lib llama-lib-arm64 llama-lib-x86-64 build-native build-native-arm64 build-native-x86-64 nativebench-x86-64 localllm-integration-test-x86-64 run-native bench-native docker-build-native docker-save-native
+.PHONY: all build install uninstall uninstall-all test-install clean help test integration-test build-all llama-lib llama-lib-arm64 llama-lib-x86-64 build-native build-native-arm64 build-native-x86-64 nativebench-x86-64 localllm-integration-test-x86-64 run-native bench-native docker-build-native docker-save-native
 
 # Build variables
 BINARY_NAME=kuromatsu
@@ -424,12 +424,27 @@ uninstall:
 	@echo "Note: Only the executable file has been deleted."
 	@echo "If you need to delete all configurations (config.json, workspace, etc.), run 'make uninstall-all'"
 
-## uninstall-all: Remove kuromatsu and all data
+## uninstall-all: Remove kuromatsu and all data (backed up to ~/kuromatsu-backup-<date>.zip)
 uninstall-all:
-	@echo "Removing workspace and skills..."
-	@rm -rf $(KUROMATSU_HOME)
-	@echo "Removed workspace: $(KUROMATSU_HOME)"
+	@if [ -x $(INSTALL_BIN_DIR)/$(BINARY_NAME) ]; then \
+		KUROMATSU_HOME=$(KUROMATSU_HOME) $(INSTALL_BIN_DIR)/$(BINARY_NAME) uninstall --purge --yes; \
+	else \
+		echo "WARNING: $(INSTALL_BIN_DIR)/$(BINARY_NAME) not found; deleting $(KUROMATSU_HOME) WITHOUT a backup"; \
+		rm -rf $(KUROMATSU_HOME); \
+		echo "Removed workspace: $(KUROMATSU_HOME)"; \
+	fi
 	@echo "Complete uninstallation done!"
+
+## test-install: shellcheck the installers and run the install test in Docker (DIST=dist)
+test-install:
+	@if command -v shellcheck >/dev/null 2>&1; then \
+		shellcheck -s sh scripts/install.sh scripts/test-install-docker.sh; \
+	elif command -v docker >/dev/null 2>&1; then \
+		docker run --rm -v "$(CURDIR):/mnt" koalaman/shellcheck:v0.10.0 -s sh /mnt/scripts/install.sh /mnt/scripts/test-install-docker.sh; \
+	else \
+		echo "shellcheck skipped"; \
+	fi
+	@DIST=$${DIST:-dist} sh scripts/test-install-docker.sh
 
 ## clean: Remove build artifacts
 clean:

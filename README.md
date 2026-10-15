@@ -54,6 +54,41 @@ native binary under systemd — no Docker. Numbers measured on that VM:
 
 ## Quick start
 
+### Install a release (no Go, no root)
+
+```bash
+# Linux, macOS, Termux
+curl -fsSL https://raw.githubusercontent.com/andre25costa-code/kuromatsu/main/scripts/install.sh | sh
+```
+
+```powershell
+# Windows (PowerShell 5.1+)
+irm https://raw.githubusercontent.com/andre25costa-code/kuromatsu/main/scripts/install.ps1 | iex
+```
+
+The installer downloads the archive for your OS and CPU from the latest release, checks its
+SHA-256 against `checksums.txt`, installs the binary in `~/.local/bin` (Termux: `$PREFIX/bin`;
+Windows: `%LOCALAPPDATA%\Kuromatsu\bin`), adds that directory to your user PATH and runs
+`kuromatsu onboard` (`--non-interactive` when there is no terminal). It never uses sudo. On
+Linux/macOS the PATH goes into `~/.profile`, plus `~/.bash_profile`, `~/.bash_login`,
+`~/.bashrc` and `~/.zshrc` when present (fish: run `fish_add_path ~/.local/bin`).
+
+| Variable | Default | Use |
+|---|---|---|
+| `KUROMATSU_INSTALL_BASE_URL` | latest GitHub release | where the archives are; `file://` to test a local build |
+| `KUROMATSU_INSTALL_DIR` | see above | install directory |
+| `KUROMATSU_INSTALL_NO_ONBOARD` | empty | `1` skips `kuromatsu onboard` |
+
+macOS binaries are not notarized: a browser download is blocked by Gatekeeper, the `curl`
+install is not.
+
+To remove it: `kuromatsu uninstall` deletes the binary and the PATH lines and keeps your data;
+`kuromatsu uninstall --purge` also deletes the data directory after writing
+`~/kuromatsu-backup-<date>.zip`. It refuses directories that do not hold a Kuromatsu
+`config.json`, and leaves alone a binary installed by a package manager (`apt remove kuromatsu`).
+
+### Build from source
+
 **Requirements:** Go 1.25+ and git. The pure-Go build needs nothing else and runs on Linux,
 macOS, Windows and Android/Termux (`pkg install golang git`), on amd64, arm64 and 32-bit ARM.
 
