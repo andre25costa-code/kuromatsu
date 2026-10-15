@@ -92,6 +92,63 @@ na partida. O reload de config em execução não os aplica; reinicie o
 processo depois de mudá-los. `max_repeated_tool_calls` vale já no próximo
 turno.
 
+## Perfis de hardware
+
+Não existe campo `profile` no config. Um perfil é um conjunto de valores
+de chaves que já existem, gravado uma vez como valores explícitos:
+
+- no `kuromatsu onboard` de uma config nova, com o perfil detectado (uma
+  linha `Hardware: ... → profile <nome> (applied)` mostra qual);
+- com `kuromatsu onboard --profile <ultra-light|light|balanced|performance|auto>`
+  numa config existente (`auto` = o detectado). Sem `--profile`, uma config
+  existente não muda.
+
+O perfil é escolhido pela RAM efetiva (a menor entre a RAM total e o limite
+do cgroup) e pelo número de CPUs, nesta ordem:
+
+| Perfil | Condição |
+|---|---|
+| Ultra-Light | RAM < 768 MiB |
+| Light | RAM < 2048 MiB |
+| Balanced | RAM < 8192 MiB, ou menos de 4 CPUs |
+| Performance | o resto |
+| (RAM não detectada) | Light |
+
+Valores gravados:
+
+| Chave | Ultra-Light | Light | Balanced | Performance |
+|---|---|---|---|---|
+| `extra_body.n_ctx` do modelo nativo (`bonsai-local`) | 1024 | 2048 | 4096 | 8192 |
+| `extra_body.n_threads` do modelo nativo | min(CPUs,2) | min(CPUs,4) | min(CPUs,4) | min(CPUs,8) |
+| `memguard.min_available_mb` | 128 | 256 | 512 | 1024 |
+| `memguard.margin_mb` | 64 | 96 | 96 | 128 |
+| `agents.defaults.subturn.max_depth` | 2 | 3 | 3 | 3 |
+| `agents.defaults.subturn.max_concurrent` | 2 | 5 | 5 | 8 |
+| `agents.defaults.subturn.max_concurrent_global` | 2 | 8 | 8 | 16 |
+| `heartbeat.interval` (min) | 60 | 30 | 30 | 15 |
+
+- **Light = defaults atuais.** Aplicar Light numa config padrão não muda
+  nada além de explicitar os limites de sub-turno (3/5/8).
+- `n_threads` só é gravado quando difere do default do motor nativo,
+  `min(CPUs,4)`; senão a chave é removida, para a config não fixar o número
+  de CPUs da máquina onde foi criada.
+- Os limites do memguard iguais ao default (256/96) ficam sem valor (0 =
+  default).
+- **`memguard.min_available_mb`/`margin_mb` só têm efeito com
+  `memguard.enabled: true`.** Os perfis não ligam o memguard (nem mexem em
+  `heartbeat.enabled`, modelos, canais ou permissões).
+- O `extra_body` do nativo só é tocado se a entrada `bonsai-local` existir
+  em `model_list`; o perfil nunca cria a entrada.
+- `kuromatsu status` mostra o hardware detectado, o perfil sugerido e a
+  qual perfil a config corresponde (`custom` se nenhum bater; um campo
+  zerado conta como o default).
+- **CPU do nativo:** o build nativo exige AVX2+FMA (x86-64) ou
+  dotprod+fp16 (arm64). Numa CPU sem isso, o modelo nativo não é ligado
+  como default nem como fallback, uma carga explícita é recusada com erro, e
+  o gateway registra um aviso no boot.
+- **CPU pinning/affinity:** não suportado; use `taskset` ou o
+  `CPUAffinity=` do systemd fora do Kuromatsu.
+
 ## Estrutura de alto nível do `Config`
 
 Blocos principais (todos em `pkg/config/config.go`): `Agents` (`Defaults` +

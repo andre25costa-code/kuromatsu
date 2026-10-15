@@ -129,6 +129,14 @@ setup with an external model first and the native model as fallback:
 }
 ```
 
+**Hardware profiles.** `kuromatsu onboard` on a new config detects RAM (the smaller of total
+RAM and the cgroup limit) and CPUs and writes one of four profiles as plain config values:
+Ultra-Light (< 768 MiB), Light (< 2 GiB), Balanced (< 8 GiB, or fewer than 4 CPUs) or
+Performance. A profile sets the native model's context size and threads, the memguard limits,
+the sub-turn limits and the heartbeat interval; Light equals the built-in defaults. An existing
+config only changes with `kuromatsu onboard --profile <ultra-light|light|balanced|performance|auto>`,
+and `kuromatsu status` shows the detected hardware and which profile the config matches.
+
 Channels: **Telegram**, **WhatsApp** and the built-in **Pico** channel. Every channel is
 fail-closed: a channel with an empty `allow_from` **rejects everyone** and logs an error at
 boot (the first dropped message also logs the sender ID, so you can copy it). List your own
@@ -180,8 +188,10 @@ start it — no container runtime needed. Docker files remain in [`docker/`](./d
 
 - Native generation is slow on shared CPUs; Kuromatsu is built to need the native model rarely,
   not to make it fast.
-- The native build targets x86-64 with AVX2; other platforms use the pure-Go build with external
-  models.
+- The native build targets x86-64 with AVX2 and FMA; other platforms use the pure-Go build with
+  external models. On a CPU without AVX2/FMA the native binary refuses the native model (`kuromatsu
+  status` shows `Native CPU ✗ missing ...`), but llama.cpp's own startup code may still crash
+  there before Kuromatsu runs: on such a CPU, use the pure-Go release.
 - Memory search is lexical (SQLite FTS5, used by `memory: retrieved`); there is no semantic
   (embeddings) search yet.
 
