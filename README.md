@@ -81,6 +81,31 @@ make build-native-x86-64   # links llama.cpp (AVX2) -> build/kuromatsu-native-li
 scripts/download-model.sh  # fetches Bonsai-1.7B-Q1_0.gguf and checks its SHA-256
 ```
 
+### Release archives
+
+Each GitHub release carries prebuilt binaries under fixed, version-less names, each with the
+`kuromatsu` binary (or `kuromatsu.exe`) and `LICENSE`:
+
+| Platform | Archive |
+|---|---|
+| Linux x86-64 / arm64 | `kuromatsu_Linux_x86_64.tar.gz`, `kuromatsu_Linux_arm64.tar.gz` |
+| Linux 32-bit ARM | `kuromatsu_Linux_armv6.tar.gz`, `kuromatsu_Linux_armv7.tar.gz` |
+| Linux, other | `kuromatsu_Linux_riscv64.tar.gz`, `kuromatsu_Linux_loong64.tar.gz`, `kuromatsu_Linux_s390x.tar.gz` |
+| macOS | `kuromatsu_Darwin_arm64.tar.gz`, `kuromatsu_Darwin_x86_64.tar.gz` |
+| Windows | `kuromatsu_Windows_x86_64.zip`, `kuromatsu_Windows_arm64.zip` |
+| Android / Termux (arm64) | `kuromatsu_Android_arm64.tar.gz` |
+| FreeBSD / NetBSD | `kuromatsu_Freebsd_x86_64.tar.gz`, `kuromatsu_Freebsd_arm64.tar.gz`, `kuromatsu_Freebsd_armv6.tar.gz`, `kuromatsu_Freebsd_armv7.tar.gz`, `kuromatsu_Netbsd_x86_64.tar.gz` |
+| Linux x86-64, native model (AVX2) | `kuromatsu-native_Linux_x86_64.tar.gz` |
+
+`checksums.txt` holds the SHA-256 of every archive. On Termux, use the Android archive rather
+than the Linux arm64 one: it finds the system CA certificates and avoids system calls that
+Android's seccomp filter kills.
+
+`kuromatsu update` downloads the archive whose name matches the running binary exactly and checks
+its SHA-256 before replacing itself. A native build only updates from
+`kuromatsu-native_Linux_x86_64.tar.gz`, and refuses a release that lacks it rather than
+dropping local inference.
+
 ## Configuration
 
 Configuration lives in `~/.kuromatsu/config.json`; secrets go in `.security.yml`. A minimal
