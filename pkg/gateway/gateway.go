@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -34,6 +35,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/netbind"
 	"github.com/andre25costa-code/kuromatsu/pkg/pid"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/localllm"
 	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 	"github.com/andre25costa-code/kuromatsu/pkg/state"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
@@ -158,6 +160,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	if err = preCheckConfig(cfg); err != nil {
 		return fmt.Errorf("config pre-check failed: %w", err)
 	}
+	warnUnsupportedNativeCPU()
 	logger.InfoCF("gateway", "Active configuration", map[string]any{
 		"config_path": cfg.SourcePath, "workspace": cfg.Agents.Defaults.Workspace,
 	})
@@ -331,6 +334,20 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 				logger.Info("Manual reload completed successfully")
 			}
 		}
+	}
+}
+
+// warnUnsupportedNativeCPU logs once at boot when this is a native build
+// running on a CPU without the build's instruction-set baseline: the
+// native model is then never wired as default or fallback, and an explicit
+// load is refused.
+func warnUnsupportedNativeCPU() {
+	if !localllm.Built() {
+		return
+	}
+	if ok, missing := localllm.CPUSupported(); !ok {
+		logger.WarnCF("localllm", "native model disabled: CPU lacks "+strings.Join(missing, "+"),
+			map[string]any{"missing": missing})
 	}
 }
 

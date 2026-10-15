@@ -17,11 +17,19 @@ const nativeModelName = "bonsai-local"
 // native entry (hardware profiles) without reaching into this package.
 const NativeModelName = nativeModelName
 
-// nativeBuilt is a seam over localllm.Built so tests can exercise
-// ApplyNativeFallback's wiring logic (AC-003-1/-2) without requiring an
-// actual nativellm+cgo build; production code always goes through the real
-// localllm.Built().
-var nativeBuilt = localllm.Built
+// nativeBuilt reports whether the native model is usable here: the binary
+// was built with the nativellm cgo engine AND this CPU has the build's
+// instruction-set baseline (on a CPU without it, loading the model would
+// die with SIGILL, so it is never wired as default or fallback). It is a
+// seam so tests can exercise ApplyNativeFallback's wiring logic
+// (AC-003-1/-2) without an actual nativellm+cgo build; nativeEngineBuilt
+// and nativeCPUOK are the seams for its two halves.
+var nativeBuilt = func() bool { return nativeEngineBuilt() && nativeCPUOK() }
+
+var (
+	nativeEngineBuilt = localllm.Built
+	nativeCPUOK       = func() bool { ok, _ := localllm.CPUSupported(); return ok }
+)
 
 // ApplyNativeFallback wires the seeded native-inference model entry into
 // the runtime config so the agent always has a usable model even with no

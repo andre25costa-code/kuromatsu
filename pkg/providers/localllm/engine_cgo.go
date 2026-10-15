@@ -161,6 +161,13 @@ func (e *cgoEngine) ensureLoaded(opts Options) error {
 	if e.lctx != nil && e.loaded == key {
 		return nil
 	}
+
+	// Refuse before any ggml code runs: on a CPU without the build's
+	// instruction-set baseline the first ggml call dies with SIGILL.
+	if ok, missing := CPUSupported(); !ok {
+		return errCPUUnsupported(missing)
+	}
+
 	e.unloadLocked()
 
 	// ADR-017/C3: memguard's preLoad hook gets a chance to refuse the load
