@@ -78,3 +78,6 @@ func stripProfile(p string) (bool, error) {
 	}
 	return true, nil
 }
+
+// longPath is the identity on Unix: there are no short names to expand.
+func longPath(p string) string { return p }

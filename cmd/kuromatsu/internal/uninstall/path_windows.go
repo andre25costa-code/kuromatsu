@@ -4,7 +4,6 @@ package uninstall
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -35,9 +34,10 @@ func removeBinary(exe string, now time.Time) error {
 	return os.Rename(exe, exe+uninstalledSuffix+strconv.FormatInt(now.Unix(), 10))
 }
 
-// removeFromPath removes exeDir from the user's PATH in the registry,
-// keeping the other entries and the value type (REG_EXPAND_SZ stays
-// REG_EXPAND_SZ, so %VARS% keep working).
+// removeFromPath removes exeDir from the user's PATH in the registry when
+// the installer added it (see removeOwnedPathEntry), keeping the other
+// entries and the value type (REG_EXPAND_SZ stays REG_EXPAND_SZ, so %VARS%
+// keep working).
 func removeFromPath(exeDir, _ string, out io.Writer) error {
 	k, err := registry.OpenKey(registry.CURRENT_USER, "Environment", registry.QUERY_VALUE|registry.SET_VALUE)
 	if err != nil {
@@ -45,28 +45,32 @@ func removeFromPath(exeDir, _ string, out io.Writer) error {
 	}
 	defer k.Close()
 
-	val, typ, err := k.GetStringValue("Path")
+	changed, err := removeOwnedPathEntry(exeDir, registryPath{k}, expandEnv, out)
+	if changed {
+		broadcastEnvChange()
+	}
+	return err
+}
+
+// registryPath is the Path value of an open registry key.
+type registryPath struct{ k registry.Key }
+
+func (r registryPath) Read() (string, bool, bool, error) {
+	val, typ, err := r.k.GetStringValue("Path")
 	if errors.Is(err, registry.ErrNotExist) {
-		return nil
+		return "", false, false, nil
 	}
 	if err != nil {
-		return err
+		return "", false, false, err
 	}
-	updated, changed := removeFromUserPath(val, exeDir, expandEnv)
-	if !changed {
-		return nil
+	return val, typ == registry.EXPAND_SZ, true, nil
+}
+
+func (r registryPath) Write(value string, expand bool) error {
+	if expand {
+		return r.k.SetExpandStringValue("Path", value)
 	}
-	if typ == registry.EXPAND_SZ {
-		err = k.SetExpandStringValue("Path", updated)
-	} else {
-		err = k.SetStringValue("Path", updated)
-	}
-	if err != nil {
-		return err
-	}
-	fmt.Fprintf(out, "Removed %s from the user PATH\n", exeDir)
-	broadcastEnvChange()
-	return nil
+	return r.k.SetStringValue("Path", value)
 }
 
 func expandEnv(s string) string {
@@ -97,4 +101,20 @@ func broadcastEnvChange() {
 	var result uintptr
 	_, _, _ = proc.Call(hwndBroadcast, wmSettingChange, 0,
 		uintptr(unsafe.Pointer(env)), smtoAbortIfHung, 5000, uintptr(unsafe.Pointer(&result)))
+}
+
+// longPath expands 8.3 short names (C:\Users\ANDREC~1) so the same
+// directory always compares equal. On failure it returns p unchanged; the
+// file-identity check in containsDir still applies.
+func longPath(p string) string {
+	in, err := windows.UTF16PtrFromString(p)
+	if err != nil {
+		return p
+	}
+	buf := make([]uint16, windows.MAX_LONG_PATH)
+	n, err := windows.GetLongPathName(in, &buf[0], uint32(len(buf)))
+	if err != nil || n == 0 || int(n) > len(buf) {
+		return p
+	}
+	return windows.UTF16ToString(buf[:n])
 }

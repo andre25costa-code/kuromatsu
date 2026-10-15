@@ -139,6 +139,9 @@ function Install-Kuromatsu {
             elseif ($raw.EndsWith(';')) { $newPath = "$raw$dest" }
             else { $newPath = "$raw;$dest" }
             Set-ItemProperty -Path 'HKCU:\Environment' -Name Path -Value $newPath -Type $kind
+            # Tells `kuromatsu uninstall` this entry is ours to remove; an entry
+            # that was already there (e.g. a shared tools directory) stays.
+            Set-Content -LiteralPath (Join-Path $dest '.kuromatsu-path-added') -Value $dest -Encoding ASCII
             $pathChanged = $true
             Write-Host "Added $dest to the user PATH"
             try {

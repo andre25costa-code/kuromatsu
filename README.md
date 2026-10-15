@@ -84,8 +84,10 @@ install is not.
 
 To remove it: `kuromatsu uninstall` deletes the binary and the PATH lines and keeps your data;
 `kuromatsu uninstall --purge` also deletes the data directory after writing
-`~/kuromatsu-backup-<date>.zip`. It refuses directories that do not hold a Kuromatsu
-`config.json`, and leaves alone a binary installed by a package manager (`apt remove kuromatsu`).
+`~/kuromatsu-backup-<date>.zip`. It refuses directories without a Kuromatsu `config.json` or
+`.security.yml`, and your home directory or any directory containing it; it leaves alone a
+binary installed by a package manager (`apt remove kuromatsu`) and, on Windows, a PATH entry
+the installer did not add.
 
 ### Build from source
 

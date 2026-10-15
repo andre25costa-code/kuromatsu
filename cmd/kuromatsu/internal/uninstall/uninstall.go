@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -85,6 +87,14 @@ func run(o options, e *env) error {
 		fmt.Fprintf(out, "Data directory (from KUROMATSU_HOME): %s\n", plan.home)
 	}
 
+	// With --purge the backup comes first: if it fails, nothing has changed
+	// yet and the same command can be run again once the cause is fixed.
+	if plan != nil {
+		if err = plan.writeBackup(out); err != nil {
+			return fmt.Errorf("backup failed; nothing was changed: %w", err)
+		}
+	}
+
 	if managed {
 		fmt.Fprintf(out, "Keeping %s: %s\n", exe, packageManagerMsg)
 	} else if rmErr := e.removeBinary(exe, e.now()); rmErr != nil {
@@ -101,7 +111,7 @@ func run(o options, e *env) error {
 		fmt.Fprintf(out, "Data directory kept: %s (use --purge to delete it)\n", e.home)
 		return nil
 	}
-	return plan.execute(out)
+	return plan.removeData(out)
 }
 
 // confirm shows what will happen, with absolute paths, and reads y/N.
@@ -190,6 +200,51 @@ func removeFromUserPath(raw, dir string, expand func(string) string) (string, bo
 		return raw, false
 	}
 	return strings.Join(kept, ";"), true
+}
+
+// pathMarker is the file install.ps1 writes next to kuromatsu.exe when it
+// appended that directory to the user PATH. Without it the entry belongs to
+// someone else (for example %USERPROFILE%\go\bin after `go install`) and
+// stays.
+const pathMarker = ".kuromatsu-path-added"
+
+// pathStore reads and writes the user's PATH value and whether it is of
+// the expandable type (REG_EXPAND_SZ).
+type pathStore interface {
+	Read() (value string, expand, found bool, err error)
+	Write(value string, expand bool) error
+}
+
+// removeOwnedPathEntry removes exeDir from the PATH in store only when the
+// installer's marker is in exeDir, keeping the value type, and then deletes
+// the marker. It reports whether the PATH changed.
+func removeOwnedPathEntry(exeDir string, store pathStore, expand func(string) string, out io.Writer) (bool, error) {
+	marker := filepath.Join(exeDir, pathMarker)
+	if _, err := os.Stat(marker); errors.Is(err, fs.ErrNotExist) {
+		fmt.Fprintf(out, "User PATH left unchanged: the installer did not add %s\n", exeDir)
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+
+	val, expandType, found, err := store.Read()
+	if err != nil {
+		return false, err
+	}
+	changed := false
+	if found {
+		var updated string
+		if updated, changed = removeFromUserPath(val, exeDir, expand); changed {
+			if err = store.Write(updated, expandType); err != nil {
+				return false, err
+			}
+			fmt.Fprintf(out, "Removed %s from the user PATH\n", exeDir)
+		}
+	}
+	if err = os.Remove(marker); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return changed, err
+	}
+	return changed, nil
 }
 
 // normalizeWinPath cleans a Windows path the same way on every OS, so

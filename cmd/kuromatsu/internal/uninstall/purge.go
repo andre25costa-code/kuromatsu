@@ -143,9 +143,45 @@ func within(p, dir string) bool {
 
 // purgePlan is a checked --purge, ready to run.
 type purgePlan struct {
-	home       string
-	backup     string
+	home       string // resolved data directory
+	backup     string // zip path, outside home
 	unexpected []string
+}
+
+// realPath returns the absolute location of p with every symlink (and, on
+// Windows, junction and 8.3 short name) resolved, so two names for the same
+// directory compare equal.
+func realPath(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", err
+	}
+	return longPath(resolved), nil
+}
+
+// containsDir reports whether dir is p or one of p's ancestors. It compares
+// file identity as well as paths, so case-insensitive file systems and bind
+// mounts cannot hide a match.
+func containsDir(dir, p string) bool {
+	if within(p, dir) {
+		return true
+	}
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		return false
+	}
+	for d := p; ; d = filepath.Dir(d) {
+		if info, statErr := os.Stat(d); statErr == nil && os.SameFile(info, dirInfo) {
+			return true
+		}
+		if filepath.Dir(d) == d {
+			return false
+		}
+	}
 }
 
 // preparePurge runs every check that can refuse a purge (target, ownership,
@@ -156,25 +192,49 @@ func preparePurge(
 	freeSpace func(string) (uint64, error),
 	now time.Time,
 ) (*purgePlan, error) {
+	// The path as given: "." and relative paths are refused before any
+	// resolving could turn them into something else.
 	if err := unsafePurgeTarget(home, userHome); err != nil {
 		return nil, err
 	}
-	home = filepath.Clean(home)
+	given := filepath.Clean(home)
 
-	info, err := os.Lstat(home)
+	info, err := os.Lstat(given)
 	if err != nil {
 		return nil, fmt.Errorf("data directory: %w", err)
 	}
 	if info.Mode()&fs.ModeSymlink != 0 {
-		return nil, fmt.Errorf("refusing to delete %q: it is a symlink; remove it and its target by hand", home)
+		return nil, fmt.Errorf("refusing to delete %q: it is a symlink; remove it and its target by hand", given)
 	}
 	if !info.IsDir() {
-		return nil, fmt.Errorf("refusing to delete %q: not a directory", home)
+		return nil, fmt.Errorf("refusing to delete %q: not a directory", given)
+	}
+	if userHome == "" {
+		return nil, fmt.Errorf(
+			"refusing to delete %q: your home directory is unknown, so it cannot be protected", given)
+	}
+
+	// The same checks on the real locations: a symlink or junction in a
+	// parent component, or a short name, must not hide that the data
+	// directory is the user's home or one of its ancestors.
+	home, err = realPath(given)
+	if err != nil {
+		return nil, fmt.Errorf("resolve data directory: %w", err)
+	}
+	realUser, err := realPath(userHome)
+	if err != nil {
+		return nil, fmt.Errorf("refusing to delete %q: cannot resolve your home directory: %w", given, err)
+	}
+	if err = unsafePurgeTarget(home, realUser); err != nil {
+		return nil, err
+	}
+	if containsDir(home, realUser) {
+		return nil, fmt.Errorf("refusing to delete %q: your home directory %s is inside it", given, userHome)
 	}
 
 	unexpected, err := checkKuromatsuHome(os.DirFS(home), force)
 	if err != nil {
-		return nil, fmt.Errorf("refusing to delete %q: %w", home, err)
+		return nil, fmt.Errorf("refusing to delete %q: %w", given, err)
 	}
 
 	size, err := dirSize(home)
@@ -182,10 +242,9 @@ func preparePurge(
 		return nil, fmt.Errorf("measure data directory: %w", err)
 	}
 
-	backupDir := userHome
-	if backupDir == "" || within(filepath.Clean(backupDir), home) {
-		backupDir = os.TempDir()
-	}
+	// The user's home is outside the data directory (checked above), so the
+	// backup there survives the purge.
+	backupDir := realUser
 	free, err := freeSpace(backupDir)
 	if err != nil {
 		return nil, fmt.Errorf("check free space in %s: %w", backupDir, err)
@@ -203,20 +262,26 @@ func preparePurge(
 	}, nil
 }
 
-// execute writes the backup and, only once it is closed without error,
-// deletes the data directory.
-func (p *purgePlan) execute(out io.Writer) error {
+// writeBackup writes the zip of the data directory. Nothing is deleted.
+func (p *purgePlan) writeBackup(out io.Writer) error {
 	links, err := zipDir(p.home, p.backup)
 	if err != nil {
-		return fmt.Errorf("backup failed, nothing deleted: %w", err)
+		return err
 	}
 	if len(links) > 0 {
 		fmt.Fprintf(out, "Warning: symlinks were saved as links, not followed: %s\n", strings.Join(links, ", "))
 	}
-	if err = os.RemoveAll(p.home); err != nil {
+	fmt.Fprintf(out, "Backup: %s\n", p.backup)
+	return nil
+}
+
+// removeData deletes the data directory; call it only after writeBackup
+// succeeded.
+func (p *purgePlan) removeData(out io.Writer) error {
+	if err := os.RemoveAll(p.home); err != nil {
 		return fmt.Errorf("delete %s (backup kept at %s): %w", p.home, p.backup, err)
 	}
-	fmt.Fprintf(out, "Deleted %s\nBackup: %s\n", p.home, p.backup)
+	fmt.Fprintf(out, "Deleted %s\n", p.home)
 	if key, keyErr := credential.DefaultSSHKeyPath(); keyErr == nil {
 		if _, statErr := os.Stat(key); statErr == nil {
 			fmt.Fprintf(out, "Note: the credential encryption key %s was NOT deleted.\n", key)

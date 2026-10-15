@@ -77,8 +77,11 @@ func testEnv(t *testing.T, userHome, home string) (*env, string, *bytes.Buffer) 
 	return e, exe, out
 }
 
-func backupPath(userHome string) string {
-	return filepath.Join(userHome, "kuromatsu-backup-20261015-130405.zip")
+func backupPath(t *testing.T, userHome string) string {
+	t.Helper()
+	resolved, err := realPath(userHome)
+	require.NoError(t, err)
+	return filepath.Join(resolved, "kuromatsu-backup-20261015-130405.zip")
 }
 
 func readZip(t *testing.T, p string) map[string]*zip.File {
@@ -111,10 +114,11 @@ func TestPurgeHome_BacksUpThenRemoves(t *testing.T) {
 
 	plan, err := preparePurge(home, userHome, false, plentyOfSpace, testNow)
 	require.NoError(t, err)
-	assert.Equal(t, backupPath(userHome), plan.backup)
+	assert.Equal(t, backupPath(t, userHome), plan.backup)
 
 	var out bytes.Buffer
-	require.NoError(t, plan.execute(&out))
+	require.NoError(t, plan.writeBackup(&out))
+	require.NoError(t, plan.removeData(&out))
 
 	_, err = os.Stat(home)
 	assert.True(t, errors.Is(err, fs.ErrNotExist), "data directory must be deleted")
@@ -133,15 +137,49 @@ func TestPurgeHome_BacksUpThenRemoves(t *testing.T) {
 	assert.Contains(t, out.String(), plan.backup)
 }
 
-func TestPurgeHome_BackupGoesToTempWhenUserHomeIsInside(t *testing.T) {
+func TestPurgeHome_RefusesAncestorOfUserHome(t *testing.T) {
 	base := t.TempDir()
-	home := filepath.Join(base, "data", "kuro")
+	home := filepath.Join(base, "data", "team")
 	writeFile(t, filepath.Join(home, "config.json"), "{}")
 	userHome := filepath.Join(home, "workspace") // a known entry
+	writeFile(t, filepath.Join(userHome, "thesis.odt"), "years of work")
 
-	plan, err := preparePurge(home, userHome, false, plentyOfSpace, testNow)
-	require.NoError(t, err)
-	assert.Equal(t, filepath.Clean(os.TempDir()), filepath.Dir(plan.backup))
+	for _, force := range []bool{false, true} {
+		_, err := preparePurge(home, userHome, force, plentyOfSpace, testNow)
+		require.Error(t, err, "force=%v", force)
+		assert.Contains(t, err.Error(), "your home directory")
+	}
+	assert.FileExists(t, filepath.Join(userHome, "thesis.odt"))
+}
+
+// A symlink in a parent component makes the data directory another name
+// for the user's home (or an ancestor of it); both must be refused.
+func TestPurgeHome_RefusesUserHomeThroughSymlinkedParent(t *testing.T) {
+	userHome := userDirs(t)
+	writeFile(t, filepath.Join(userHome, "config.json"), "{}")
+	writeFile(t, filepath.Join(userHome, "thesis.odt"), "years of work")
+
+	alias := filepath.Join(t.TempDir(), "plink")
+	if err := os.Symlink(filepath.Dir(userHome), alias); err != nil {
+		t.Skipf("cannot create symlinks here: %v", err)
+	}
+	sameDir := filepath.Join(alias, filepath.Base(userHome))
+	require.NotEqual(t, userHome, sameDir)
+
+	// The user's home's parent, reached through a link to its grandparent,
+	// is an ancestor of the user's home whose last component is real.
+	parent := filepath.Dir(userHome)
+	alias2 := filepath.Join(t.TempDir(), "gplink")
+	require.NoError(t, os.Symlink(filepath.Dir(parent), alias2))
+	ancestor := filepath.Join(alias2, filepath.Base(parent))
+	writeFile(t, filepath.Join(parent, "config.json"), "{}")
+
+	for _, target := range []string{sameDir, ancestor} {
+		_, err := preparePurge(target, userHome, true, plentyOfSpace, testNow)
+		require.Error(t, err, target)
+		assert.Contains(t, err.Error(), "home directory", target)
+	}
+	assert.FileExists(t, filepath.Join(userHome, "thesis.odt"))
 }
 
 func TestPurgeHome_RefusesDangerousTargets(t *testing.T) {
@@ -234,7 +272,8 @@ func TestZipDir_DoesNotFollowSymlinks(t *testing.T) {
 	plan, err := preparePurge(home, userHome, false, plentyOfSpace, testNow)
 	require.NoError(t, err)
 	var out bytes.Buffer
-	require.NoError(t, plan.execute(&out))
+	require.NoError(t, plan.writeBackup(&out))
+	require.NoError(t, plan.removeData(&out))
 	assert.Contains(t, out.String(), "symlinks were saved as links")
 
 	files := readZip(t, plan.backup)
@@ -315,7 +354,7 @@ func TestUninstall_YesRemovesBinaryPathLinesAndData(t *testing.T) {
 	require.NoError(t, run(options{purge: true, yes: true}, e))
 	assert.NoFileExists(t, exe)
 	assert.NoDirExists(t, home)
-	assert.FileExists(t, backupPath(userHome))
+	assert.FileExists(t, backupPath(t, userHome))
 	assert.Contains(t, out.String(), "Data directory (from KUROMATSU_HOME): "+home)
 	if runtime.GOOS != "windows" {
 		data, _ := os.ReadFile(profile)
@@ -424,4 +463,97 @@ func TestNewUninstallCommand(t *testing.T) {
 		require.NotNil(t, f, name)
 		assert.Equal(t, "false", f.DefValue, name)
 	}
+}
+
+func TestUninstall_BackupFailureChangesNothing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes do not make a file unreadable on Windows")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root can read a 0000 file")
+	}
+	userHome := userDirs(t)
+	home := newKuromatsuHome(t, userHome)
+	locked := filepath.Join(home, "state", "locked")
+	writeFile(t, locked, "x")
+	require.NoError(t, os.Chmod(locked, 0))
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o600) })
+	profile := filepath.Join(userHome, ".profile")
+	line := "export PATH=\"/x:$PATH\" " + installerMarker + "\n"
+	writeFile(t, profile, line)
+	e, exe, _ := testEnv(t, userHome, home)
+
+	err := run(options{purge: true, yes: true}, e)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "backup failed; nothing was changed")
+	assert.FileExists(t, exe, "binary kept")
+	assert.DirExists(t, home, "data kept")
+	data, _ := os.ReadFile(profile)
+	assert.Equal(t, line, string(data), "PATH line kept")
+	assert.NoFileExists(t, backupPath(t, userHome), "partial zip removed")
+}
+
+// fakePath is an in-memory PATH value.
+type fakePath struct {
+	value  string
+	expand bool
+	found  bool
+	writes int
+}
+
+func (f *fakePath) Read() (string, bool, bool, error) { return f.value, f.expand, f.found, nil }
+
+func (f *fakePath) Write(v string, expand bool) error {
+	f.value, f.expand = v, expand
+	f.writes++
+	return nil
+}
+
+func TestRemoveOwnedPathEntry(t *testing.T) {
+	expand := func(s string) string { return strings.ReplaceAll(s, "%USERPROFILE%", `C:\Users\u`) }
+
+	t.Run("entry the installer did not add stays", func(t *testing.T) {
+		// e.g. `go install` put kuromatsu.exe in %USERPROFILE%\go\bin.
+		dir := t.TempDir()
+		store := &fakePath{value: `%USERPROFILE%\go\bin;` + dir, expand: true, found: true}
+		var out bytes.Buffer
+		changed, err := removeOwnedPathEntry(dir, store, expand, &out)
+		require.NoError(t, err)
+		assert.False(t, changed)
+		assert.Zero(t, store.writes)
+		assert.Contains(t, out.String(), "left unchanged")
+	})
+
+	t.Run("installer entry removed, type kept, marker deleted", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, pathMarker), dir)
+		store := &fakePath{value: `%USERPROFILE%\go\bin;` + dir, expand: true, found: true}
+		changed, err := removeOwnedPathEntry(dir, store, expand, io.Discard)
+		require.NoError(t, err)
+		assert.True(t, changed)
+		assert.Equal(t, `%USERPROFILE%\go\bin`, store.value)
+		assert.True(t, store.expand, "REG_EXPAND_SZ stays REG_EXPAND_SZ")
+		assert.NoFileExists(t, filepath.Join(dir, pathMarker))
+	})
+
+	t.Run("REG_SZ stays REG_SZ", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, pathMarker), dir)
+		store := &fakePath{value: `C:\a;` + dir, found: true}
+		changed, err := removeOwnedPathEntry(dir, store, expand, io.Discard)
+		require.NoError(t, err)
+		assert.True(t, changed)
+		assert.Equal(t, `C:\a`, store.value)
+		assert.False(t, store.expand)
+	})
+
+	t.Run("no Path value", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, pathMarker), dir)
+		store := &fakePath{}
+		changed, err := removeOwnedPathEntry(dir, store, expand, io.Discard)
+		require.NoError(t, err)
+		assert.False(t, changed)
+		assert.Zero(t, store.writes)
+	})
 }
