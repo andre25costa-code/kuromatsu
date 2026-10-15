@@ -130,6 +130,10 @@ func pickModel(stdin io.Reader, stdout io.Writer, entries []setup.ModelEntry) (s
 // ErrPickQuit is returned by PickModel when the user types its quit word.
 var ErrPickQuit = errors.New("model selection aborted")
 
+// ErrNoSelection is returned by PickModel when the input ends before a
+// choice.
+var ErrNoSelection = errors.New("no selection provided")
+
 // PickModel lists entries and reads a choice (number or id) from in, one
 // line at a time, so a caller that shares in with other prompts loses no
 // buffered input. When quitWord is not empty and no model has that id,
@@ -149,7 +153,7 @@ func PickModel(in *bufio.Reader, stdout io.Writer, entries []setup.ModelEntry, q
 		raw, err := in.ReadString('\n')
 		if err != nil && (!errors.Is(err, io.EOF) || raw == "") {
 			if errors.Is(err, io.EOF) {
-				return "", fmt.Errorf("no selection provided: %w", err)
+				return "", ErrNoSelection
 			}
 			return "", fmt.Errorf("read input: %w", err)
 		}

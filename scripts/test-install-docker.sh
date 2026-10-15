@@ -148,6 +148,33 @@ run_cases() {
 	[ -x "$BIN" ] || fail "case 7: binary removed although the purge was refused"
 	pass "7 KUROMATSU_HOME=~/Documents refused, directory intact"
 
+	# 8 and 9. onboard's exit code: 2 (setup left without saving) is a
+	# warning and the install succeeds; any other failure is fatal. A stub
+	# binary stands in for kuromatsu, in its own release and install dir.
+	for want in 2 1; do
+		stub=$WORK/stub-$want
+		mkdir -p "$stub/rel" "$stub/bin"
+		printf '#!/bin/sh\n[ "$1" = onboard ] && exit %s\nexit 0\n' "$want" >"$stub/kuromatsu"
+		chmod 755 "$stub/kuromatsu"
+		tar -czf "$stub/rel/$asset" -C "$stub" kuromatsu
+		(cd "$stub/rel" && sha256sum "$asset" >checksums.txt)
+		rc=0
+		install_with "file://$stub/rel" KUROMATSU_INSTALL_DIR="$stub/bin" || rc=$?
+		if [ "$want" = 2 ]; then
+			[ "$rc" = 0 ] || {
+				cat "$OUT"
+				fail "case 8: onboard exit 2 failed the install (rc=$rc)"
+			}
+			grep -q "setup skipped; run 'kuromatsu onboard' later" "$OUT" || fail "case 8: no setup-skipped warning"
+			[ -x "$stub/bin/kuromatsu" ] || fail "case 8: binary not installed"
+			pass "8 onboard exit 2 (setup not completed): warning, install succeeds"
+		else
+			[ "$rc" != 0 ] || fail "case 9: onboard exit 1 did not fail the install"
+			grep -q 'onboard failed' "$OUT" || fail "case 9: no onboard failure message"
+			pass "9 onboard exit 1: install fails"
+		fi
+	done
+
 	printf 'all install cases passed\n'
 }
 

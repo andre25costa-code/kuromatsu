@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/model"
@@ -112,7 +111,7 @@ func (w *wizard) stepProvider() error {
 		if probeErr == nil {
 			w.printf(w.msg.probeOK+"\n", len(entries))
 			modelID, err = model.PickModel(w.io.in, w.io.out, entries, "q")
-			if errors.Is(err, model.ErrPickQuit) || errors.Is(err, io.EOF) {
+			if errors.Is(err, model.ErrPickQuit) || errors.Is(err, model.ErrNoSelection) {
 				return errWizardQuit
 			}
 			if err != nil {

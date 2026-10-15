@@ -73,6 +73,25 @@ func interactive(encrypt, nonInteractive bool) bool {
 	return !nonInteractive && !encrypt && stdioIsTerminal()
 }
 
+// Exit codes of an interactive onboard. Installers treat
+// exitCodeSetupNotCompleted as "setup skipped" and still finish.
+const (
+	exitCodeError             = 1 // something failed
+	exitCodeSetupNotCompleted = 2 // quit, declined or input ended: nothing written
+)
+
+// wizardExitCode maps runWizard's result to the process exit code.
+func wizardExitCode(err error) int {
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, errWizardQuit):
+		return exitCodeSetupNotCompleted
+	default:
+		return exitCodeError
+	}
+}
+
 // terminalSecret reads a hidden line from the terminal.
 func terminalSecret() (string, error) {
 	b, err := term.ReadPassword(int(os.Stdin.Fd()))
@@ -93,12 +112,11 @@ func onboard(encrypt, force bool, profileFlag string, nonInteractive bool) {
 	if interactive(encrypt, nonInteractive) {
 		wio := wizardIO{in: bufio.NewReader(os.Stdin), out: os.Stdout, readSecret: terminalSecret}
 		err = runWizard(wio, configPath, force, profile, profileRequested)
-		if errors.Is(err, errWizardQuit) {
-			return
-		}
-		if err != nil {
-			fmt.Printf("Error: %v\n", err)
-			os.Exit(1)
+		if code := wizardExitCode(err); code != 0 {
+			if code == exitCodeError {
+				fmt.Printf("Error: %v\n", err)
+			}
+			os.Exit(code)
 		}
 		return
 	}

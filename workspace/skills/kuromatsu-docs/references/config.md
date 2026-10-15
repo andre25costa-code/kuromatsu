@@ -97,7 +97,9 @@ OpenRouter, nada para Ollama, `x-api-key` + `anthropic-version` para
 Anthropic, `x-goog-api-key` para Gemini), canal Telegram (token no
 `.security.yml` e o ID do dono em `allow_from`), perfil de hardware, fuso e
 predefinição de permissões. Grava uma vez, depois de um resumo; `q` sai sem
-gravar nada. Sem TTY, com `--non-interactive` ou com `--enc`, roda o fluxo
+gravar nada (assim como recusar o resumo ou o fim da entrada) e sai com código
+2, que o `install.sh`/`install.ps1` tratam como aviso ("setup skipped"), não
+falha; erro continua saindo com 1. Sem TTY, com `--non-interactive` ou com `--enc`, roda o fluxo
 antigo, sem perguntas (é o que o `install.sh`/`install.ps1` sem terminal e
 o Docker usam).
 

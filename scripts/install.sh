@@ -219,13 +219,21 @@ run_onboard() {
 	# Under `curl | sh` stdin is the script, so a prompt must read the
 	# terminal. Test that /dev/tty really opens: in a container without a
 	# terminal it exists but opening it fails.
+	onboard_rc=0
 	if [ -t 1 ] && (exec </dev/tty) 2>/dev/null; then
 		say "Running kuromatsu onboard"
-		"$1" onboard </dev/tty || die "onboard failed; run 'kuromatsu onboard' again"
+		"$1" onboard </dev/tty || onboard_rc=$?
 	else
 		say "Running kuromatsu onboard --non-interactive (no terminal)"
-		"$1" onboard --non-interactive || die "onboard failed; run 'kuromatsu onboard' again"
+		"$1" onboard --non-interactive || onboard_rc=$?
 	fi
+	# onboard exits 2 when the user leaves setup without saving (nothing
+	# was written): the install itself still succeeded.
+	case "$onboard_rc" in
+	0) ;;
+	2) say "warning: setup skipped; run 'kuromatsu onboard' later" ;;
+	*) die "onboard failed; run 'kuromatsu onboard' again" ;;
+	esac
 }
 
 main() {

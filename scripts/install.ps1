@@ -184,16 +184,24 @@ public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, UIntPtr wP
             $env:Path = "$env:Path;$dest"
         }
 
+        $onboardExit = 0
         if ($env:KUROMATSU_INSTALL_NO_ONBOARD -eq '1') {
             Write-Host "Skipping onboard (KUROMATSU_INSTALL_NO_ONBOARD=1); run 'kuromatsu onboard' later."
         } elseif ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
             Write-Host 'Running kuromatsu onboard'
             & $exe onboard
-            if ($LASTEXITCODE -ne 0) { throw "onboard failed; run 'kuromatsu onboard' again" }
+            $onboardExit = $LASTEXITCODE
         } else {
             Write-Host 'Running kuromatsu onboard --non-interactive (no terminal)'
             & $exe onboard --non-interactive
-            if ($LASTEXITCODE -ne 0) { throw "onboard failed; run 'kuromatsu onboard' again" }
+            $onboardExit = $LASTEXITCODE
+        }
+        # onboard exits 2 when the user leaves setup without saving (nothing
+        # was written): the install itself still succeeded.
+        if ($onboardExit -eq 2) {
+            Write-Warning "setup skipped; run 'kuromatsu onboard' later"
+        } elseif ($onboardExit -ne 0) {
+            throw "onboard failed; run 'kuromatsu onboard' again"
         }
 
         Write-Host ''

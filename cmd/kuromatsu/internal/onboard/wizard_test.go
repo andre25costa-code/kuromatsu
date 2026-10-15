@@ -509,3 +509,34 @@ func TestWizard_EOFInPickerQuits(t *testing.T) {
 	_, statErr := os.Stat(e.configPath)
 	assert.True(t, os.IsNotExist(statErr))
 }
+
+// An interactive onboard that ends without saving exits with
+// exitCodeSetupNotCompleted (2), which installers treat as "setup skipped";
+// a failure exits 1.
+func TestWizardExitCode(t *testing.T) {
+	t.Run("quit", func(t *testing.T) {
+		e := newWizardEnv(t)
+		assert.Equal(t, exitCodeSetupNotCompleted, wizardExitCode(e.run(t, "1", "q")))
+	})
+	t.Run("declined summary", func(t *testing.T) {
+		e := newWizardEnv(t)
+		assert.Equal(t, exitCodeSetupNotCompleted, wizardExitCode(e.run(t, "2", "6", "2", "", "", "", "n")))
+	})
+	t.Run("input ended", func(t *testing.T) {
+		e := newWizardEnv(t)
+		in := bufio.NewReader(strings.NewReader("2\n"))
+		err := e.runWith(in, func() (string, error) { return in.ReadString('\n') })
+		assert.Equal(t, exitCodeSetupNotCompleted, wizardExitCode(err))
+	})
+	t.Run("saved", func(t *testing.T) {
+		e := newWizardEnv(t)
+		assert.Equal(t, 0, wizardExitCode(e.run(t, "2", "6", "2", "", "", "", "y")))
+	})
+	t.Run("error", func(t *testing.T) {
+		e := newWizardEnv(t)
+		require.NoError(t, os.WriteFile(e.configPath, []byte(`{"version": "not a number", "x": 1}`), 0o600))
+		err := e.run(t, "1")
+		require.Error(t, err)
+		assert.Equal(t, exitCodeError, wizardExitCode(err))
+	})
+}

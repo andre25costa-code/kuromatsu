@@ -105,7 +105,8 @@ go build -o kuromatsu ./cmd/kuromatsu   # on Windows: -o kuromatsu.exe
 ```
 
 **First run.** In a terminal, `kuromatsu onboard` asks six questions, each with a default in
-brackets (Enter accepts it, `q` quits without writing anything):
+brackets (Enter accepts it; `q` quits without writing anything, and onboard then exits with
+code 2, which the installers report as "setup skipped" without failing the install):
 
 1. language (Português or English; written as a line in the workspace `USER.md`, which sets
    the language the agent answers in);
