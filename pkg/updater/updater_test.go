@@ -758,3 +758,72 @@ func TestUpdateSelf_PureBuildAppliesPureAsset(t *testing.T) {
 		t.Fatalf("applyUpdate calls = %q, want one call with the pure-Go binary", *calls)
 	}
 }
+
+// digestServer serves a one-asset release whose API digest is digest
+// verbatim and counts downloads of the asset itself.
+func digestServer(t *testing.T, name, digest string, body []byte) (string, *atomic.Int64) {
+	t.Helper()
+	var downloads atomic.Int64
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case testReleaseAPIPath:
+			writeReleasePayload(w, testReleasePayload{
+				TagName: "v1.0.0",
+				Assets: []testReleaseAsset{{
+					Name:               name,
+					BrowserDownloadURL: server.URL + "/assets/" + name,
+					Digest:             digest,
+				}},
+			})
+		case "/assets/" + name:
+			downloads.Add(1)
+			_, _ = w.Write(body)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(server.Close)
+	withTestHTTPClient(t, server.Client())
+	return server.URL + testReleaseAPIPath, &downloads
+}
+
+func TestUpdateSelf_MalformedDigestRefuses(t *testing.T) {
+	body := buildTestTarGz(t, map[string]string{"kuromatsu": "unverified binary"})
+	for _, digest := range []string{"sha256:", "sha256:  ", "sha256:abc"} {
+		apiURL, downloads := digestServer(t, "kuromatsu_Linux_x86_64.tar.gz", digest, body)
+		exe := writeTempExecutable(t, "current binary")
+		calls := stubApply(t, exe)
+
+		err := UpdateSelfFromRelease(apiURL, "linux", "amd64", "kuromatsu", UpdateOptions{})
+		if err == nil || !strings.Contains(err.Error(), "malformed sha256 digest") {
+			t.Fatalf("digest %q: error = %v, want a malformed-digest refusal", digest, err)
+		}
+		if n := downloads.Load(); n != 0 {
+			t.Fatalf("digest %q: asset downloaded %d times, want 0", digest, n)
+		}
+		if len(*calls) != 0 {
+			t.Fatalf("digest %q: applyUpdate called %d times, want 0", digest, len(*calls))
+		}
+		assertFileContent(t, exe, "current binary")
+	}
+}
+
+func TestUpdateSelf_ChecksumMismatchNeverApplies(t *testing.T) {
+	body := buildTestTarGz(t, map[string]string{"kuromatsu": "tampered binary"})
+	apiURL, downloads := digestServer(t, "kuromatsu_Linux_x86_64.tar.gz", "sha256:"+strings.Repeat("a", 64), body)
+	exe := writeTempExecutable(t, "current binary")
+	calls := stubApply(t, exe)
+
+	err := UpdateSelfFromRelease(apiURL, "linux", "amd64", "kuromatsu", UpdateOptions{})
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("error = %v, want a checksum mismatch", err)
+	}
+	if n := downloads.Load(); n != 1 {
+		t.Fatalf("asset downloaded %d times, want 1", n)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("applyUpdate called %d times, want 0", len(*calls))
+	}
+	assertFileContent(t, exe, "current binary")
+}

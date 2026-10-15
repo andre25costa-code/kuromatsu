@@ -144,6 +144,10 @@ func DownloadAndExtractRelease(releaseURL, assetName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Fail closed: never install an archive whose checksum is unknown.
+	if !sha256HexRe.MatchString(checksum) {
+		return "", fmt.Errorf("no valid sha256 checksum for asset %s; refusing to update", assetName)
+	}
 
 	// Download asset to temp file. Use the asset URL extension so
 	// extractArchive can detect the archive format (zip/tar.gz/tar).
@@ -195,13 +199,10 @@ func DownloadAndExtractRelease(releaseURL, assetName string) (string, error) {
 	// ensure final progress line ends with newline
 	pw.Finish()
 
-	// verify checksum if available
-	if checksum != "" {
-		got := hex.EncodeToString(h.Sum(nil))
-		if !strings.EqualFold(got, checksum) {
-			_ = os.Remove(tmpPath)
-			return "", fmt.Errorf("checksum mismatch: got %s expected %s", got, checksum)
-		}
+	// verify checksum (always present, see above)
+	if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, checksum) {
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("checksum mismatch: got %s expected %s", got, checksum)
 	}
 
 	// Extract
@@ -368,6 +369,12 @@ func findAssetInfo(releaseURL, assetName string) (string, string, error) {
 		dLower := strings.ToLower(d)
 		if strings.HasPrefix(dLower, "sha256:") {
 			hexpart := strings.TrimPrefix(dLower, "sha256:")
+			if !sha256HexRe.MatchString(hexpart) {
+				// A malformed (e.g. empty) digest must never turn into
+				// "no checksum to verify".
+				return "", "", fmt.Errorf("release asset %s has a malformed sha256 digest %q; refusing to update",
+					assetName, d)
+			}
 			return assetURL, hexpart, nil
 		}
 		// If digest already looks like a 64-hex, return it
