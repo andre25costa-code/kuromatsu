@@ -13,6 +13,10 @@ import (
 // existing convention for other local providers such as "local-model".
 const nativeModelName = "bonsai-local"
 
+// NativeModelName exports nativeModelName for packages that tune the seeded
+// native entry (hardware profiles) without reaching into this package.
+const NativeModelName = nativeModelName
+
 // nativeBuilt is a seam over localllm.Built so tests can exercise
 // ApplyNativeFallback's wiring logic (AC-003-1/-2) without requiring an
 // actual nativellm+cgo build; production code always goes through the real
