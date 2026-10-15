@@ -9,7 +9,7 @@ import (
 var embeddedFiles = kuromatsu.OnboardWorkspace
 
 func NewOnboardCommand() *cobra.Command {
-	var encrypt, force bool
+	var encrypt, force, nonInteractive bool
 	var profile string
 
 	cmd := &cobra.Command{
@@ -33,6 +33,13 @@ func NewOnboardCommand() *cobra.Command {
 
 	cmd.Flags().StringVar(&profile, "profile", "",
 		"Apply a hardware profile to the config: ultra-light, light, balanced, performance or auto (detected)")
+
+	// The default flow asks nothing unless --enc is given; --non-interactive
+	// guarantees that, so installers and containers can run it without a
+	// terminal.
+	cmd.Flags().BoolVar(&nonInteractive, "non-interactive", false,
+		"Never prompt (for installers and containers without a terminal); cannot be combined with --enc")
+	cmd.MarkFlagsMutuallyExclusive("enc", "non-interactive")
 
 	return cmd
 }
