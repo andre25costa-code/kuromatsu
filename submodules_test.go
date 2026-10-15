@@ -23,7 +23,7 @@ func TestSubmodules_HaveGitlinks(t *testing.T) {
 		path := fields[1]
 		stage, err := exec.Command("git", "ls-files", "--stage", "--", path).Output()
 		if err != nil {
-			t.Fatalf("git ls-files --stage -- %s: %v", path, err)
+			t.Skipf("not a git checkout (e.g. a source tarball): %v", err)
 		}
 		if !strings.HasPrefix(string(stage), "160000 ") {
 			t.Errorf(

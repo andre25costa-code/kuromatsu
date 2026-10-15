@@ -81,11 +81,11 @@ payload é uma mensagem de LLM, se uma tool dentro do turno falhar, o
 próprio modelo formula a resposta final — inclusive podendo errar o
 diagnóstico do que aconteceu (achado de um audit interno de 2026-09-16,
 seção "Mensagem espontânea no Telegram"). Confirmado ao vivo em 2026-09-21
-que esse é exatamente o mecanismo por trás de um caso real: um job com `payload.message` em vez de
-`payload.command` acabou custando 7 cron jobs duplicados, porque
-`cron add` não é idempotente por `job_id` e o modelo, seguindo uma
-instrução de `HEARTBEAT.md` que não fazia sentido nesse servidor, insistiu
-em "agendar" a mesma coisa turno após turno. Prefira sempre
+que esse é exatamente o mecanismo por trás de um caso real: um job com
+`payload.message` em vez de `payload.command` acabou custando 7 cron jobs
+duplicados, porque `cron add` não é idempotente por `job_id` e o modelo,
+seguindo uma instrução de `HEARTBEAT.md` que não fazia sentido nesse
+servidor, insistiu em "agendar" a mesma coisa turno após turno. Prefira sempre
 `payload.command` para qualquer notificação/checagem que não precise de
 raciocínio — não só é mais barato, é a diferença entre "um erro repetido"
 e "N efeitos colaterais reais repetidos".
