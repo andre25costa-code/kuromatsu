@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -23,6 +24,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/utils"
 )
 
@@ -42,13 +44,103 @@ func getWithRetry(rawURL string) (*http.Response, error) {
 	return utils.DoRequestWithRetry(httpClient, req)
 }
 
-// DownloadAndExtractRelease downloads a release archive (or uses a direct
-// asset URL) and extracts it to a temporary directory. It returns the
+// Asset name prefixes used by the release archives. The native build
+// (llama.cpp linked in) ships under its own prefix so that a pure-Go
+// update can never select it, and vice versa.
+const (
+	assetPrefix       = "kuromatsu"
+	nativeAssetPrefix = "kuromatsu-native"
+)
+
+// nativeOS/nativeArch is the only platform the native build is released for.
+const (
+	nativeOS   = "linux"
+	nativeArch = "amd64"
+)
+
+// applyUpdate replaces the running executable. It is a variable so tests
+// can observe the call without touching the test binary.
+var applyUpdate = selfupdate.Apply
+
+// UpdateOptions carries properties of the running binary that affect which
+// release asset is acceptable.
+type UpdateOptions struct {
+	// Native is true when the running binary embeds the local inference
+	// engine; it then only accepts the native release asset.
+	Native bool
+}
+
+// ExpectedAssetName returns the exact release archive name for the given
+// target, matching the goreleaser archive name_template:
+// <prefix>_<Os>_<Arch>[v<GOARM>].<ext>, where Os is goos with its first
+// letter upper-cased, Arch maps amd64->x86_64 and 386->i386, and the
+// extension is .zip on Windows and .tar.gz elsewhere. goarm is only used
+// for arm and defaults to 7 when empty.
+func ExpectedAssetName(goos, goarch, goarm string, native bool) string {
+	goos = strings.ToLower(goos)
+	goarch = strings.ToLower(goarch)
+
+	prefix := assetPrefix
+	if native {
+		prefix = nativeAssetPrefix
+	}
+
+	osName := goos
+	if osName != "" {
+		osName = strings.ToUpper(osName[:1]) + osName[1:]
+	}
+
+	var archName string
+	switch goarch {
+	case "amd64":
+		archName = "x86_64"
+	case "386":
+		archName = "i386"
+	case "arm":
+		if goarm == "" {
+			goarm = "7"
+		}
+		archName = "armv" + goarm
+	default:
+		archName = goarch
+	}
+
+	ext := ".tar.gz"
+	if goos == "windows" {
+		ext = ".zip"
+	}
+	return prefix + "_" + osName + "_" + archName + ext
+}
+
+// localGOARM returns the ARM version the running binary was built for, read
+// from the GOARM build setting (which may carry a suffix such as
+// "7,softfloat"). When the setting is unavailable it assumes 7.
+func localGOARM() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			if s.Key != "GOARM" {
+				continue
+			}
+			v, _, _ := strings.Cut(s.Value, ",")
+			if v != "" {
+				return v[:1]
+			}
+		}
+	}
+	logger.WarnCF("updater", "GOARM unknown; assuming 7", nil)
+	return "7"
+}
+
+func isNativeAssetName(name string) bool {
+	return strings.HasPrefix(name, nativeAssetPrefix+"_")
+}
+
+// DownloadAndExtractRelease downloads the release asset named exactly
+// assetName and extracts it to a temporary directory. It returns the
 // extraction directory on success. If releaseURL is empty, the latest
-// release of the current project is used. platform/arch can be used to
-// select the correct asset (e.g. "linux", "amd64").
-func DownloadAndExtractRelease(releaseURL, platform, arch string) (string, error) {
-	assetURL, checksum, err := findAssetInfo(releaseURL, platform, arch)
+// release of the current project is used.
+func DownloadAndExtractRelease(releaseURL, assetName string) (string, error) {
+	assetURL, checksum, err := findAssetInfo(releaseURL, assetName)
 	if err != nil {
 		return "", err
 	}
@@ -130,20 +222,35 @@ func DownloadAndExtractRelease(releaseURL, platform, arch string) (string, error
 	return destDir, nil
 }
 
-// UpdateSelfFromRelease downloads the release matching the given parameters,
-// extracts it and applies the binary named programName to update the
-// currently running executable using minio/selfupdate.
+// UpdateSelfFromRelease downloads the release asset whose name matches the
+// given target exactly (see ExpectedAssetName), extracts it and applies the
+// binary named programName to update the currently running executable
+// using minio/selfupdate.
 // If releaseURL is empty, the latest release is used. If platform or arch
-// is empty, runtime values are used.
-func UpdateSelfFromRelease(releaseURL, platform, arch, programName string) error {
+// is empty, runtime values are used. A native build only accepts the native
+// linux/amd64 asset and refuses any other target before any network request.
+func UpdateSelfFromRelease(releaseURL, platform, arch, programName string, opts UpdateOptions) error {
 	if platform == "" {
 		platform = runtime.GOOS
 	}
 	if arch == "" {
 		arch = runtime.GOARCH
 	}
+	platform = strings.ToLower(platform)
+	arch = strings.ToLower(arch)
 
-	dir, err := DownloadAndExtractRelease(releaseURL, platform, arch)
+	if opts.Native && (platform != nativeOS || arch != nativeArch) {
+		return fmt.Errorf("native build: updates only from %s (%s/%s)",
+			ExpectedAssetName(nativeOS, nativeArch, "", true), nativeOS, nativeArch)
+	}
+
+	goarm := ""
+	if arch == "arm" {
+		goarm = localGOARM()
+	}
+	assetName := ExpectedAssetName(platform, arch, goarm, opts.Native)
+
+	dir, err := DownloadAndExtractRelease(releaseURL, assetName)
 	if err != nil {
 		return err
 	}
@@ -166,12 +273,12 @@ func UpdateSelfFromRelease(releaseURL, platform, arch, programName string) error
 	defer f.Close()
 
 	// Backup current executable so we can roll back if needed.
-	var opts selfupdate.Options
+	var applyOpts selfupdate.Options
 	if exePath, err := os.Executable(); err == nil {
-		opts.OldSavePath = exePath + ".old"
+		applyOpts.OldSavePath = exePath + ".old"
 	}
 
-	if err := selfupdate.Apply(f, opts); err != nil {
+	if err := applyUpdate(f, applyOpts); err != nil {
 		return fmt.Errorf("apply update: %w", err)
 	}
 
@@ -189,10 +296,14 @@ func GetProdReleaseAPIURL() string {
 	return GetReleaseAPIURL("andre25costa-code")
 }
 
-// findAssetURL resolves the appropriate asset URL for the given release
-// selector. It accepts direct archive URLs as well as GitHub release URLs
-// or empty (latest release for the project).
-func findAssetInfo(releaseURL, platform, arch string) (string, string, error) {
+// maxListedAssets caps how many available asset names an error lists.
+const maxListedAssets = 20
+
+// findAssetInfo resolves the URL and SHA-256 of the release asset named
+// exactly assetName. It accepts GitHub release page/API URLs or empty
+// (latest release for the project); direct archive URLs are rejected
+// because their checksum cannot be verified.
+func findAssetInfo(releaseURL, assetName string) (string, string, error) {
 	// returns (assetURL, sha256ChecksumHex, error)
 	if looksLikeDirectAssetURL(releaseURL) {
 		return "", "", fmt.Errorf("no checksum found for asset %s", releaseURL)
@@ -226,128 +337,68 @@ func findAssetInfo(releaseURL, platform, arch string) (string, string, error) {
 		return "", "", err
 	}
 
-	// Selection order: platform -> arch -> extension.
-	platformLower := strings.ToLower(platform)
-	archLower := strings.ToLower(arch)
-
-	isZip := func(name string) bool {
-		return strings.HasSuffix(name, ".zip")
-	}
-	isTarGz := func(name string) bool {
-		return strings.HasSuffix(name, ".tar.gz") || strings.HasSuffix(name, ".tgz")
-	}
-	isTar := func(name string) bool { return strings.HasSuffix(name, ".tar") }
-
-	// collect indices of assets that contain platform (if provided)
-	var platformIdx []int
+	idx := -1
 	for i, a := range data.Assets {
+		if a.Name == assetName {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		if isNativeAssetName(assetName) {
+			return "", "", fmt.Errorf("this is a native (nativellm) build; release %s has no %s. "+
+				"Updating to a pure-Go build would remove local inference. "+
+				"Rebuild with `make build-native-x86-64` or wait for a release with the native artifact",
+				data.TagName, assetName)
+		}
+		names := make([]string, 0, maxListedAssets)
+		for _, a := range data.Assets {
+			if len(names) == maxListedAssets {
+				break
+			}
+			names = append(names, a.Name)
+		}
+		return "", "", fmt.Errorf("release %s has no asset named %s (available: %s)",
+			data.TagName, assetName, strings.Join(names, ", "))
+	}
+	assetURL := data.Assets[idx].BrowserDownloadURL
+
+	// attempt to find checksum: prefer asset digest from API if present
+	if d := strings.TrimSpace(data.Assets[idx].Digest); d != "" {
+		dLower := strings.ToLower(d)
+		if strings.HasPrefix(dLower, "sha256:") {
+			hexpart := strings.TrimPrefix(dLower, "sha256:")
+			return assetURL, hexpart, nil
+		}
+		// If digest already looks like a 64-hex, return it
+		if sha256HexRe.MatchString(dLower) {
+			return assetURL, dLower, nil
+		}
+	}
+	// Look for checksum assets and take the line for this exact asset name.
+	for j, a := range data.Assets {
 		n := strings.ToLower(a.Name)
-		if platform == "" || strings.Contains(n, platformLower) {
-			platformIdx = append(platformIdx, i)
+		if strings.Contains(n, "sha256") ||
+			strings.Contains(n, "sha256sum") ||
+			strings.Contains(n, "checksums") ||
+			strings.HasSuffix(n, ".sha256") ||
+			strings.HasSuffix(n, ".sha256sum") {
+			resp2, err := getWithRetry(data.Assets[j].BrowserDownloadURL)
+			if err != nil {
+				continue
+			}
+			bs, err := io.ReadAll(resp2.Body)
+			_ = resp2.Body.Close()
+			if err != nil {
+				continue
+			}
+			if h, ok := findHashInChecksumContent(bs, assetName); ok {
+				return assetURL, h, nil
+			}
 		}
 	}
-
-	pickBest := func(idxs []int) (string, int, bool) {
-		if len(idxs) == 0 {
-			return "", -1, false
-		}
-		// prefer arch matches within idxs; if arch was specified but
-		// no arch match exists among idxs, treat as no candidate.
-		var archIdx []int
-		if arch != "" {
-			aliases := archAliases(archLower)
-			for _, i := range idxs {
-				n := strings.ToLower(data.Assets[i].Name)
-				for _, ali := range aliases {
-					if strings.Contains(n, ali) {
-						archIdx = append(archIdx, i)
-						break
-					}
-				}
-			}
-			if len(archIdx) == 0 {
-				return "", -1, false
-			}
-		}
-		candidates := archIdx
-		if len(candidates) == 0 {
-			candidates = idxs
-		}
-
-		// extension preference
-		if platformLower == "windows" {
-			// prefer .zip only
-			for _, i := range candidates {
-				if isZip(strings.ToLower(data.Assets[i].Name)) {
-					return data.Assets[i].BrowserDownloadURL, i, true
-				}
-			}
-			// if no zip found, fallthrough to first candidate
-			return data.Assets[candidates[0]].BrowserDownloadURL, candidates[0], true
-		}
-
-		// non-windows: prefer tar.gz/tgz, then tar, then zip
-		for _, i := range candidates {
-			if isTarGz(strings.ToLower(data.Assets[i].Name)) {
-				return data.Assets[i].BrowserDownloadURL, i, true
-			}
-		}
-		for _, i := range candidates {
-			if isTar(strings.ToLower(data.Assets[i].Name)) {
-				return data.Assets[i].BrowserDownloadURL, i, true
-			}
-		}
-		for _, i := range candidates {
-			if isZip(strings.ToLower(data.Assets[i].Name)) {
-				return data.Assets[i].BrowserDownloadURL, i, true
-			}
-		}
-		// fallback to first candidate
-		return data.Assets[candidates[0]].BrowserDownloadURL, candidates[0], true
-	}
-
-	// Try platform matches first
-	if url, idx, ok := pickBest(platformIdx); ok {
-		// attempt to find checksum: prefer asset digest from API if present
-		if d := strings.TrimSpace(data.Assets[idx].Digest); d != "" {
-			dLower := strings.ToLower(d)
-			if strings.HasPrefix(dLower, "sha256:") {
-				hexpart := strings.TrimPrefix(dLower, "sha256:")
-				return url, hexpart, nil
-			}
-			// If digest already looks like a 64-hex, return it
-			if ok, _ := regexp.MatchString("(?i)^[a-f0-9]{64}$", dLower); ok {
-				return url, dLower, nil
-			}
-		}
-		// Look for checksum assets and verify by computing the asset's sha256.
-		for j, a := range data.Assets {
-			n := strings.ToLower(a.Name)
-			if strings.Contains(n, "sha256") ||
-				strings.Contains(n, "sha256sum") ||
-				strings.Contains(n, "checksums") ||
-				strings.HasSuffix(n, ".sha256") ||
-				strings.HasSuffix(n, ".sha256sum") {
-				resp2, err := getWithRetry(data.Assets[j].BrowserDownloadURL)
-				if err != nil {
-					continue
-				}
-				bs, err := io.ReadAll(resp2.Body)
-				_ = resp2.Body.Close()
-				if err != nil {
-					continue
-				}
-				if h, ok := findHashInChecksumContent(bs, url); ok {
-					return url, h, nil
-				}
-			}
-		}
-		// No checksum found for the selected platform asset -> error
-		return "", "", fmt.Errorf("no checksum found for asset %s", url)
-	}
-
-	// No platform match — require explicit platform+arch; fail fast.
-	return "", "", fmt.Errorf("no release asset matching platform %q and arch %q", platform, arch)
+	// No checksum found for the selected asset -> error
+	return "", "", fmt.Errorf("no checksum found for asset %s", assetURL)
 }
 
 func looksLikeDirectAssetURL(u string) bool {
@@ -400,35 +451,25 @@ func buildReleaseAPIURL(releaseURL string) string {
 // after refactoring to stream the download and verify the checksum
 // during the single download to avoid double-transfer.
 
-// findHashInChecksumContent attempts to locate a 64-hex SHA256 in the
-// checksum file content that corresponds to assetURL. It returns the
-// found hash (lowercase) and true, or "", false if not found.
-func findHashInChecksumContent(bs []byte, assetURL string) (string, bool) {
-	s := strings.ToLower(string(bs))
-	var assetBase string
-	if u, err := url.Parse(assetURL); err == nil {
-		assetBase = strings.ToLower(filepath.Base(u.Path))
-	} else {
-		assetBase = strings.ToLower(filepath.Base(assetURL))
-	}
-	re := regexp.MustCompile(`(?i)\b([a-f0-9]{64})\b`)
-	// prefer a line containing the asset filename
-	for _, line := range strings.Split(s, "\n") {
-		if strings.Contains(line, assetBase) {
-			if m := re.FindString(line); m != "" {
-				return m, true
-			}
+var sha256HexRe = regexp.MustCompile(`(?i)^[a-f0-9]{64}$`)
+
+// findHashInChecksumContent looks for the SHA-256 of assetName in checksum
+// file content in the sha256sum format ("<hash>  <name>" or
+// "<hash> *<name>"). The name field must equal assetName exactly, so a line
+// for e.g. "<assetName>.sbom.json", or a single-line checksum file for a
+// different asset, never matches. It returns the hash (lowercase) and true,
+// or "", false if there is no such line.
+func findHashInChecksumContent(bs []byte, assetName string) (string, bool) {
+	for _, line := range strings.Split(string(bs), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
 		}
-	}
-	// fallback: if there's exactly one unique 64-hex value, return it
-	matches := re.FindAllString(s, -1)
-	uniq := map[string]struct{}{}
-	for _, m := range matches {
-		uniq[m] = struct{}{}
-	}
-	if len(uniq) == 1 {
-		for k := range uniq {
-			return k, true
+		if strings.TrimPrefix(fields[1], "*") != assetName {
+			continue
+		}
+		if sha256HexRe.MatchString(fields[0]) {
+			return strings.ToLower(fields[0]), true
 		}
 	}
 	return "", false
@@ -486,32 +527,6 @@ func humanBytes(n int64) string {
 	default:
 		return fmt.Sprintf("%d B", n)
 	}
-}
-
-// archAliases returns common name variants for an architecture string
-// so we can match release asset names like "x86_64" vs Go's "amd64".
-// archAliases returns name variants for an architecture string.
-// If `arch` is empty or matches the local runtime.GOARCH, prefer the
-// compile-time architecture aliases provided by archAliasesForLocal
-// (implemented per-architecture via build tags). For other `arch`
-// values we use a small synonyms map.
-func archAliases(arch string) []string {
-	a := strings.ToLower(arch)
-	if syns, ok := archSynonyms[a]; ok {
-		return syns
-	}
-	return []string{a}
-}
-
-var archSynonyms = map[string][]string{
-	"amd64":   {"amd64", "x86_64", "x64"},
-	"x86_64":  {"amd64", "x86_64", "x64"},
-	"x64":     {"amd64", "x86_64", "x64"},
-	"386":     {"386", "x86"},
-	"x86":     {"386", "x86"},
-	"arm64":   {"arm64", "aarch64"},
-	"aarch64": {"arm64", "aarch64"},
-	"arm":     {"arm"},
 }
 
 func extractArchive(archivePath, destDir string) error {
@@ -678,27 +693,24 @@ func findBinaryInDir(dir, programName string) (string, error) {
 }
 
 // NewUpdateCommand returns a cobra command that triggers UpdateSelfFromRelease.
-func NewUpdateCommand(binaryName string) *cobra.Command {
+// native reports whether the running binary is the native (local inference)
+// build, which restricts updates to the native release asset.
+func NewUpdateCommand(binaryName string, native bool) *cobra.Command {
 	var urlStr, platform, arch string
 	cmd := &cobra.Command{
 		Use:   "update",
 		Short: "Check and apply updates from GitHub releases",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if platform == "" {
-				platform = runtime.GOOS
-			}
-			if arch == "" {
-				arch = runtime.GOARCH
-			}
 			fmt.Printf("Current version: %s\n", config.FormatVersion())
-			if err := UpdateSelfFromRelease(urlStr, platform, arch, binaryName); err != nil {
+			opts := UpdateOptions{Native: native}
+			if err := UpdateSelfFromRelease(urlStr, platform, arch, binaryName, opts); err != nil {
 				return err
 			}
 			fmt.Println("Update applied; restart to use the new version.")
 			return nil
 		},
 	}
-	cmd.Flags().StringVarP(&urlStr, "url", "u", "", "Direct URL to download release asset or release page")
+	cmd.Flags().StringVarP(&urlStr, "url", "u", "", "Release page or GitHub releases API URL to update from")
 	cmd.Flags().StringVar(&platform, "platform", "", "Target platform (default: runtime.GOOS)")
 	cmd.Flags().StringVar(&arch, "arch", "", "Target arch (default: runtime.GOARCH)")
 	return cmd

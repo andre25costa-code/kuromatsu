@@ -30,6 +30,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/status"
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/version"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/localllm"
 	"github.com/andre25costa-code/kuromatsu/pkg/updater"
 )
 
@@ -141,7 +142,7 @@ kuromatsu --no-color status`,
 		migrate.NewMigrateCommand(),
 		skills.NewSkillsCommand(),
 		model.NewModelCommand(),
-		updater.NewUpdateCommand("kuromatsu"),
+		updater.NewUpdateCommand("kuromatsu", localllm.Built()),
 		version.NewVersionCommand(),
 	)
 
