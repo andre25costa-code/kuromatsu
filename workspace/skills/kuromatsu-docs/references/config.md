@@ -72,6 +72,10 @@ falhar o boot):
 
 - Campo no topo do config: `"timezone": "America/Sao_Paulo"` (env
   `KUROMATSU_TIMEZONE`). Vazio (default) = usa `TZ` ou o fuso do sistema.
+- No assistente do `onboard`, o default do passo 5 é o `timezone` atual, senão
+  `TZ`, senão o fuso lido de `/etc/localtime` (alvo do symlink depois de
+  `zoneinfo/`) ou `/etc/timezone`. No Windows o fuso não é detectado. Sem fuso
+  conhecido, Enter deixa `timezone` vazio (= fuso do sistema).
 - Aplicado **uma vez por processo** (`config.ApplyProcessTimezone`, com
   `sync.Once`) no primeiro carregamento de cada comando
   (`internal.LoadConfig`) e no boot do gateway, antes de iniciar os

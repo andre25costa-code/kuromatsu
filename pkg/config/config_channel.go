@@ -295,22 +295,6 @@ func (b *Channel) SetName(name string) {
 	b.name = name
 }
 
-// SetSecretField sets a secure field value by field name in the Settings JSON.
-// NOTE: This only operates on raw Settings. If Decode() has been called,
-// prefer modifying the typed struct directly — MarshalJSON serializes from extend.
-func (b *Channel) SetSecretField(fieldName string, value SecureString) {
-	var m map[string]any
-	if err := json.Unmarshal(b.Settings, &m); err != nil {
-		return
-	}
-	m[fieldName] = value
-	data, err := json.Marshal(m)
-	if err != nil {
-		return
-	}
-	b.Settings = data
-}
-
 // Decode decodes the Settings node into the given target struct and stores
 // the pointer internally. Subsequent modifications to the target are
 // automatically reflected in MarshalJSON/MarshalYAML (no explicit Encode needed).

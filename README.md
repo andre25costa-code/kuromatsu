@@ -115,7 +115,8 @@ brackets (Enter accepts it, `q` quits without writing anything):
 3. channel: Telegram (bot token and **your** numeric Telegram ID, which becomes `allow_from`)
    or none;
 4. hardware profile (see below);
-5. timezone (the `timezone` key);
+5. timezone (the `timezone` key; the default is `TZ` or the zone read from `/etc/localtime` or
+   `/etc/timezone`, and when none is known, Enter leaves it empty, meaning the system zone);
 6. permission preset:
 
 | Key | Safe | Assistant | Advanced |
@@ -133,7 +134,7 @@ Enter at step 6 picks Assistant (exec off). `onboard --non-interactive` (also us
 is no terminal, e.g. installers and Docker) asks nothing and keeps the built-in defaults,
 which equal Advanced (exec on, internal channels only). Running `onboard` again starts from the
 current config: every step offers "Keep current" as its default, so Enter through all of them
-changes nothing in the config except filling in an empty `timezone`.
+changes nothing in the config except writing a detected zone into an empty `timezone`.
 
 The `timezone` key (an IANA name such as `America/Sao_Paulo`; env `KUROMATSU_TIMEZONE`) sets
 the local time of the process. The `TZ` variable, when set, wins over it, and a change takes

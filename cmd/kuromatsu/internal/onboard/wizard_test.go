@@ -32,8 +32,23 @@ type wizardEnv struct {
 	out        *bytes.Buffer
 }
 
-// newWizardEnv isolates the wizard: temp home, fixed hardware, no TZ, an
-// unnamed system zone and a fake Telegram API answering getMe.
+// withZoneFiles points system-zone detection at a fake Linux root whose
+// /etc/timezone names zone ("" = a root with no zone files).
+func withZoneFiles(t *testing.T, zone string) string {
+	t.Helper()
+	root := t.TempDir()
+	if zone != "" {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "etc"), 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(root, "etc", "timezone"), []byte(zone+"\n"), 0o644))
+	}
+	oldRoot, oldGOOS := zoneRoot, zoneGOOS
+	t.Cleanup(func() { zoneRoot, zoneGOOS = oldRoot, oldGOOS })
+	zoneRoot, zoneGOOS = root, "linux"
+	return root
+}
+
+// newWizardEnv isolates the wizard: temp home, fixed hardware, no TZ, a
+// fake system zone (America/Sao_Paulo) and a fake Telegram API for getMe.
 func newWizardEnv(t *testing.T) *wizardEnv {
 	t.Helper()
 	home := t.TempDir()
@@ -42,10 +57,10 @@ func newWizardEnv(t *testing.T) *wizardEnv {
 	t.Setenv(config.EnvConfig, configPath)
 	t.Setenv("TZ", "")
 	withDetectedHardware(t, testHardware)
+	withZoneFiles(t, "America/Sao_Paulo")
 
-	oldZone, oldBase := systemZone, telegramAPIBase
-	t.Cleanup(func() { systemZone, telegramAPIBase = oldZone, oldBase })
-	systemZone = func() string { return "Local" }
+	oldBase := telegramAPIBase
+	t.Cleanup(func() { telegramAPIBase = oldBase })
 
 	tg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"username":"test_bot"}}`))
@@ -401,4 +416,96 @@ func TestOnboard_NonTTYUnchanged(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, string(flagged), string(piped))
+}
+
+// With no zone known (no TZ, nothing detected), Enter at the timezone step
+// leaves "timezone" empty, on a new config and on a rerun alike.
+func TestWizard_TimezoneUndetectedStaysEmpty(t *testing.T) {
+	e := newWizardEnv(t)
+	withZoneFiles(t, "")
+
+	require.NoError(t, e.run(t, "2", "6", "2", "", "", "", "y"), e.out.String())
+	cfg, err := config.LoadConfigForEdit(e.configPath)
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Timezone)
+	assert.Contains(t, e.out.String(), "Enter uses the system zone")
+
+	e.out.Reset()
+	require.NoError(t, e.run(t, "2", "", "", "", "", "", ""), e.out.String())
+	cfg, err = config.LoadConfigForEdit(e.configPath)
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Timezone)
+}
+
+// A detected zone is the default and Enter writes it.
+func TestWizard_TimezoneDetectedDefault(t *testing.T) {
+	e := newWizardEnv(t)
+	withZoneFiles(t, "Europe/Lisbon")
+
+	require.NoError(t, e.run(t, "2", "6", "2", "", "", "", "y"), e.out.String())
+	cfg, err := config.LoadConfigForEdit(e.configPath)
+	require.NoError(t, err)
+	assert.Equal(t, "Europe/Lisbon", cfg.Timezone)
+}
+
+// A rerun on a config without a remote default model (e.g. one written by
+// --non-interactive) skips the provider step on Enter.
+func TestWizard_RerunWithoutRemoteModelSkipsProvider(t *testing.T) {
+	e := newWizardEnv(t)
+	require.NoError(t, config.SaveConfig(e.configPath, config.DefaultConfig()))
+	before, err := config.LoadConfigForEdit(e.configPath)
+	require.NoError(t, err)
+
+	require.NoError(t, e.run(t, "", "", "", "", "", "", ""), e.out.String())
+	cfg, err := config.LoadConfigForEdit(e.configPath)
+	require.NoError(t, err)
+	assert.Len(t, cfg.ModelList, len(before.ModelList))
+	assert.Nil(t, findModel(cfg, "default"))
+	assert.Equal(t, before.Agents.Defaults.GetModelName(), cfg.Agents.Defaults.GetModelName())
+}
+
+// Re-choosing the provider kind of the current entry keeps its provider
+// value (an explicit "openai" is not rewritten to empty).
+func TestWizard_RerunSameKindKeepsProvider(t *testing.T) {
+	e := newWizardEnv(t)
+	srv := modelsServer(t, nil)
+	cfg := config.DefaultConfig()
+	setup.ApplyModelChoice(cfg, setup.ModelChoice{
+		Alias: "mine", Provider: "openai", Model: "old-model", APIBase: srv.URL, APIKey: "sk-old-key-1234",
+	})
+	require.NoError(t, config.SaveConfig(e.configPath, cfg))
+
+	require.NoError(t, e.run(t, "", "1", "", "", "1", "", "", "", "", ""), e.out.String())
+	cfg, err := config.LoadConfigForEdit(e.configPath)
+	require.NoError(t, err)
+	m := findModel(cfg, "mine")
+	require.NotNil(t, m)
+	assert.Equal(t, "openai", m.Provider)
+	assert.Equal(t, "model-a", m.Model)
+}
+
+// "None" on a rerun leaves an enabled Telegram channel as it is, so the
+// next command is still the gateway.
+func TestWizard_RerunNoneKeepsChannel(t *testing.T) {
+	e := newWizardEnv(t)
+	existingInstall(t, e, modelsServer(t, nil).URL)
+
+	require.NoError(t, e.run(t, "", "", "2", "", "", "", ""), e.out.String())
+	cfg, err := config.LoadConfigForEdit(e.configPath)
+	require.NoError(t, err)
+	tg := cfg.Channels[config.ChannelTelegram]
+	assert.True(t, tg.Enabled)
+	assert.Equal(t, []string{"555"}, []string(tg.AllowFrom))
+	assert.Contains(t, e.out.String(), "kuromatsu gateway")
+}
+
+// The input ending inside the model picker quits quietly, writing nothing.
+func TestWizard_EOFInPickerQuits(t *testing.T) {
+	e := newWizardEnv(t)
+	srv := modelsServer(t, nil)
+
+	err := e.run(t, "2", "1", srv.URL, "sk-test")
+	require.ErrorIs(t, err, errWizardQuit)
+	_, statErr := os.Stat(e.configPath)
+	assert.True(t, os.IsNotExist(statErr))
 }

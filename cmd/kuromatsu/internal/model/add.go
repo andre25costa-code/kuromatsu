@@ -149,7 +149,7 @@ func PickModel(in *bufio.Reader, stdout io.Writer, entries []setup.ModelEntry, q
 		raw, err := in.ReadString('\n')
 		if err != nil && (!errors.Is(err, io.EOF) || raw == "") {
 			if errors.Is(err, io.EOF) {
-				return "", fmt.Errorf("no selection provided")
+				return "", fmt.Errorf("no selection provided: %w", err)
 			}
 			return "", fmt.Errorf("read input: %w", err)
 		}

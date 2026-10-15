@@ -33,42 +33,44 @@ type messages struct {
 	probeMenu       string
 	manualModel     string
 
-	channelTitle    string
-	channelOptions  []string
-	tgToken         string
-	tgTokenKeep     string
-	tgTokenInvalid  string
-	tgOwner         string
-	tgOwnerInvalid  string
-	getMeOK         string // %s: bot username
-	getMeFailed     string // %s: error
-	hardwareTitle   string
-	hardwareLine    string // %s RAM, %d CPUs, %s detected profile
-	hardwareUse     string // %s: profile
-	timezonePrompt  string
-	timezoneInvalid string // %s: error
+	channelTitle         string
+	channelOptions       []string
+	tgToken              string
+	tgTokenKeep          string
+	tgTokenInvalid       string
+	tgOwner              string
+	tgOwnerInvalid       string
+	getMeOK              string // %s: bot username
+	getMeFailed          string // %s: error
+	hardwareTitle        string
+	hardwareLine         string // %s RAM, %d CPUs, %s detected profile
+	hardwareUse          string // %s: profile
+	timezonePrompt       string
+	timezonePromptSystem string // when no zone is known: Enter keeps the system zone
+	timezoneInvalid      string // %s: error
 
 	permTitle   string
 	permOptions []string
 
-	summaryTitle    string
-	sumModel        string // %s alias, %s provider, %s model, %s base, %s key
-	sumModelKeep    string
-	sumTelegram     string // %s allow_from, %s token
-	sumChannelKeep  string
-	sumChannelNone  string
-	sumProfile      string // %s
-	sumProfileKeep  string
-	sumTimezone     string // %s
-	sumPermissions  string // %s
-	sumPermKeep     string // %s
-	sumLanguage     string // %s
-	confirm         string
-	aborted         string
-	saved           string // %s: config path
-	nextCommand     string // %s: command
-	warning         string // %s
-	providerOpenAIC string
+	summaryTitle      string
+	sumModel          string // %s alias, %s provider, %s model, %s base, %s key
+	sumModelKeep      string
+	sumTelegram       string // %s allow_from, %s token
+	sumChannelKeep    string
+	sumChannelNone    string
+	sumProfile        string // %s
+	sumProfileKeep    string
+	sumTimezone       string // %s
+	sumTimezoneSystem string
+	sumPermissions    string // %s
+	sumPermKeep       string // %s
+	sumLanguage       string // %s
+	confirm           string
+	aborted           string
+	saved             string // %s: config path
+	nextCommand       string // %s: command
+	warning           string // %s
+	providerOpenAIC   string
 }
 
 var messageTable = map[string]*messages{langPtBR: msgPtBR, langEn: msgEn}
@@ -109,11 +111,12 @@ var msgPtBR = &messages{
 	getMeOK:        "Bot verificado: @%s",
 	getMeFailed:    "Aviso: não foi possível verificar o bot (%s). O token foi mantido; confira a rede depois.",
 
-	hardwareTitle:   "Perfil de hardware",
-	hardwareLine:    "Hardware: %s de RAM, %d CPUs → perfil detectado %s",
-	hardwareUse:     "usar %s",
-	timezonePrompt:  "Fuso horário (IANA, ex.: America/Sao_Paulo)",
-	timezoneInvalid: "Fuso inválido: %s",
+	hardwareTitle:        "Perfil de hardware",
+	hardwareLine:         "Hardware: %s de RAM, %d CPUs → perfil detectado %s",
+	hardwareUse:          "usar %s",
+	timezonePrompt:       "Fuso horário (IANA, ex.: America/Sao_Paulo)",
+	timezonePromptSystem: "Fuso horário (IANA, ex.: America/Sao_Paulo; Enter usa o fuso do sistema)",
+	timezoneInvalid:      "Fuso inválido: %s",
 
 	permTitle: "Permissões",
 	permOptions: []string{
@@ -122,24 +125,25 @@ var msgPtBR = &messages{
 		"Avançado (exec só em canais internos; o cron pode rodar shell)",
 	},
 
-	summaryTitle:    "Resumo do que será gravado:",
-	sumModel:        "  Modelo: %s (provedor %s) → %s em %s, chave %s",
-	sumModelKeep:    "  Modelo: sem alteração",
-	sumTelegram:     "  Canal: Telegram, allow_from %s, token %s",
-	sumChannelKeep:  "  Canal: sem alteração",
-	sumChannelNone:  "  Canal: nenhum (só CLI)",
-	sumProfile:      "  Perfil de hardware: %s",
-	sumProfileKeep:  "  Perfil de hardware: sem alteração",
-	sumTimezone:     "  Fuso horário: %s",
-	sumPermissions:  "  Permissões: %s",
-	sumPermKeep:     "  Permissões: sem alteração (%s)",
-	sumLanguage:     "  Idioma: %s (linha no USER.md)",
-	confirm:         "Gravar? [S/n]: ",
-	aborted:         "Cancelado; nada foi gravado.",
-	saved:           "Configuração gravada em %s",
-	nextCommand:     "Próximo passo: %s",
-	warning:         "Aviso: %s",
-	providerOpenAIC: "compatível com OpenAI",
+	summaryTitle:      "Resumo do que será gravado:",
+	sumModel:          "  Modelo: %s (provedor %s) → %s em %s, chave %s",
+	sumModelKeep:      "  Modelo: sem alteração",
+	sumTelegram:       "  Canal: Telegram, allow_from %s, token %s",
+	sumChannelKeep:    "  Canal: sem alteração",
+	sumChannelNone:    "  Canal: nenhum (só CLI)",
+	sumProfile:        "  Perfil de hardware: %s",
+	sumProfileKeep:    "  Perfil de hardware: sem alteração",
+	sumTimezone:       "  Fuso horário: %s",
+	sumTimezoneSystem: "  Fuso horário: o do sistema (timezone vazio)",
+	sumPermissions:    "  Permissões: %s",
+	sumPermKeep:       "  Permissões: sem alteração (%s)",
+	sumLanguage:       "  Idioma: %s (linha no USER.md)",
+	confirm:           "Gravar? [S/n]: ",
+	aborted:           "Cancelado; nada foi gravado.",
+	saved:             "Configuração gravada em %s",
+	nextCommand:       "Próximo passo: %s",
+	warning:           "Aviso: %s",
+	providerOpenAIC:   "compatível com OpenAI",
 }
 
 //nolint:dupl // the Portuguese table above has the same keys
@@ -178,11 +182,12 @@ var msgEn = &messages{
 	getMeOK:        "Bot verified: @%s",
 	getMeFailed:    "Warning: could not verify the bot (%s). The token is kept; check the network later.",
 
-	hardwareTitle:   "Hardware profile",
-	hardwareLine:    "Hardware: %s RAM, %d CPUs → detected profile %s",
-	hardwareUse:     "use %s",
-	timezonePrompt:  "Timezone (IANA, e.g. Europe/London)",
-	timezoneInvalid: "Invalid timezone: %s",
+	hardwareTitle:        "Hardware profile",
+	hardwareLine:         "Hardware: %s RAM, %d CPUs → detected profile %s",
+	hardwareUse:          "use %s",
+	timezonePrompt:       "Timezone (IANA, e.g. Europe/London)",
+	timezonePromptSystem: "Timezone (IANA, e.g. Europe/London; Enter uses the system zone)",
+	timezoneInvalid:      "Invalid timezone: %s",
 
 	permTitle: "Permissions",
 	permOptions: []string{
@@ -191,22 +196,23 @@ var msgEn = &messages{
 		"Advanced (exec on internal channels only, cron with commands)",
 	},
 
-	summaryTitle:    "Summary of what will be saved:",
-	sumModel:        "  Model: %s (provider %s) → %s at %s, key %s",
-	sumModelKeep:    "  Model: unchanged",
-	sumTelegram:     "  Channel: Telegram, allow_from %s, token %s",
-	sumChannelKeep:  "  Channel: unchanged",
-	sumChannelNone:  "  Channel: none (CLI only)",
-	sumProfile:      "  Hardware profile: %s",
-	sumProfileKeep:  "  Hardware profile: unchanged",
-	sumTimezone:     "  Timezone: %s",
-	sumPermissions:  "  Permissions: %s",
-	sumPermKeep:     "  Permissions: unchanged (%s)",
-	sumLanguage:     "  Language: %s (line in USER.md)",
-	confirm:         "Save? [Y/n]: ",
-	aborted:         "Canceled; nothing was saved.",
-	saved:           "Config saved to %s",
-	nextCommand:     "Next: %s",
-	warning:         "Warning: %s",
-	providerOpenAIC: "OpenAI-compatible",
+	summaryTitle:      "Summary of what will be saved:",
+	sumModel:          "  Model: %s (provider %s) → %s at %s, key %s",
+	sumModelKeep:      "  Model: unchanged",
+	sumTelegram:       "  Channel: Telegram, allow_from %s, token %s",
+	sumChannelKeep:    "  Channel: unchanged",
+	sumChannelNone:    "  Channel: none (CLI only)",
+	sumProfile:        "  Hardware profile: %s",
+	sumProfileKeep:    "  Hardware profile: unchanged",
+	sumTimezone:       "  Timezone: %s",
+	sumTimezoneSystem: "  Timezone: the system zone (timezone left empty)",
+	sumPermissions:    "  Permissions: %s",
+	sumPermKeep:       "  Permissions: unchanged (%s)",
+	sumLanguage:       "  Language: %s (line in USER.md)",
+	confirm:           "Save? [Y/n]: ",
+	aborted:           "Canceled; nothing was saved.",
+	saved:             "Config saved to %s",
+	nextCommand:       "Next: %s",
+	warning:           "Warning: %s",
+	providerOpenAIC:   "OpenAI-compatible",
 }
