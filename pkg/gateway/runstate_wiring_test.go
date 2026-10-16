@@ -19,13 +19,30 @@ func newTestAgentLoop(t *testing.T, cfg *config.Config) *agent.AgentLoop {
 	return al
 }
 
-func newTestRunningServices() *services {
-	return &services{
+// newTestRunningServices keeps runstate files in a temp home and stops any
+// publishers a test leaves running, so they cannot outlive the test (a
+// leaked publisher raced later tests that set time.Local).
+func newTestRunningServices(t *testing.T) *services {
+	t.Helper()
+	t.Setenv(config.EnvHome, t.TempDir())
+	rs := &services{
 		HeartbeatServices: map[string]*heartbeat.HeartbeatService{
 			"main": heartbeat.NewHeartbeatService(".", 30, false),
 		},
 		HealthServer: health.NewServer("127.0.0.1", 0, ""),
 	}
+	t.Cleanup(func() {
+		if rs.runstatePublishersStop != nil {
+			rs.runstatePublishersStop()
+		}
+		if rs.memguardStop != nil {
+			rs.memguardStop()
+		}
+		// Cancelling does not wait for the publishers; give an in-flight
+		// state-file write time to finish before the temp home is removed.
+		time.Sleep(100 * time.Millisecond)
+	})
+	return rs
 }
 
 // AC-017-7: disabled runstate must never leave a publisher goroutine
@@ -33,7 +50,7 @@ func newTestRunningServices() *services {
 func TestInstallRunstateIntegration_DisabledClearsEverything(t *testing.T) {
 	cfg := config.DefaultConfig()
 	al := newTestAgentLoop(t, cfg)
-	rs := newTestRunningServices()
+	rs := newTestRunningServices(t)
 
 	installRunstateIntegration(cfg, al, rs)
 
@@ -46,7 +63,7 @@ func TestInstallRunstateIntegration_EnabledStartsPublishersAndCanBeDisabledAgain
 	cfg := config.DefaultConfig()
 	cfg.Runstate.Enabled = true
 	al := newTestAgentLoop(t, cfg)
-	rs := newTestRunningServices()
+	rs := newTestRunningServices(t)
 
 	installRunstateIntegration(cfg, al, rs)
 	stopFn := rs.runstatePublishersStop
@@ -80,7 +97,7 @@ func TestInstallRunstateIntegration_ReinstallReplacesThePreviousStopFunc(t *test
 	cfg := config.DefaultConfig()
 	cfg.Runstate.Enabled = true
 	al := newTestAgentLoop(t, cfg)
-	rs := newTestRunningServices()
+	rs := newTestRunningServices(t)
 
 	installRunstateIntegration(cfg, al, rs)
 	first := rs.runstatePublishersStop
@@ -101,7 +118,7 @@ func TestInstallRunstateIntegration_ReinstallReplacesThePreviousStopFunc(t *test
 func TestInstallMemguardIntegration_DisabledClearsHooksAndStop(t *testing.T) {
 	cfg := config.DefaultConfig()
 	al := newTestAgentLoop(t, cfg)
-	rs := newTestRunningServices()
+	rs := newTestRunningServices(t)
 
 	installMemguardIntegration(cfg, al, rs)
 
@@ -114,7 +131,7 @@ func TestInstallMemguardIntegration_EnabledStartsWatchdogAndCanBeDisabledAgain(t
 	cfg := config.DefaultConfig()
 	cfg.Memguard.Enabled = true
 	al := newTestAgentLoop(t, cfg)
-	rs := newTestRunningServices()
+	rs := newTestRunningServices(t)
 
 	installMemguardIntegration(cfg, al, rs)
 	if rs.memguardStop == nil {
