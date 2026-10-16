@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kuromatsu</title>
+<link rel="stylesheet" href="app.css">
+<script src="app.js" defer></script>
+</head>
+<body>
+<header>
+  <h1>Kuromatsu</h1>
+  <button id="logout" type="button" hidden>Sair</button>
+</header>
+<p id="msg" role="status" aria-live="polite"></p>
+
+<main id="login-view" hidden>
+  <form id="login-form">
+    <h2>Entrar</h2>
+    <p>Use o token mostrado por <code>kuromatsu ui token</code>.</p>
+    <label for="login-token">Token de acesso</label>
+    <input id="login-token" type="password" autocomplete="current-password" required>
+    <button type="submit">Entrar</button>
+  </form>
+</main>
+
+<div id="app" hidden>
+<nav aria-label="Seções">
+  <ul>
+    <li><a href="#assistente">Assistente</a></li>
+    <li><a href="#modelos">Modelos</a></li>
+    <li><a href="#canais">Canais e permissões</a></li>
+    <li><a href="#skills">Skills</a></li>
+    <li><a href="#automacoes">Automações</a></li>
+    <li><a href="#heartbeat">Heartbeat</a></li>
+    <li><a href="#status">Status</a></li>
+  </ul>
+</nav>
+<main>
+<section id="assistente" hidden>
+  <h2>Assistente</h2>
+  <form id="ws-form">
+    <label for="ws-file">Arquivo</label>
+    <select id="ws-file">
+      <option>SOUL.md</option><option>USER.md</option><option>AGENT.md</option>
+    </select>
+    <label for="ws-text">Conteúdo</label>
+    <textarea id="ws-text" rows="18"></textarea>
+    <button type="submit">Salvar</button>
+  </form>
+</section>
+
+<section id="modelos" hidden>
+  <h2>Modelos</h2>
+  <ul id="models-list" class="list"></ul>
+  <form id="model-form">
+    <h3>Adicionar ou editar modelo</h3>
+    <label for="m-alias">Nome (alias)</label>
+    <input id="m-alias" required>
+    <label for="m-provider">Provedor</label>
+    <select id="m-provider">
+      <option value="">Compatível com OpenAI</option>
+      <option value="ollama">Ollama</option>
+      <option value="anthropic">Anthropic</option>
+      <option value="gemini">Gemini</option>
+      <option value="openrouter">OpenRouter</option>
+    </select>
+    <label for="m-base">URL base da API</label>
+    <input id="m-base" type="url" placeholder="https://api.exemplo.com/v1">
+    <label for="m-key">Chave da API (em branco mantém a atual)</label>
+    <input id="m-key" type="password" autocomplete="off">
+    <label for="m-model">ID do modelo</label>
+    <input id="m-model" list="m-models" required>
+    <datalist id="m-models"></datalist>
+    <div class="row">
+      <button id="m-probe" type="button">Testar conexão</button>
+      <button type="submit">Salvar e usar como padrão</button>
+    </div>
+  </form>
+</section>
+
+<section id="canais" hidden>
+  <h2>Canais e permissões</h2>
+  <div id="channels-list"></div>
+  <form id="perm-form">
+    <h3>Permissões</h3>
+    <label for="perm-preset">Predefinição</label>
+    <select id="perm-preset">
+      <option value="seguro">Seguro</option>
+      <option value="assistente">Assistente</option>
+      <option value="avancado">Avançado</option>
+    </select>
+    <p id="perm-current"></p>
+    <button type="submit">Aplicar</button>
+  </form>
+</section>
+
+<section id="skills" hidden>
+  <h2>Skills</h2>
+  <ul id="skills-list" class="list"></ul>
+  <form id="skill-form">
+    <label for="skill-repo">Instalar do GitHub (dono/nome)</label>
+    <input id="skill-repo" required placeholder="dono/nome">
+    <button type="submit">Instalar</button>
+  </form>
+</section>
+
+<section id="automacoes" hidden>
+  <h2>Automações</h2>
+  <ul id="cron-list" class="list"></ul>
+  <form id="cron-edit" hidden>
+    <h3>Editar automação</h3>
+    <label for="ce-name">Nome</label>
+    <input id="ce-name" required>
+    <label for="ce-msg">Mensagem</label>
+    <textarea id="ce-msg" rows="4"></textarea>
+    <label for="ce-expr">Expressão cron (só para agendas diárias)</label>
+    <input id="ce-expr">
+    <div class="row">
+      <button type="submit">Salvar</button>
+      <button id="ce-cancel" type="button">Cancelar</button>
+    </div>
+  </form>
+  <pre id="cron-history" hidden></pre>
+  <form id="cron-form">
+    <h3>Nova automação</h3>
+    <label for="cf-tpl">Modelo</label>
+    <select id="cf-tpl"></select>
+    <p id="cf-desc"></p>
+    <div id="cf-params"></div>
+    <label for="cf-channel">Canal</label>
+    <input id="cf-channel">
+    <label for="cf-to">Destinatário (ID)</label>
+    <input id="cf-to">
+    <button type="submit">Criar</button>
+  </form>
+</section>
+
+<section id="heartbeat" hidden>
+  <h2>Heartbeat</h2>
+  <form id="hb-form">
+    <div class="check">
+      <input id="hb-on" type="checkbox">
+      <label for="hb-on">Ligado</label>
+    </div>
+    <label for="hb-int">Intervalo (minutos, mínimo 5)</label>
+    <input id="hb-int" type="number" min="5" required>
+    <button type="submit">Salvar intervalo</button>
+  </form>
+  <form id="hbf-form">
+    <label for="hbf-text">HEARTBEAT.md</label>
+    <textarea id="hbf-text" rows="14"></textarea>
+    <button type="submit">Salvar arquivo</button>
+  </form>
+</section>
+
+<section id="status" hidden>
+  <h2>Status e consumo</h2>
+  <button id="st-refresh" type="button">Atualizar</button>
+  <pre id="st-text"></pre>
+</section>
+</main>
+</div>
+</body>
+</html>
