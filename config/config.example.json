@@ -465,6 +465,10 @@
     "enabled": true,
     "interval": 30
   },
+  "webui": {
+    "enabled": true,
+    "allow_remote": false
+  },
   "devices": {
     "enabled": false,
     "monitor_usb": true

@@ -533,6 +533,11 @@ func DefaultConfig() *Config {
 			Enabled:  true,
 			Interval: 30,
 		},
+		// The page answers only on loopback and with a token, so it is on
+		// by default; without a token the gateway does not serve it.
+		WebUI: WebUIConfig{
+			Enabled: true,
+		},
 		Devices: DevicesConfig{
 			Enabled:    false,
 			MonitorUSB: true,

@@ -63,6 +63,9 @@ type Config struct {
 	// for local time. Empty keeps TZ or the system zone; TZ, when set, wins.
 	// Applied once at startup, so a change needs a restart.
 	Timezone string `json:"timezone,omitempty" yaml:"-" env:"KUROMATSU_TIMEZONE"`
+	// WebUI is the local configuration page at /ui; its token is kept in
+	// the security file only.
+	WebUI WebUIConfig `json:"webui" yaml:"webui,omitempty"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 
