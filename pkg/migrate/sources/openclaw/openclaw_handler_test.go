@@ -298,8 +298,8 @@ func TestValidateMigratedConfig_RejectsUnknownChannelType(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.Channels = config.ChannelsConfig{"x": &config.Channel{Type: "line"}}
 
-	require.Error(t, validateMigratedConfig(cfg, t.TempDir()))
-	require.NoError(t, validateMigratedConfig(config.DefaultConfig(), t.TempDir()))
+	require.Error(t, config.ValidateForSave(cfg))
+	require.NoError(t, config.ValidateForSave(config.DefaultConfig()))
 }
 
 func TestExecuteConfigMigration_InvalidResultLeavesDestinationUntouched(t *testing.T) {
@@ -342,7 +342,9 @@ func writtenChannels(t *testing.T, path string) map[string]map[string]any {
 	return doc.Channels
 }
 
-func TestExecuteConfigMigration_FailedValidationRestoresSecretResolver(t *testing.T) {
+// Validating the migrated config never repoints the process-wide secret
+// resolver: it keeps resolving against the directory it was set to.
+func TestExecuteConfigMigration_FailedValidationLeavesSecretResolver(t *testing.T) {
 	t.Setenv("KUROMATSU_HOME", t.TempDir())
 	h, srcPath := newTestHandler(t, telegramOnlySource)
 
@@ -356,6 +358,9 @@ func TestExecuteConfigMigration_FailedValidationRestoresSecretResolver(t *testin
 
 	dstDir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dstDir, "tok.key"), []byte("s3cret\n"), 0o600))
+	// Point the resolver at the destination, as loading its config does.
+	_, err := config.LoadConfigForEdit(filepath.Join(dstDir, "config.json"))
+	require.NoError(t, err)
 
 	require.Error(t, h.ExecuteConfigMigration(srcPath, filepath.Join(dstDir, "config.json")))
 

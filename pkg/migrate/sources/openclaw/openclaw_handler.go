@@ -110,7 +110,9 @@ func (o *OpenclawHandler) ExecuteConfigMigration(srcConfigPath, dstConfigPath st
 	}
 
 	incoming := buildStandardConfig(picoCfg)
-	if err := validateMigratedConfig(incoming, filepath.Dir(dstConfigPath)); err != nil {
+	// A config the binary would refuse is caught before anything reaches the
+	// destination.
+	if err := config.ValidateForSave(incoming); err != nil {
 		return fmt.Errorf("migrated config is invalid, nothing was written: %w", err)
 	}
 
@@ -119,30 +121,6 @@ func (o *OpenclawHandler) ExecuteConfigMigration(srcConfigPath, dstConfigPath st
 		return err
 	}
 	return config.SaveConfig(dstConfigPath, incoming)
-}
-
-// validateMigratedConfig writes cfg to a scratch directory and loads it back
-// with config.LoadConfig, so a config the binary would refuse is caught before
-// anything reaches the destination. The load runs with the process environment,
-// and relative file:// references would resolve against the scratch directory;
-// the conversion emits neither enc:// nor file:// values.
-func validateMigratedConfig(cfg *config.Config, dstDir string) error {
-	tmpDir, err := os.MkdirTemp("", "kuromatsu-migrate-check-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmpDir)
-	// LoadConfig repoints the process-wide secret resolver at the scratch
-	// directory; whatever the outcome, point it back at the destination before
-	// the scratch directory is removed.
-	defer config.UseSecretDir(dstDir)
-
-	tmpPath := filepath.Join(tmpDir, "config.json")
-	if err = config.SaveConfig(tmpPath, cfg); err != nil {
-		return err
-	}
-	_, err = config.LoadConfig(tmpPath)
-	return err
 }
 
 func resolveSourceHome(override string) (string, error) {

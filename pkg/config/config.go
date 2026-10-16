@@ -1251,17 +1251,59 @@ func (c *MCPConfig) GetMaxInlineTextChars() int {
 var missingConfigWarnOnce sync.Once
 
 func LoadConfig(path string) (*Config, error) {
-	updateResolver(filepath.Dir(path))
+	return loadConfigWith(path, loadOpts{global: true})
+}
+
+// loadOpts selects the process-wide effects of a config load.
+type loadOpts struct {
+	// global points the process-wide secret resolver at the config's
+	// directory and logs the one-time "no config yet" warning. Without it
+	// the load resolves secrets through whatever resolver is already set.
+	global bool
+}
+
+// ValidateForSave reports whether cfg, once saved, would load: it writes cfg
+// (config.json and the security file) to a private scratch directory (mode
+// 0700, removed afterwards) and loads it back through the same migration,
+// channel and validation steps as LoadConfig. It changes no process-wide
+// state: the secret resolver is left as it is, so relative file:// secrets
+// resolve against the directory of the config last loaded with LoadConfig or
+// LoadConfigForEdit, no warning is logged once, and time.Local is never
+// touched. Like SaveConfig it may raise cfg.Version to CurrentVersion.
+// Do not call it on a config other goroutines read.
+func ValidateForSave(cfg *Config) error {
+	if cfg == nil {
+		return errors.New("config is nil")
+	}
+	dir, err := os.MkdirTemp("", "kuromatsu-validate-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "config.json")
+	if err = SaveConfig(path, cfg); err != nil {
+		return err
+	}
+	_, err = loadConfigWith(path, loadOpts{})
+	return err
+}
+
+func loadConfigWith(path string, o loadOpts) (*Config, error) {
+	if o.global {
+		updateResolver(filepath.Dir(path))
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			missingConfigWarnOnce.Do(func() {
-				logger.WarnF(
-					"config file not found, using default config; run `kuromatsu onboard` to create it",
-					map[string]any{"path": path},
-				)
-			})
+			if o.global {
+				missingConfigWarnOnce.Do(func() {
+					logger.WarnF(
+						"config file not found, using default config; run `kuromatsu onboard` to create it",
+						map[string]any{"path": path},
+					)
+				})
+			}
 			defaultCfg := DefaultConfig()
 			ApplyNativeFallback(defaultCfg)
 			return defaultCfg, nil
