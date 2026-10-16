@@ -38,7 +38,10 @@ func TestIsOwner_Table(t *testing.T) {
 			"5511999@s.whatsapp.net",
 			true,
 		},
-		{"bare JID is not an ID", []string{"5511999@s.whatsapp.net"}, "whatsapp", "5511999@s.whatsapp.net", false},
+		{"bare JID", []string{"5511999@s.whatsapp.net"}, "whatsapp", "5511999@s.whatsapp.net", true},
+		{"JID with device part", []string{"5511999:12@s.whatsapp.net"}, "whatsapp", "5511999:12@s.whatsapp.net", true},
+		{"JID of another number", []string{"5511999@s.whatsapp.net"}, "whatsapp", "5511888@s.whatsapp.net", false},
+		{"address without digits", []string{"alice@example.org"}, "matrix", "alice@example.org", false},
 		{"empty sender", []string{"123"}, "telegram", "", false},
 		{"empty list", nil, "telegram", "123", false},
 	}

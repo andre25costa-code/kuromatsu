@@ -187,9 +187,10 @@ Ler (`/cron list|history|templates`) vale para qualquer remetente aceito
 pelo canal. Alterar (`/cron pause|resume|run|new`, `/config set`) exige ser
 o dono: canal interno (`cli`, `system`, `subagent`), ou o **ID** do
 remetente listado no `allow_from` do canal como `123`, `telegram:123` ou
-`123|nome`. Username (`@alice`, `alice`) e `*` não dão esse direito. Um ID
-que não é numérico (JID do WhatsApp, por exemplo) precisa da forma
-`whatsapp:<id>`. Num bot aberto (`["*"]`) sem o ID do dono, ninguém altera
+`123|nome`. Username (`@alice`, `alice`) e `*` não dão esse direito. No
+WhatsApp o ID é o JID que chega como remetente (`5511999999999@s.whatsapp.net`,
+às vezes com `:<dispositivo>`): liste exatamente esse valor ou
+`whatsapp:<jid>`. Num bot aberto (`["*"]`) sem o ID do dono, ninguém altera
 pelo chat, e o resumo do `/config` também fica restrito ao dono.
 
 `/config` mostra um resumo sem segredos (modelo, canais com contagem de

@@ -12,12 +12,15 @@ import (
 // who may change settings from a chat. Only an ID counts, never a username,
 // because a username can change hands:
 //
-//   - "123456": the ID itself. A bare entry counts only when it is numeric
-//     (an optional leading "-" and digits); any other bare entry, such as
-//     "alice", is a username and yields nothing. An ID that is not numeric
-//     (a WhatsApp JID, for example) is written as "<platform>:<id>".
+//   - "123456": the ID itself. A bare entry counts when it is numeric (an
+//     optional leading "-" and digits) or an address-style ID with digits and
+//     an "@" after its first character, such as a WhatsApp JID
+//     ("5511999999999@s.whatsapp.net"). Any other bare entry, such as
+//     "alice", is a username and yields nothing.
 //   - "telegram:123456": the part after the colon, only when the platform
-//     equals channelType (case-insensitive).
+//     equals channelType (case-insensitive). A prefix that is not a channel
+//     type name (it has digits) is not a platform: "5511:12@s.whatsapp.net"
+//     is a bare ID.
 //   - "123456|alice": the part before the "|", under the same rules.
 //   - "@alice", "*" and empty entries yield nothing.
 func OwnerID(entry, channelType string) (string, bool) {
@@ -28,17 +31,16 @@ func OwnerID(entry, channelType string) (string, bool) {
 	if idx := strings.Index(entry, "|"); idx >= 0 {
 		entry = strings.TrimSpace(entry[:idx])
 	}
-	if platform, id, ok := identity.ParseCanonicalID(entry); ok {
+	if platform, id, ok := splitPlatform(entry); ok {
 		if channelType == "" || !strings.EqualFold(platform, channelType) {
 			return "", false
 		}
-		id = strings.TrimSpace(id)
 		if id == "" || strings.HasPrefix(id, "@") {
 			return "", false
 		}
 		return id, true
 	}
-	if !isNumericID(entry) {
+	if !isNumericID(entry) && !isAddressID(entry) {
 		return "", false
 	}
 	return entry, true
@@ -107,16 +109,32 @@ func senderOwnerID(senderID, channelType string) (string, bool) {
 	if idx := strings.Index(senderID, "|"); idx >= 0 {
 		senderID = strings.TrimSpace(senderID[:idx])
 	}
-	if platform, id, ok := identity.ParseCanonicalID(senderID); ok {
+	if platform, id, ok := splitPlatform(senderID); ok {
 		if !strings.EqualFold(platform, channelType) {
 			return "", false
 		}
-		senderID = strings.TrimSpace(id)
+		senderID = id
 	}
 	if senderID == "" {
 		return "", false
 	}
 	return senderID, true
+}
+
+// splitPlatform splits "<platform>:<id>" only when the prefix looks like a
+// channel type name (letters, "_" or "-"), so an ID that itself contains a
+// colon, such as a WhatsApp JID with a device part, is kept whole.
+func splitPlatform(s string) (platform, id string, ok bool) {
+	platform, id, ok = identity.ParseCanonicalID(s)
+	if !ok {
+		return "", "", false
+	}
+	for _, r := range platform {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && r != '_' && r != '-' {
+			return "", "", false
+		}
+	}
+	return platform, strings.TrimSpace(id), true
 }
 
 func isNumericID(s string) bool {
@@ -130,4 +148,10 @@ func isNumericID(s string) bool {
 		}
 	}
 	return true
+}
+
+// isAddressID reports whether s looks like an address-style platform ID: an
+// "@" after the first character and at least one digit.
+func isAddressID(s string) bool {
+	return strings.Index(s, "@") > 0 && strings.ContainsAny(s, "0123456789")
 }
