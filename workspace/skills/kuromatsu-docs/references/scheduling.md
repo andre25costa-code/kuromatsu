@@ -137,6 +137,71 @@ job roda, ou com o gateway parado, se perde). Não há trava entre
 processos: uma gravação da CLI no mesmo instante de uma gravação do gateway
 pode se perder.
 
+### Resposta silenciosa `NADA`
+
+Se a resposta final do turno de um job de mensagem for exatamente `NADA`
+(sem diferenciar maiúsculas, ignorando espaços e pontos nas pontas), nada é
+enviado ao chat e a execução conta como `ok` no histórico. Serve para
+verificações que só devem falar quando há algo a relatar ("responda NADA
+se não mudou"). Só a palavra sozinha é suprimida: "NADA de novo" é
+enviada. Um job antigo cuja resposta legítima seja exatamente "NADA" deixa
+de ser entregue.
+
+### Comandos de chat `/cron` e catálogo de automações
+
+Com o gateway rodando (em `kuromatsu agent` o comando responde
+"Command unavailable in current context."):
+
+- `/cron list`: id curto (8 caracteres), nome, agenda, estado
+  (`on`/`paused`/`auto-disabled`) e próxima execução;
+- `/cron pause <id>` / `/cron resume <id>` (o `resume` zera a sequência de
+  falhas), `/cron run <id>` (marca como devido; resposta "queued"),
+  `/cron history <id>` (últimas 5 execuções, erro cortado em 120
+  caracteres);
+- `/cron templates` e `/cron new <modelo> chave=valor ...` (valores com
+  espaço entre aspas: `texto="beber água"`). O job é entregue no chat que
+  o criou.
+
+O `<id>` aceita um prefixo único de pelo menos 4 caracteres; um prefixo
+ambíguo devolve erro com os candidatos. Um chat externo só vê e altera os
+jobs entregues a ele (jobs de comando só se o chat estiver em
+`tools.cron.command_allowed_remotes`); canais internos veem todos.
+
+Modelos do catálogo (`pkg/automation/templates.json`):
+
+| id | Parâmetros | Agenda | Requer |
+|---|---|---|---|
+| `lembrete` | `texto`; `quando` (RFC3339 ou `HH:MM`, hoje/amanhã) **ou** `todo_dia` (`HH:MM`) | `at` (apagado após rodar) ou diário | `tools.cron.enabled` |
+| `resumo-diario` | `hora` (padrão `08:00`) | diário | `tools.cron.enabled` |
+| `monitorar-pagina` | `url` (http/https), `condicao`, `a_cada_horas` (1-24, padrão 6) | a cada N horas, janela `web`, responde `NADA` quando a condição é falsa | `tools.cron.enabled`, `tools.web.enabled`, `tools.web_fetch.enabled` |
+| `pesquisa-diaria` | `tema`, `hora` (padrão `07:30`) | diário, janela `web` | `tools.cron.enabled`, `tools.web.enabled` |
+
+Os horários `HH:MM` e as agendas diárias usam o `timezone` do config
+(vazio = fuso do processo, gravado como `tz` vazio). Não há modelo de
+e-mail (não existe tool de e-mail). `resumo-diario` e `pesquisa-diaria`
+dependem da qualidade do modelo em uso.
+
+### Quem pode alterar pelo chat (`/cron`, `/config set`)
+
+Ler (`/cron list|history|templates`) vale para qualquer remetente aceito
+pelo canal. Alterar (`/cron pause|resume|run|new`, `/config set`) exige ser
+o dono: canal interno (`cli`, `system`, `subagent`), ou o **ID** do
+remetente listado no `allow_from` do canal como `123`, `telegram:123` ou
+`123|nome`. Username (`@alice`, `alice`) e `*` não dão esse direito. Um ID
+que não é numérico (JID do WhatsApp, por exemplo) precisa da forma
+`whatsapp:<id>`. Num bot aberto (`["*"]`) sem o ID do dono, ninguém altera
+pelo chat, e o resumo do `/config` também fica restrito ao dono.
+
+`/config` mostra um resumo sem segredos (modelo, canais com contagem de
+IDs, preset de permissões, heartbeat, fuso, busca web, limite do turno,
+nível de log). `/config set <chave> <valor>` aceita só `heartbeat.enabled`,
+`heartbeat.interval` (≥ 5), `agents.defaults.user_turn_max_minutes` (≥ 0),
+`tools.web.duckduckgo.enabled`, `gateway.log_level`
+(`debug|info|warn|error`) e `timezone` (nome IANA ou `""`; o relógio do
+processo só muda após reiniciar). A gravação lê o arquivo sem variáveis de
+ambiente, valida sem mexer no estado do processo, salva e recarrega o
+gateway.
+
 ## Reflexos (`agents.defaults.reflexes`)
 
 Regex → ação determinística (`reply` com template, `command` — roda um
