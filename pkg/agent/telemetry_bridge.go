@@ -251,6 +251,13 @@ func (b *telemetryBridge) pruneOnce() {
 	}
 }
 
+// QueryStats renders the telemetry report /stats shows: by focus window and by
+// hour of day over the last hours (window "" means all windows). It fails
+// when telemetry is off.
+func (al *AgentLoop) QueryStats(ctx context.Context, window string, hours int) (string, error) {
+	return al.telemetrySnapshot().queryStats(ctx, window, hours)
+}
+
 // queryStats answers /stats [window] [hours] (AC-019-4). Nil-receiver-safe
 // so cmd_stats.go's Handler can call it unconditionally and get a clear
 // message back instead of a generic "unavailable" when telemetry is off.

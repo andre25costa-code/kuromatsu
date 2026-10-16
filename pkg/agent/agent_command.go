@@ -447,7 +447,7 @@ func (al *AgentLoop) buildCommandsRuntime(
 			return fr.Current(opts.Dispatch.SessionKey)
 		},
 		QueryStats: func(ctx context.Context, window string, hours int) (string, error) {
-			return al.telemetrySnapshot().queryStats(ctx, window, hours)
+			return al.QueryStats(ctx, window, hours)
 		},
 		GetActiveTurn: func() any {
 			info := al.GetActiveTurn()

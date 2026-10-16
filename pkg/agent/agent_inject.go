@@ -68,6 +68,11 @@ func (al *AgentLoop) SetCronService(cs *cron.CronService) {
 	al.cronService.Store(cs)
 }
 
+// CronService returns the scheduler last given to SetCronService, or nil.
+func (al *AgentLoop) CronService() *cron.CronService {
+	return al.cronService.Load()
+}
+
 func (al *AgentLoop) RecordLastChannel(channel string) error {
 	if al.state == nil {
 		return nil

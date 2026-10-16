@@ -95,37 +95,12 @@ func (c *cronCommands) Create(
 	params map[string]string,
 	channel, to string,
 ) (commands.CronJobView, error) {
-	t, ok := automation.Get(tpl)
-	if !ok {
+	if _, ok := automation.Get(tpl); !ok {
 		return commands.CronJobView{}, fmt.Errorf("unknown template %q; see /cron templates", tpl)
 	}
-	if missing := automation.Unmet(t, c.cfg); len(missing) > 0 {
-		return commands.CronJobView{}, fmt.Errorf(
-			"template %s needs %s set to true in the config", tpl, strings.Join(missing, ", "))
-	}
-	loc := time.Local
-	if c.cfg != nil && c.cfg.Timezone != "" {
-		l, err := time.LoadLocation(c.cfg.Timezone)
-		if err != nil {
-			return commands.CronJobView{}, fmt.Errorf("timezone %q: %w", c.cfg.Timezone, err)
-		}
-		loc = l
-	}
-	name, sched, payload, deleteAfterRun, err := automation.Render(tpl, params, loc, time.Now(), channel, to)
+	job, created, err := automation.CreateJob(c.cs, c.cfg, tpl, params, time.Now(), channel, to)
 	if err != nil {
 		return commands.CronJobView{}, err
-	}
-	job, created, err := c.cs.AddJobWithPayload(name, sched, payload)
-	if err != nil {
-		return commands.CronJobView{}, err
-	}
-	// The scheduler already deletes one-shot ('at') jobs after their run;
-	// keep the template's word authoritative if that ever changes.
-	if created && deleteAfterRun && !job.DeleteAfterRun {
-		job.DeleteAfterRun = true
-		if err := c.cs.UpdateJob(job); err != nil {
-			return commands.CronJobView{}, err
-		}
 	}
 	v := jobView(job)
 	v.Created = created
