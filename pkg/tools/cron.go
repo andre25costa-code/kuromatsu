@@ -58,6 +58,18 @@ type anomalyDayCount struct {
 
 const minAgentTurnInterval = 5 * time.Minute
 
+// cronSilentReply is the reply that tells the scheduler a job has nothing to
+// report: a job turn whose whole final reply is this word (any case,
+// surrounding spaces and dots ignored) publishes nothing and still counts as
+// a successful run. Monitoring jobs ask the model to answer it when their
+// condition is false.
+const cronSilentReply = "NADA"
+
+// isCronSilentReply reports whether response is exactly cronSilentReply.
+func isCronSilentReply(response string) bool {
+	return strings.EqualFold(strings.Trim(strings.TrimSpace(response), "."), cronSilentReply)
+}
+
 // NewCronTool creates a new CronTool
 // execTimeout: 0 means no timeout, >0 sets the timeout duration
 func NewCronTool(
@@ -111,7 +123,8 @@ IMPORTANT: When user asks to be reminded or scheduled, you MUST call this tool.
 Use 'at_seconds' for one-time reminders (e.g., 'remind me in 10 minutes' → at_seconds=600). 
 Use 'every_seconds' ONLY for recurring tasks (e.g., 'every 2 hours' → every_seconds=7200). 
 Use 'cron_expr' for complex recurring schedules. 
-Use 'command' to execute shell commands directly.`
+Use 'command' to execute shell commands directly.
+A scheduled message job whose final reply is exactly NADA sends nothing (use it for checks that should stay quiet when there is nothing to report).`
 }
 
 // Parameters returns the tool parameters schema
@@ -918,7 +931,8 @@ func anomalyPrompt(job *cron.CronJob, output string) string {
 }
 
 // runAgentTurn dispatches message to the agent as a cron-originated turn
-// and publishes the response. A turn that errors or is cut by its time
+// and publishes the response, unless the reply is the silent marker
+// (cronSilentReply). A turn that errors or is cut by its time
 // limit is a failure; one stopped by shutdown returns an error wrapping
 // context.Canceled.
 func (t *CronTool) runAgentTurn(
@@ -980,6 +994,11 @@ func (t *CronTool) runAgentTurn(
 		return "", err
 	}
 
+	if isCronSilentReply(response) {
+		logger.InfoCF("cron", "Job replied with the silent marker; nothing published",
+			map[string]any{"job_id": job.ID, "name": job.Name})
+		return "(silent)", nil
+	}
 	if response != "" {
 		t.executor.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, response)
 	}

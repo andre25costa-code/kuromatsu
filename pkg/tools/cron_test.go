@@ -2025,3 +2025,68 @@ func TestCronTool_UpdateCronExprKeepsTZ(t *testing.T) {
 		t.Fatalf("tz = %q, want cleared", got.Schedule.TZ)
 	}
 }
+
+// A job turn whose final reply is exactly the silent marker publishes nothing
+// and is recorded as a successful run; any other reply is published.
+func TestRunAgentTurn_SilentReplySuppressed(t *testing.T) {
+	for _, tc := range []struct {
+		response  string
+		published bool
+	}{
+		{"NADA", false},
+		{" nada. ", false},
+		{"Nada", false},
+		{"NADA de novo", true},
+		{"O preço caiu", true},
+	} {
+		t.Run(tc.response, func(t *testing.T) {
+			executor := &stubJobExecutor{response: tc.response}
+			tool := newCronToolAt(t, filepath.Join(t.TempDir(), "jobs.json"), executor, 0)
+			svc := tool.cronService
+			svc.SetOnJob(func(job *cron.CronJob) (string, error) {
+				return tool.ExecuteJob(context.Background(), job)
+			})
+			svc.SetMaxSleep(100 * time.Millisecond)
+
+			everyMS := int64(3_600_000)
+			job, _, err := svc.AddJobWithPayload("monitor", cron.CronSchedule{Kind: "every", EveryMS: &everyMS},
+				cron.CronPayload{Message: "check", Channel: "telegram", To: "42", Window: "web"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := svc.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer svc.Stop()
+			if err := svc.RunNow(job.ID); err != nil {
+				t.Fatal(err)
+			}
+
+			deadline := time.Now().Add(5 * time.Second)
+			var runs []cron.CronRun
+			for len(runs) == 0 {
+				if time.Now().After(deadline) {
+					t.Fatal("the run was not recorded in time")
+				}
+				time.Sleep(20 * time.Millisecond)
+				runs = svc.History(job.ID)
+			}
+			if runs[0].Status != cron.RunStatusOK {
+				t.Fatalf("run status = %q, want ok", runs[0].Status)
+			}
+			if executor.lastPrompt == "" {
+				t.Fatal("the agent turn did not run")
+			}
+			if tc.published && executor.publishedResp != tc.response {
+				t.Fatalf("published = %q, want %q", executor.publishedResp, tc.response)
+			}
+			if !tc.published && executor.publishedResp != "" {
+				t.Fatalf("published %q for the silent marker", executor.publishedResp)
+			}
+		})
+	}
+	if got, err := (&CronTool{executor: &stubJobExecutor{response: "NADA"}}).runAgentTurn(
+		context.Background(), &cron.CronJob{ID: "x"}, "m", "", "cli", "direct"); err != nil || got != "(silent)" {
+		t.Fatalf("runAgentTurn = %q, %v; want (silent)", got, err)
+	}
+}
