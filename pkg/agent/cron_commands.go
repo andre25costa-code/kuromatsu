@@ -10,17 +10,16 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/automation"
 	"github.com/andre25costa-code/kuromatsu/pkg/commands"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
-	"github.com/andre25costa-code/kuromatsu/pkg/constants"
 	"github.com/andre25costa-code/kuromatsu/pkg/cron"
+	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
 
 // minJobIDPrefix is the shortest job ID prefix /cron accepts.
 const minJobIDPrefix = 4
 
-// cronCommands adapts the scheduler to commands.CronAPI. It applies the
-// cron tool's access rule: an internal channel sees every job; any other
-// channel only the jobs delivered to its own chat, and a command job only
-// when that chat is in tools.cron.command_allowed_remotes.
+// cronCommands adapts the scheduler to commands.CronAPI. Which chat may see
+// and change which job is decided by tools.CanAccessCronJob, the same rule
+// the cron tool applies.
 type cronCommands struct {
 	cs  *cron.CronService
 	cfg *config.Config
@@ -31,36 +30,11 @@ func newCronCommands(cs *cron.CronService, cfg *config.Config) *cronCommands {
 }
 
 func (c *cronCommands) canAccess(job *cron.CronJob, channel, chatID string) bool {
-	if constants.IsInternalChannel(channel) {
-		return true
+	var allowed []string
+	if c.cfg != nil {
+		allowed = c.cfg.Tools.Cron.CommandAllowedRemotes
 	}
-	if channel == "" || chatID == "" {
-		return false
-	}
-	if job.Payload.Channel != channel || job.Payload.To != chatID {
-		return false
-	}
-	if job.Payload.Command != "" {
-		var allowed []string
-		if c.cfg != nil {
-			allowed = c.cfg.Tools.Cron.CommandAllowedRemotes
-		}
-		return commandAllowedRemote(channel, chatID, allowed)
-	}
-	return true
-}
-
-// commandAllowedRemote matches channel or channel:chatID against the
-// tools.cron.command_allowed_remotes entries ("*" matches any chat).
-func commandAllowedRemote(channel, chatID string, allowed []string) bool {
-	target := channel + ":" + chatID
-	for _, entry := range allowed {
-		entry = strings.TrimSpace(entry)
-		if entry == "*" || entry == channel || entry == target {
-			return true
-		}
-	}
-	return false
+	return tools.CanAccessCronJob(job, channel, chatID, allowed)
 }
 
 func (c *cronCommands) List(channel, chatID string) []commands.CronJobView {

@@ -694,12 +694,19 @@ func isCommandAllowedRemote(channel, chatID string, allowed []string) bool {
 }
 
 func (t *CronTool) canAccessJob(ctx context.Context, job *cron.CronJob) bool {
-	channel := ToolChannel(ctx)
+	return CanAccessCronJob(job, ToolChannel(ctx), ToolChatID(ctx), t.commandAllowedRemotes)
+}
+
+// CanAccessCronJob is the rule for which chat may see and change a cron job,
+// shared by the cron tool and the /cron chat command: an internal channel
+// may access every job; any other channel only the jobs delivered to its own
+// chat (Payload.Channel and Payload.To), and a command job only when that
+// chat is also listed in commandAllowedRemotes
+// (tools.cron.command_allowed_remotes).
+func CanAccessCronJob(job *cron.CronJob, channel, chatID string, commandAllowedRemotes []string) bool {
 	if constants.IsInternalChannel(channel) {
 		return true
 	}
-
-	chatID := ToolChatID(ctx)
 	if channel == "" || chatID == "" {
 		return false
 	}
@@ -707,7 +714,7 @@ func (t *CronTool) canAccessJob(ctx context.Context, job *cron.CronJob) bool {
 		return false
 	}
 	if job.Payload.Command != "" {
-		return isCommandAllowedRemote(channel, chatID, t.commandAllowedRemotes)
+		return isCommandAllowedRemote(channel, chatID, commandAllowedRemotes)
 	}
 	return true
 }
