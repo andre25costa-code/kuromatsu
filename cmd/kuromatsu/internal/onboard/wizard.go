@@ -329,6 +329,9 @@ func (w *wizard) confirm() (bool, error) {
 }
 
 func (w *wizard) save(force bool) error {
+	if _, err := w.cfg.WebUI.EnsureToken(); err != nil {
+		return err
+	}
 	if err := config.SaveConfig(w.configPath, w.cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}

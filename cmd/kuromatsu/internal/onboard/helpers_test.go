@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
@@ -221,5 +223,58 @@ func TestParseProfileFlag(t *testing.T) {
 	}
 	if _, _, err := parseProfileFlag("custom"); err == nil {
 		t.Fatal("custom accepted")
+	}
+}
+
+// A fresh non-interactive onboard creates the web UI token in the security
+// file (0600), never in config.json, and a rerun keeps it.
+func TestOnboard_CreatesWebUITokenOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	configPath := filepath.Join(home, "config.json")
+	t.Setenv(config.EnvConfig, configPath)
+	withDetectedHardware(t, sysinfo.Hardware{TotalRAM: 990 << 20, CPUs: 2, NativeCPUOK: true})
+
+	onboard(false, false, "", true)
+	cfg, err := config.LoadConfigForEdit(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := cfg.WebUI.Token.String()
+	if len(token) != 64 {
+		t.Fatalf("webui token = %q, want 64 hex characters", token)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), token) {
+		t.Fatal("webui token written to config.json")
+	}
+	secPath := filepath.Join(home, config.SecurityConfigFile)
+	sec, err := os.ReadFile(secPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sec), token) {
+		t.Fatal("webui token missing from the security file")
+	}
+	if runtime.GOOS != "windows" {
+		info, statErr := os.Stat(secPath)
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("security file mode = %v, want 0600", info.Mode().Perm())
+		}
+	}
+
+	onboard(false, false, "", true)
+	again, err := config.LoadConfigForEdit(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.WebUI.Token.String() != token {
+		t.Fatal("rerunning onboard replaced the web UI token")
 	}
 }

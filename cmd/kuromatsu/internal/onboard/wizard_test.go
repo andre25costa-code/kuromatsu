@@ -174,6 +174,10 @@ func TestWizard_PtBRHappyPath(t *testing.T) {
 	assert.Equal(t, hwprofile.Select(testHardware), hwprofile.Match(edit, testHardware))
 	assert.Equal(t, "America/Sao_Paulo", cfg.Timezone)
 	assert.Equal(t, setup.PresetAssistant, setup.MatchPermissions(edit))
+	webToken := edit.WebUI.Token.String()
+	assert.Len(t, webToken, 64, "the wizard creates the web UI token")
+	assert.NotContains(t, cfgJSON, webToken)
+	assert.Contains(t, security, webToken)
 
 	user, err := os.ReadFile(filepath.Join(cfg.WorkspacePath(), "USER.md"))
 	require.NoError(t, err)

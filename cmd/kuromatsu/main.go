@@ -28,6 +28,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/onboard"
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/skills"
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/status"
+	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/ui"
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/uninstall"
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/version"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
@@ -138,6 +139,7 @@ kuromatsu --no-color status`,
 		auth.NewAuthCommand(),
 		gateway.NewGatewayCommand(),
 		status.NewStatusCommand(),
+		ui.NewUICommand(),
 		cron.NewCronCommand(),
 		mcp.NewMCPCommand(),
 		migrate.NewMigrateCommand(),

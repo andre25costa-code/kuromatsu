@@ -182,6 +182,12 @@ func onboard(encrypt, force bool, profileFlag string, nonInteractive bool) {
 		cfg = config.DefaultConfig()
 		applyProfile(cfg, profile)
 	}
+	// The web UI token is created once, here or by `kuromatsu ui token`;
+	// an existing one is kept.
+	if _, err = cfg.WebUI.EnsureToken(); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
 	if err = config.SaveConfig(configPath, cfg); err != nil {
 		fmt.Printf("Error saving config: %v\n", err)
 		os.Exit(1)
