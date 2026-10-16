@@ -13,9 +13,9 @@ const ownerOnlyMsg = "Only the owner can change settings here. Add your ID to al
 
 // configCommand implements /config (a safe summary of the running config)
 // and /config set <key> <value> (one of setup.ChatSettableKeys). Changing a
-// value needs CanMutate. Reading the summary needs it too on a channel whose
-// allow_from admits everyone, so an open bot does not describe its setup to
-// strangers.
+// value needs CanMutate. Reading the summary follows setup.SummaryAllowed:
+// on a channel whose allow_from admits everyone it needs CanMutate too, so an
+// open bot does not describe its setup to strangers.
 func configCommand() Definition {
 	return Definition{
 		Name:        "config",
@@ -38,10 +38,10 @@ func configCommand() Definition {
 }
 
 func configSummary(req Request, rt *Runtime) error {
-	if rt == nil || rt.ConfigSummary == nil || rt.CanMutate == nil {
+	if rt == nil || rt.ConfigSummary == nil {
 		return req.Reply(unavailableMsg)
 	}
-	if setup.OpenChannel(rt.Config, req.Channel) && !rt.CanMutate(req.Channel, req.SenderID) {
+	if !setup.SummaryAllowed(rt.Config, req.Channel, req.SenderID) {
 		return req.Reply(ownerOnlyMsg)
 	}
 	summary, err := rt.ConfigSummary()
@@ -77,11 +77,13 @@ func configSet(req Request, rt *Runtime, args []string) error {
 	change := fmt.Sprintf("%s: %s → %s", key, shown(oldValue), shown(newValue))
 	status := "reloading"
 	if rt.ReloadConfig == nil {
-		status = "saved; restart to apply"
-	} else if err := rt.ReloadConfig(); err != nil {
+		status = "saved; applies on the next start"
+	} else if err := rt.ReloadConfig(); errors.Is(err, ErrReloadUnavailable) {
+		status = "saved; applies on the next start"
+	} else if err != nil {
 		status = "saved; reload failed: " + err.Error()
 	}
-	if key == "timezone" {
+	if key == "timezone" && status == "reloading" {
 		// The process clock zone is set once at startup.
 		status += "; the clock zone changes after a restart"
 	}

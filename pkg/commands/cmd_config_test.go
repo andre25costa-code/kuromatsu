@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -257,5 +258,50 @@ func TestSplitArgs(t *testing.T) {
 	}
 	if _, err := splitArgs(`a "b`); err == nil {
 		t.Fatal("unterminated quote accepted")
+	}
+}
+
+// A bus channel name with no config entry of that name fails closed.
+func TestConfigSummary_UnknownChannelFailsClosed(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Channels = config.ChannelsConfig{"my_whatsapp": &config.Channel{
+		Type: "whatsapp", Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"},
+	}}
+	rt := configRuntime(cfg, &configRecorder{})
+	if reply := runCommand(
+		t,
+		rt,
+		"whatsapp",
+		"5511@s.whatsapp.net",
+		"5511@s.whatsapp.net",
+		"/config",
+	); reply != ownerOnlyMsg {
+		t.Fatalf("unresolved channel: reply = %q", reply)
+	}
+}
+
+// Without a reloader (kuromatsu agent) the change is saved and applies on the
+// next start; the reply does not report a failed reload.
+func TestConfigSet_NoReloaderSavesForNextStart(t *testing.T) {
+	rec := &configRecorder{}
+	rt := configRuntime(config.DefaultConfig(), rec)
+	rt.ReloadConfig = func() error { return ErrReloadUnavailable }
+	reply := runCommand(t, rt, "cli", "direct", "local", "/config set heartbeat.interval 45")
+	if reply != "heartbeat.interval: 30 → 45 (saved; applies on the next start)" || len(rec.sets) != 1 {
+		t.Fatalf("reply = %q sets=%v", reply, rec.sets)
+	}
+	rt.ReloadConfig = func() error { return errors.New("boom") }
+	if reply := runCommand(
+		t,
+		rt,
+		"cli",
+		"direct",
+		"local",
+		"/config set heartbeat.interval 45",
+	); !strings.Contains(
+		reply,
+		"reload failed: boom",
+	) {
+		t.Fatalf("real reload failure: reply = %q", reply)
 	}
 }

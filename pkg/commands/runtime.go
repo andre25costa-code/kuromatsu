@@ -2,6 +2,7 @@ package commands
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
@@ -100,6 +101,11 @@ type Runtime struct {
 	// in this process (for example `kuromatsu agent`).
 	Cron func() CronAPI
 }
+
+// ErrReloadUnavailable is what ReloadConfig returns when this process has no
+// config reloader (for example `kuromatsu agent`): a saved change applies on
+// the next start.
+var ErrReloadUnavailable = errors.New("reload not configured")
 
 // CronAPI is what /cron needs from the scheduler. Job IDs passed to Enable,
 // RunNow and History come from Resolve, which only finds jobs the given

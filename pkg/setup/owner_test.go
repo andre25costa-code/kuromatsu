@@ -42,6 +42,8 @@ func TestIsOwner_Table(t *testing.T) {
 		{"JID with device part", []string{"5511999:12@s.whatsapp.net"}, "whatsapp", "5511999:12@s.whatsapp.net", true},
 		{"JID of another number", []string{"5511999@s.whatsapp.net"}, "whatsapp", "5511888@s.whatsapp.net", false},
 		{"address without digits", []string{"alice@example.org"}, "matrix", "alice@example.org", false},
+		{"canonical username", []string{"telegram:alice"}, "telegram", "alice", false},
+		{"canonical fixed client name", []string{"pico:pico-user"}, "pico", "pico-user", false},
 		{"empty sender", []string{"123"}, "telegram", "", false},
 		{"empty list", nil, "telegram", "123", false},
 	}
@@ -79,6 +81,35 @@ func TestCanMutate_InternalAndChannelLookup(t *testing.T) {
 		t.Fatal("unknown channel allowed")
 	}
 	if CanMutate(nil, "telegram", "123") {
+		t.Fatal("nil config allowed")
+	}
+}
+
+func TestSummaryAllowed(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Channels = config.ChannelsConfig{
+		"open":   &config.Channel{Type: "telegram", AllowFrom: config.FlexibleStringSlice{"*"}},
+		"owned":  &config.Channel{Type: "telegram", AllowFrom: config.FlexibleStringSlice{"*", "123"}},
+		"closed": &config.Channel{Type: "telegram", AllowFrom: config.FlexibleStringSlice{"123", "456"}},
+	}
+	cases := []struct {
+		channel, sender string
+		want            bool
+	}{
+		{"cli", "anyone", true},
+		{"open", "123", false},
+		{"owned", "123", true},
+		{"owned", "456", false},
+		{"closed", "456", true},
+		// A bus channel name with no config entry of that name fails closed.
+		{"whatsapp", "123", false},
+	}
+	for _, tc := range cases {
+		if got := SummaryAllowed(cfg, tc.channel, tc.sender); got != tc.want {
+			t.Fatalf("SummaryAllowed(%q, %q) = %v, want %v", tc.channel, tc.sender, got, tc.want)
+		}
+	}
+	if SummaryAllowed(nil, "telegram", "123") {
 		t.Fatal("nil config allowed")
 	}
 }

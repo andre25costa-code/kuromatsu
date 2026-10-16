@@ -264,3 +264,23 @@ func (h *historyCron) History(id string, n int) []CronRunView {
 		{Started: start.Add(-time.Hour), Duration: time.Second, Status: "ok"},
 	}
 }
+
+// An open bot (allow_from ["*"] only) lets nobody outside the internal
+// channels change jobs, while reading still works.
+func TestCronCommand_OpenBotDeniesMutation(t *testing.T) {
+	api := newFakeCron()
+	rt := cronRuntime(t, api, "*")
+	for _, cmd := range []string{
+		"/cron pause aaaa1111", "/cron resume aaaa1111", "/cron run aaaa1111", "/cron new lembrete texto=x",
+	} {
+		if reply := runCommand(t, rt, "telegram", "42", "123", cmd); reply != ownerOnlyMsg {
+			t.Fatalf("%s on an open bot: reply = %q", cmd, reply)
+		}
+	}
+	if len(api.enabled) != 0 || len(api.ran) != 0 || len(api.created) != 0 {
+		t.Fatal("an open bot let a sender change jobs")
+	}
+	if reply := runCommand(t, rt, "telegram", "42", "123", "/cron list"); !strings.Contains(reply, "aaaa1111") {
+		t.Fatalf("list on an open bot: reply = %q", reply)
+	}
+}

@@ -477,7 +477,7 @@ func (al *AgentLoop) buildCommandsRuntime(
 	}
 	rt.ReloadConfig = func() error {
 		if al.reloadFunc == nil {
-			return fmt.Errorf("reload not configured")
+			return commands.ErrReloadUnavailable
 		}
 		return al.reloadFunc()
 	}

@@ -18,9 +18,10 @@ import (
 //     ("5511999999999@s.whatsapp.net"). Any other bare entry, such as
 //     "alice", is a username and yields nothing.
 //   - "telegram:123456": the part after the colon, only when the platform
-//     equals channelType (case-insensitive). A prefix that is not a channel
-//     type name (it has digits) is not a platform: "5511:12@s.whatsapp.net"
-//     is a bare ID.
+//     equals channelType (case-insensitive) and that part has the shape of a
+//     bare ID above, so "telegram:alice" yields nothing. A prefix that is not
+//     a channel type name (it has digits) is not a platform:
+//     "5511:12@s.whatsapp.net" is a bare ID.
 //   - "123456|alice": the part before the "|", under the same rules.
 //   - "@alice", "*" and empty entries yield nothing.
 func OwnerID(entry, channelType string) (string, bool) {
@@ -35,7 +36,7 @@ func OwnerID(entry, channelType string) (string, bool) {
 		if channelType == "" || !strings.EqualFold(platform, channelType) {
 			return "", false
 		}
-		if id == "" || strings.HasPrefix(id, "@") {
+		if !isNumericID(id) && !isAddressID(id) {
 			return "", false
 		}
 		return id, true
@@ -80,8 +81,16 @@ func CanMutate(cfg *config.Config, channel, senderID string) bool {
 	return IsOwner(ch.AllowFrom, channelType(channel, ch), senderID)
 }
 
-// OpenChannel reports whether channel's allow_from admits everyone ("*").
-func OpenChannel(cfg *config.Config, channel string) bool {
+// SummaryAllowed is the rule for reading the /config summary from a chat:
+// internal channels always may. Any other channel is looked up by its name
+// in cfg.Channels, the key the channel manager registers it under; a channel
+// that cannot be found there may not (fail closed). A channel whose
+// allow_from admits everyone ("*") shows it only to senders CanMutate
+// accepts; any other channel to every sender it lets in.
+func SummaryAllowed(cfg *config.Config, channel, senderID string) bool {
+	if constants.IsInternalChannel(channel) {
+		return true
+	}
 	if cfg == nil {
 		return false
 	}
@@ -91,10 +100,10 @@ func OpenChannel(cfg *config.Config, channel string) bool {
 	}
 	for _, entry := range ch.AllowFrom {
 		if strings.TrimSpace(entry) == "*" {
-			return true
+			return CanMutate(cfg, channel, senderID)
 		}
 	}
-	return false
+	return true
 }
 
 func channelType(name string, ch *config.Channel) string {
