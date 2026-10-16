@@ -21,6 +21,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/commands"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/constants"
+	"github.com/andre25costa-code/kuromatsu/pkg/cron"
 	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/media"
@@ -147,6 +148,10 @@ type AgentLoop struct {
 	activeReqCount int
 
 	reloadFunc func() error
+
+	// cronService is the gateway's scheduler, behind the /cron chat
+	// command; nil outside the gateway. Replaced on each config reload.
+	cronService atomic.Pointer[cron.CronService]
 
 	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error)
 }

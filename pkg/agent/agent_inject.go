@@ -6,6 +6,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/audio/asr"
 	"github.com/andre25costa-code/kuromatsu/pkg/channels"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/cron"
 	"github.com/andre25costa-code/kuromatsu/pkg/media"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
 )
@@ -58,6 +59,13 @@ func (al *AgentLoop) SetTranscriber(t asr.Transcriber) {
 
 func (al *AgentLoop) SetReloadFunc(fn func() error) {
 	al.reloadFunc = fn
+}
+
+// SetCronService gives the /cron chat command the scheduler the gateway
+// runs. The gateway calls it at startup and after each config reload, when
+// it builds a new scheduler.
+func (al *AgentLoop) SetCronService(cs *cron.CronService) {
+	al.cronService.Store(cs)
 }
 
 func (al *AgentLoop) RecordLastChannel(channel string) error {

@@ -488,6 +488,7 @@ func setupAndStartServices(
 	if err != nil {
 		return nil, fmt.Errorf("error setting up cron service: %w", err)
 	}
+	agentLoop.SetCronService(runningServices.CronService)
 	if err = runningServices.CronService.Start(); err != nil {
 		return nil, fmt.Errorf("error starting cron service: %w", err)
 	}
@@ -751,6 +752,7 @@ func restartServices(
 	if err != nil {
 		return fmt.Errorf("error restarting cron service: %w", err)
 	}
+	al.SetCronService(runningServices.CronService)
 	if err = runningServices.CronService.Start(); err != nil {
 		return fmt.Errorf("error restarting cron service: %w", err)
 	}
