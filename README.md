@@ -248,6 +248,19 @@ Scheduling:
 periodic tasks that need judgment. The workspace (`AGENT.md`, `SOUL.md`, `USER.md`,
 `HEARTBEAT.md`, `memory/`) defines who the agent is; the repository ships a neutral template.
 
+**Web UI.** The gateway serves a configuration page at `http://localhost:18790/ui/`
+(`kuromatsu ui open` prints the address): assistant files, models, channels and permission
+presets, skills, automations, heartbeat and status, in pt-BR, usable on a phone. It answers only
+from loopback, refuses requests carrying proxy headers (`X-Forwarded-For`, `Forwarded`, ...)
+and any `Host` other than `localhost`, `127.0.0.1` or `[::1]`, and needs the access token
+printed by `kuromatsu ui token` (created by `onboard`, stored in `.security.yml`; the gateway
+never creates it and does not serve the page without one). From another machine, use an SSH
+tunnel (`ssh -L 18790:localhost:18790 <host>`); do not tunnel or proxy the whole gateway port
+to the internet. Five wrong logins in a minute lock the login for that minute (on loopback
+this applies to every local process; the Bearer token keeps working for scripts). On a shared
+machine, set `"webui": {"enabled": false}`. `webui.enabled`, `webui.allow_remote` and the
+token apply on the next gateway start.
+
 The full reference — every config key, channel, tool, schedule and the sleep mode — is the
 `kuromatsu-docs` skill the agent itself reads: [`workspace/skills/kuromatsu-docs`](./workspace/skills/kuromatsu-docs/SKILL.md).
 

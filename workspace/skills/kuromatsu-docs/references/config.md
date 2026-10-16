@@ -30,7 +30,7 @@ setado por variável de ambiente, sempre no padrão
 `KUROMATSU_<CAMINHO_EM_MAIUSCULO>_<CAMPO>` (ex.: `Agents.Defaults.Workspace`
 → `KUROMATSU_AGENTS_DEFAULTS_WORKSPACE`; alguns blocos usam `envPrefix` no
 struct tag em vez de repetir o prefixo campo a campo, ex.: subturn). Hoje
-existem 125 dessas variáveis — **não copiadas aqui uma a uma de propósito**:
+existem 130 dessas variáveis — **não copiadas aqui uma a uma de propósito**:
 uma lista hardcoded ficaria desatualizada no primeiro campo novo. Para a
 lista exaustiva e sempre correta:
 
@@ -125,6 +125,48 @@ Predefinições (`pkg/setup.ApplyPermissions`, também usadas pela web UI):
   canal, perfil e permissões); Enter em tudo não muda nenhuma dessas
   chaves.
 
+## Web UI (`webui`)
+
+Página local de configuração servida pelo gateway em `/ui/` (API JSON em
+`/api/ui/`), no mesmo listener dos webhooks.
+
+| Chave | Default | Env | Onde |
+|---|---|---|---|
+| `webui.enabled` | `true` | `KUROMATSU_WEBUI_ENABLED` | `config.json` |
+| `webui.allow_remote` | `false` | `KUROMATSU_WEBUI_ALLOW_REMOTE` | `config.json` |
+| `webui.token` | criado pelo `onboard` ou por `kuromatsu ui token` | `KUROMATSU_WEBUI_TOKEN` | só no `.security.yml` |
+
+- **Token:** 32 bytes aleatórios em hex. Nasce só no `onboard` (quando falta)
+  ou no `kuromatsu ui token` (cria se faltar e imprime). O gateway nunca grava
+  o config: sem token ele não monta a UI e registra `web UI disabled: no
+  token; run 'kuromatsu ui token'`. `kuromatsu ui open` imprime a URL.
+- **Acesso:** com `allow_remote: false`, 403 para quem não é loopback
+  (`::ffff:127.0.0.1` conta), para qualquer cabeçalho de proxy
+  (`X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Forwarded`,
+  `X-Real-IP`, `CF-Connecting-IP`, `True-Client-IP`) e para `Host` fora de
+  `localhost`/`127.0.0.1`/`[::1]` (qualquer porta, então
+  `ssh -L 8080:localhost:18790` funciona). Um túnel que não acrescenta
+  cabeçalhos (`ssh -R`, `socat`) chega como loopback e aí só o token protege:
+  não exponha a porta inteira do gateway. Com `allow_remote: true` o gateway
+  avisa no boot e só essas checagens caem; token, Origin e CSRF continuam.
+- **Login:** `POST /api/ui/login {token}` cria a sessão (cookie `km_session`,
+  HttpOnly, SameSite=Strict, 12 h deslizantes, em memória: restart pede novo
+  login) e devolve o token CSRF. Scripts usam `Authorization: Bearer <token>`.
+  5 erros em 1 min por IP dão 429 até o minuto acabar (em loopback isso vale
+  para todo processo local; o Bearer não é limitado).
+- **CSRF/Origin:** com o cookie, toda mudança exige `Origin` (ou `Referer`)
+  igual a `http://<Host>` e o cabeçalho `X-CSRF-Token` da sessão. Sem CORS.
+- **Gravação:** cada mudança carrega o arquivo como está (`LoadConfigForEdit`,
+  sem valores do ambiente), valida com `config.ValidateForSave`, grava e pede o
+  mesmo reload do `/reload` (reload já em curso → 202, mudança salva).
+  Inválido → 422 e nada gravado. `allow_from` vazio num canal ligado é
+  recusado. Chave de modelo em branco mantém a atual; chaves nunca voltam
+  nas respostas.
+- **Arquivos do workspace:** só `SOUL.md`, `USER.md`, `AGENT.md` e
+  `HEARTBEAT.md`, até 256 KB.
+- `webui.enabled`, `webui.allow_remote` e o token só valem no próximo start.
+  Em máquina compartilhada, use `webui.enabled: false`.
+
 ## Guardas do loop do agente
 
 Três limites de recursos no loop do agente, todos em `agents.defaults`:
@@ -217,7 +259,7 @@ Valores gravados:
 Blocos principais (todos em `pkg/config/config.go`): `Agents` (`Defaults` +
 `List` — ver abaixo, e `Dispatch`), `ModelList`, `Channels`/`Session`,
 `Tools` (exec, cron, web, skills, sysmon, MCP...), `Runstate`, `Memguard`,
-`Telemetry`, `Sleep`, `Evolution`, `Heartbeat`, `Gateway`, `Isolation`.
+`Telemetry`, `Sleep`, `Evolution`, `Heartbeat`, `Gateway`, `WebUI`, `Isolation`.
 
 ## Multi-agente (`agents.list`, `agents.dispatch`)
 
