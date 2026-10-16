@@ -283,6 +283,9 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	}
 	runningServices.HealthServer.SetReloadFunc(reloadTrigger)
 	agentLoop.SetReloadFunc(reloadTrigger)
+	// The web UI goes on the shared mux, which reloads keep; it needs the
+	// reload trigger, so it is mounted here rather than with the channels.
+	mountWebUI(runningServices.ChannelManager, cfg, webUIDeps(configPath, agentLoop, reloadTrigger))
 
 	for _, bindHost := range listenResult.BindHosts {
 		fmt.Printf("✓ Gateway started on %s\n", net.JoinHostPort(bindHost, strconv.Itoa(cfg.Gateway.Port)))
