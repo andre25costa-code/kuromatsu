@@ -38,7 +38,7 @@ func newTestRunningServices(t *testing.T) *services {
 		if rs.memguardStop != nil {
 			rs.memguardStop()
 		}
-		// Cancelling does not wait for the publishers; give an in-flight
+		// Canceling does not wait for the publishers; give an in-flight
 		// state-file write time to finish before the temp home is removed.
 		time.Sleep(100 * time.Millisecond)
 	})
