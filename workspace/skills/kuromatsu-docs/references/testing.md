@@ -36,6 +36,14 @@ golangci-lint run --build-tags goolm,stdjson ./...
   e `workspace/skills` que o binário embute está rastreado pelo git, para
   um arquivo local (nota, skill pessoal, segredo) não vazar no binário.
   Uma página nova da skill precisa de `git add` antes de rodar.
+- `TestKuromatsuDocsSkill_EmbeddedPages` e
+  `TestKuromatsuDocsSkill_LinksResolve` (`skill_docs_test.go`): as páginas
+  desta skill estão no binário; todo link Markdown relativo resolve; toda
+  página de `references/` é linkada do `SKILL.md`; e todo caminho do
+  repositório citado entre crases (começando em `pkg/`, `cmd/`, `deploy/`,
+  `scripts/`, `docker/`, `config/`, `workspace/`, `.github/` ou `assets/`,
+  com sufixo `:símbolo` ou `:linha` ignorado) existe. Exemplo hipotético
+  não usa esses prefixos; reescreva o texto em vez de criar exceção.
 
 ## Duas camadas de teste de integração
 
