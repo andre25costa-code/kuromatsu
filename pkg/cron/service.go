@@ -11,6 +11,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -645,10 +646,25 @@ func (cs *CronService) SetMaxSleep(d time.Duration) {
 	cs.maxSleep = d
 }
 
-// ValidateSchedule reports why a schedule can never fire, or nil when it is
-// usable at nowMS.
-func ValidateSchedule(s CronSchedule, nowMS int64) error {
-	return validateSchedule(s, nowMS)
+// MinAgentTurnInterval is the shortest interval a recurring ("every") job
+// that runs an agent turn may have. Faster routines must be deterministic
+// commands.
+const MinAgentTurnInterval = 5 * time.Minute
+
+// CheckAgentTurnInterval refuses an "every" schedule shorter than
+// MinAgentTurnInterval for a job without a command (an agent turn). Every
+// path that lets a chat or the web UI set a schedule applies it.
+func CheckAgentTurnInterval(s CronSchedule, command string) error {
+	if strings.TrimSpace(command) != "" || s.Kind != "every" || s.EveryMS == nil {
+		return nil
+	}
+	if *s.EveryMS >= MinAgentTurnInterval.Milliseconds() {
+		return nil
+	}
+	return fmt.Errorf(
+		"recurring agent turns must run at least %d seconds apart; use a deterministic command for faster schedules",
+		int64(MinAgentTurnInterval/time.Second),
+	)
 }
 
 func validateSchedule(s CronSchedule, nowMS int64) error {

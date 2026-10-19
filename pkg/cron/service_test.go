@@ -1080,3 +1080,23 @@ func TestSaveStoreFailure_LogsThroughLogger(t *testing.T) {
 		t.Errorf("store write failure not logged as error/cron:\n%s", logged)
 	}
 }
+
+func TestCheckAgentTurnInterval(t *testing.T) {
+	ms := func(d time.Duration) *int64 { v := d.Milliseconds(); return &v }
+	for _, tc := range []struct {
+		name    string
+		s       CronSchedule
+		command string
+		wantErr bool
+	}{
+		{"agent turn too fast", CronSchedule{Kind: "every", EveryMS: ms(time.Minute)}, "", true},
+		{"agent turn at the minimum", CronSchedule{Kind: "every", EveryMS: ms(MinAgentTurnInterval)}, "", false},
+		{"command job may be fast", CronSchedule{Kind: "every", EveryMS: ms(time.Minute)}, "echo hi", false},
+		{"blank command is an agent turn", CronSchedule{Kind: "every", EveryMS: ms(time.Minute)}, "  ", true},
+		{"cron expression is not checked", CronSchedule{Kind: "cron", Expr: "* * * * *"}, "", false},
+	} {
+		if err := CheckAgentTurnInterval(tc.s, tc.command); (err != nil) != tc.wantErr {
+			t.Errorf("%s: err = %v, wantErr %v", tc.name, err, tc.wantErr)
+		}
+	}
+}

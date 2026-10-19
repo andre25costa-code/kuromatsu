@@ -185,6 +185,10 @@ func (s *server) editCron(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Schedule != nil {
 		job.Schedule = *body.Schedule
+		if err := cron.CheckAgentTurnInterval(job.Schedule, job.Payload.Command); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, err.Error())
+			return
+		}
 	}
 	if err := cs.UpdateJob(job); err != nil {
 		s.cronError(w, err)

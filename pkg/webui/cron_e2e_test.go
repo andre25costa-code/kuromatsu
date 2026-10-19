@@ -224,3 +224,29 @@ func TestWebUI_CreateCronRefusesUnsafeTarget(t *testing.T) {
 	}
 	assert.Empty(t, e.cron.Load().ListJobs(true))
 }
+
+// Editing a schedule from the web UI follows the same minimum interval for
+// agent turns as the cron tool; command jobs may run faster.
+func TestWebUI_EditCronKeepsAgentTurnMinimum(t *testing.T) {
+	e := newTestEnv(t)
+	startCron(t, e)
+	cs := e.cron.Load()
+	every := cron.MinAgentTurnInterval.Milliseconds()
+	agentJob, err := cs.AddJob("agent", cron.CronSchedule{Kind: "every", EveryMS: &every}, "m", "telegram", "987654")
+	require.NoError(t, err)
+	cmdJob, _, err := cs.AddJobWithPayload("cmd", cron.CronSchedule{Kind: "every", EveryMS: &every},
+		cron.CronPayload{Command: "echo hi", Channel: "telegram", To: "987654"})
+	require.NoError(t, err)
+
+	patch := func(id, everyMs string) int {
+		return e.do(bearer(req(http.MethodPatch, "/api/ui/cron/"+id,
+			`{"schedule":{"kind":"every","everyMs":`+everyMs+`}}`))).Code
+	}
+	assert.Equal(t, http.StatusUnprocessableEntity, patch(agentJob.ID, "60000"))
+	got, ok := cs.GetJob(agentJob.ID)
+	require.True(t, ok)
+	assert.Equal(t, every, *got.Schedule.EveryMS, "a refused edit must not change the job")
+
+	assert.Equal(t, http.StatusOK, patch(agentJob.ID, "600000"))
+	assert.Equal(t, http.StatusOK, patch(cmdJob.ID, "60000"))
+}

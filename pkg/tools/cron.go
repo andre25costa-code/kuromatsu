@@ -56,8 +56,6 @@ type anomalyDayCount struct {
 	count int
 }
 
-const minAgentTurnInterval = 5 * time.Minute
-
 // cronSilentReply is the reply that tells the scheduler a job has nothing to
 // report: a job turn whose whole final reply is this word (any case,
 // surrounding spaces and dots ignored) publishes nothing and still counts as
@@ -640,16 +638,10 @@ func positiveSeconds(args map[string]any, key string) (int64, *ToolResult) {
 }
 
 func validateAgentTurnSchedule(schedule cron.CronSchedule, command string) *ToolResult {
-	if strings.TrimSpace(command) != "" || schedule.Kind != "every" || schedule.EveryMS == nil {
-		return nil
+	if err := cron.CheckAgentTurnInterval(schedule, command); err != nil {
+		return ErrorResult(err.Error())
 	}
-	if *schedule.EveryMS >= minAgentTurnInterval.Milliseconds() {
-		return nil
-	}
-	return ErrorResult(fmt.Sprintf(
-		"recurring agent turns must run at least %d seconds apart; use a deterministic command for faster schedules",
-		int64(minAgentTurnInterval/time.Second),
-	))
+	return nil
 }
 
 func (t *CronTool) validateCommandMutation(ctx context.Context, args map[string]any) *ToolResult {
