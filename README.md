@@ -24,9 +24,7 @@ native binary under systemd — no Docker. Numbers measured on that VM:
 **Kuromatsu** is a personal AI agent written in Go that lives 24/7 on very small machines. It
 ships a 1-bit language model *inside its own binary* (no model server, no API key), talks to you
 over Telegram, WhatsApp or its own channel, runs scheduled routines, and keeps a long-term memory —
-reaching for a larger external model only when the language actually needs it.
-
-Like the bonsai it is named after (黒松, *black pine*), it is grown by pruning: every token, every
+reaching for a larger external model only when the language actually needs it. Like the bonsai it is named after (黒松, *black pine*), it is grown by pruning: every token, every
 megabyte and every CPU second on a burst-credit VM is treated as a budget.
 
 ## How it works
@@ -61,7 +59,6 @@ build from source instead. Which platforms are tested: [Compatibility](#compatib
 
 Both installers accept `KUROMATSU_INSTALL_DIR` (install directory), `KUROMATSU_INSTALL_BASE_URL`
 (where the archives are; `file://` for a local build) and `KUROMATSU_INSTALL_NO_ONBOARD=1`.
-
 `kuromatsu update` replaces the binary with the latest release after checking its SHA-256.
 `kuromatsu uninstall` removes the binary and the PATH lines and keeps your data;
 `kuromatsu uninstall --purge` also deletes the data directory, **after** writing
@@ -76,11 +73,8 @@ git clone https://github.com/andre25costa-code/kuromatsu.git
 cd kuromatsu
 go build -o kuromatsu ./cmd/kuromatsu   # on Windows: -o kuromatsu.exe
 ./kuromatsu onboard
-```
 
-**Native model (optional).** Linux x86-64 with AVX2 and FMA, plus `cmake` and a C/C++ toolchain:
-
-```bash
+# optional native model: Linux x86-64 with AVX2 and FMA, cmake and a C/C++ toolchain
 git submodule update --init llama.cpp
 make build-native-x86-64        # -> build/kuromatsu-native-linux-amd64
 bash scripts/download-model.sh  # fetches Bonsai-1.7B-Q1_0.gguf and checks its SHA-256
@@ -208,6 +202,20 @@ startup; restart after changing them.
 
 ## Compatibility
 
+**Tested**: installed with the installer from a local archive, then `onboard --non-interactive` and
+`version`, on a real machine. **Cross-built, not run**: the release builds it; nobody has run it yet.
+
+| Platform | Release file | Status |
+|---|---|---|
+| Linux x86-64 | `kuromatsu_Linux_x86_64.tar.gz` | **Tested** (Debian) |
+| Windows x86-64 | `kuromatsu_Windows_x86_64.zip` | **Tested** (Windows 11, PowerShell 5.1) |
+| Linux x86-64, native model (AVX2+FMA) | `kuromatsu-native_Linux_x86_64.tar.gz` | Cross-built, not run |
+| Linux arm64 | `kuromatsu_Linux_arm64.tar.gz` | Cross-built, not run |
+| macOS (Apple silicon, Intel) | `kuromatsu_Darwin_arm64.tar.gz`, `kuromatsu_Darwin_x86_64.tar.gz` | Cross-built, not run |
+| Android / Termux (arm64) | `kuromatsu_Android_arm64.tar.gz` | Cross-built, not run |
+| Docker image (linux/amd64, arm64, riscv64) | `ghcr.io/andre25costa-code/kuromatsu` | Cross-built, not run |
+| Windows arm64; Linux armv6, armv7, riscv64, loong64, s390x; FreeBSD; NetBSD; `.deb`/`.rpm` | `kuromatsu_<Os>_<Arch>.tar.gz` (Windows: `.zip`); `kuromatsu_<arch>.deb`, `.rpm` | Cross-built, not run |
+
 On Termux, use the Android archive, not the Linux arm64 one. macOS binaries are not notarized:
 a browser download is blocked by Gatekeeper, the `curl` install is not.
 
@@ -219,6 +227,7 @@ a browser download is blocked by Gatekeeper, the `curl` install is not.
   external models. On a CPU without them, Kuromatsu refuses the native model, but llama.cpp's own
   startup code may still crash first: use the pure-Go release there.
 - The web UI answers only on loopback by default; there is no TLS.
+- macOS, Termux and the other cross-built targets have not been run yet ([Compatibility](#compatibility)).
 - Memory search is lexical (SQLite FTS5); there is no semantic (embeddings) search yet.
 
 ## Resumo em português
