@@ -1023,7 +1023,7 @@ type ExecConfig struct {
 	AllowRemote         bool     `                                  json:"allow_remote"          env:"KUROMATSU_TOOLS_EXEC_ALLOW_REMOTE"`
 	CustomDenyPatterns  []string `                                  json:"custom_deny_patterns"  env:"KUROMATSU_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
 	CustomAllowPatterns []string `                                  json:"custom_allow_patterns" env:"KUROMATSU_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
-	TimeoutSeconds      int      `                                  json:"timeout_seconds"       env:"KUROMATSU_TOOLS_EXEC_TIMEOUT_SECONDS"` // 0 means use default (60s)
+	TimeoutSeconds      int      `                                  json:"timeout_seconds"       env:"KUROMATSU_TOOLS_EXEC_TIMEOUT_SECONDS"` // default 60; an explicit 0 means no timeout
 }
 
 type SkillsToolsConfig struct {
