@@ -23,6 +23,7 @@ FROM node:24-alpine3.23
 # Install runtime dependencies
 RUN apk add --no-cache \
   ca-certificates \
+  tzdata \
   curl \
   git \
   python3 \
