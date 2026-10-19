@@ -214,8 +214,9 @@ atual. Depois confira:
   com aviso no log; use `KUROMATSU_TOOLS_DISCOVERY_MAX_SEARCH_RESULTS`.
 - **Comportamentos novos:** a resposta exatamente `NADA` de um job não é
   entregue ([automations.md](automations.md)); turnos de usuário param em
-  `agents.defaults.user_turn_max_minutes` (30 por padrão) e a terceira
-  chamada idêntica seguida de uma tool encerra o turno
+  `agents.defaults.user_turn_max_minutes` (30 por padrão); a terceira
+  chamada idêntica seguida de uma tool é retida com um aviso ao modelo, e o
+  turno só termina se ele insistir
   ([config.md](config.md#guardas-do-loop-do-agente)).
 - **Voltar atrás** exige o binário anterior **e** o `config.json` de antes:
   a qualquer gravação o binário novo escreve chaves que o antigo não
