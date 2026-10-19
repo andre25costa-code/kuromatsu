@@ -21,6 +21,7 @@ import (
 
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/setup"
 )
 
 const (
@@ -65,9 +66,6 @@ type server struct {
 	mu       sync.Mutex // sessions and fails
 	sessions map[string]session
 	fails    map[netip.Addr]loginFailures
-
-	// cfgMu serializes every load-change-save of the config file.
-	cfgMu sync.Mutex
 
 	// newInstaller builds the skill installer; tests replace it.
 	newInstaller func(workspace string, rt *config.Config) (skillInstaller, error)
@@ -368,7 +366,17 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 			delete(s.sessions, k)
 		}
 	}
-	limited := s.fails[ip].count >= loginMaxFails
+	// Check and count the attempt under one lock, so concurrent wrong logins
+	// cannot get past the limit; a successful login gives its slot back.
+	f := s.fails[ip]
+	limited := f.count >= loginMaxFails
+	if !limited {
+		if f.count == 0 {
+			f.start = now
+		}
+		f.count++
+		s.fails[ip] = f
+	}
 	s.mu.Unlock()
 	if limited {
 		writeError(w, http.StatusTooManyRequests, "too many failed logins; wait a minute")
@@ -383,18 +391,20 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if subtle.ConstantTimeCompare([]byte(body.Token), []byte(s.d.Token)) != 1 {
-		s.mu.Lock()
-		f := s.fails[ip]
-		if f.count == 0 {
-			f.start = now
-		}
-		f.count++
-		s.fails[ip] = f
-		s.mu.Unlock()
 		logger.WarnCF("webui", "web UI login failed", map[string]any{"remote": ip.String()})
 		writeError(w, http.StatusUnauthorized, "invalid token")
 		return
 	}
+
+	s.mu.Lock()
+	if g, ok := s.fails[ip]; ok {
+		if g.count--; g.count <= 0 {
+			delete(s.fails, ip)
+		} else {
+			s.fails[ip] = g
+		}
+	}
+	s.mu.Unlock()
 
 	sid, err := randomHex(32)
 	if err != nil {
@@ -503,10 +513,11 @@ func notFound(format string, args ...any) error {
 // editConfig loads the config as stored (never the environment), applies
 // change, validates the result without process-wide effects, saves it and
 // asks the gateway to reload. Nothing is written when change or the
-// validation fails. Every config write goes through cfgMu.
+// validation fails. Every config write holds setup.ConfigMu, the lock chat
+// /config set also takes.
 func (s *server) editConfig(w http.ResponseWriter, change func(*config.Config) error) {
-	s.cfgMu.Lock()
-	defer s.cfgMu.Unlock()
+	setup.ConfigMu.Lock()
+	defer setup.ConfigMu.Unlock()
 
 	cfg, err := config.LoadConfigForEdit(s.d.ConfigPath)
 	if err != nil {

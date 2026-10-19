@@ -29,7 +29,10 @@ type Deps struct {
 	// It is only read: template requirements, timezone, status, skill
 	// download settings. Nil means "load the file as stored".
 	Runtime func() *config.Config
-	// Cron returns the current scheduler; nil while a reload replaces it.
+	// Cron returns the current scheduler, or nil when there is none (the UI
+	// answers 503). In the gateway it is never nil: during a reload it is
+	// the stopped old scheduler until the new one is set; writes then land
+	// in jobs.json, which the new scheduler re-reads.
 	Cron func() *cron.CronService
 	// Reload applies a saved config, as POST /reload does.
 	Reload func() error

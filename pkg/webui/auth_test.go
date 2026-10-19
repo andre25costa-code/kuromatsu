@@ -3,6 +3,7 @@ package webui
 import (
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -332,4 +333,43 @@ func TestStatic_SecurityHeaders(t *testing.T) {
 	}
 	assert.Equal(t, http.StatusNotFound, e.do(req(http.MethodGet, "/ui/../api/ui/models", "")).Code)
 	assert.Equal(t, http.StatusMethodNotAllowed, e.do(req(http.MethodPost, "/ui/", "")).Code)
+}
+
+// Concurrent wrong logins cannot get more than the limit past the check.
+func TestAuth_LoginRateLimitConcurrent(t *testing.T) {
+	e := newTestEnv(t)
+	const n = 20
+	codes := make(chan int, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r := req(http.MethodPost, "/api/ui/login", `{"token":"wrong"}`)
+			r.Header.Set("Origin", testOrigin)
+			codes <- e.do(r).Code
+		}()
+	}
+	wg.Wait()
+	close(codes)
+	unauthorized := 0
+	for c := range codes {
+		if c == http.StatusUnauthorized {
+			unauthorized++
+		}
+	}
+	assert.Equal(t, loginMaxFails, unauthorized, "only the first attempts reach the token compare")
+
+	// A success gives its slot back: 4 wrong + 1 right leaves room.
+	e2 := newTestEnv(t)
+	try := func(token string) int {
+		r := req(http.MethodPost, "/api/ui/login", `{"token":"`+token+`"}`)
+		r.Header.Set("Origin", testOrigin)
+		return e2.do(r).Code
+	}
+	for range loginMaxFails - 1 {
+		require.Equal(t, http.StatusUnauthorized, try("wrong"))
+	}
+	require.Equal(t, http.StatusOK, try(testToken))
+	assert.Equal(t, http.StatusUnauthorized, try("wrong"), "the success did not use up the 5th slot")
 }

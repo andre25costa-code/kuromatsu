@@ -109,9 +109,10 @@ func SetKey(cfg *config.Config, key, value string) (oldValue, newValue string, e
 	}
 }
 
-// saveKeyMu serializes SaveKey calls so two edits never interleave their
-// load and save.
-var saveKeyMu sync.Mutex
+// ConfigMu serializes every load-change-save of the config file in this
+// process (SaveKey from chat, the web UI), so two edits never interleave
+// their load and save. Hold it from the load to the save.
+var ConfigMu sync.Mutex
 
 // SaveKey changes one ChatSettableKeys key in the config file at path: it
 // loads the file as stored (LoadConfigForEdit, so environment values never
@@ -125,8 +126,8 @@ func SaveKey(path, key, value string) (oldValue, newValue string, err error) {
 	if !IsChatSettable(key) {
 		return "", "", ErrKeyNotSettable
 	}
-	saveKeyMu.Lock()
-	defer saveKeyMu.Unlock()
+	ConfigMu.Lock()
+	defer ConfigMu.Unlock()
 
 	cfg, err := config.LoadConfigForEdit(path)
 	if err != nil {
