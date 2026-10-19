@@ -32,7 +32,9 @@ func readmeSlug(heading string) string {
 
 // Every relative link and image in README.md points to a file in the
 // repository, and every in-page link points to a heading. External links
-// are not checked here: that would need the network.
+// are not checked here: that would need the network. Keep README.md to
+// inline links and unique headings: reference-style links and GitHub's "-1"
+// suffix for repeated headings are not modeled.
 func TestREADME_RelativeLinksResolve(t *testing.T) {
 	data, err := os.ReadFile("README.md")
 	if err != nil {

@@ -51,7 +51,8 @@ curl -fsSL https://raw.githubusercontent.com/andre25costa-code/kuromatsu/main/sc
 irm https://raw.githubusercontent.com/andre25costa-code/kuromatsu/main/scripts/install.ps1 | iex
 ```
 
-The installer downloads the archive for your OS and CPU from the latest release, checks its
+The installer fetches the pure-Go build (external models only; for the in-process model see
+[Build from source](#build-from-source)): it downloads the archive for your OS and CPU, checks its
 SHA-256 against `checksums.txt`, installs the binary without root (`~/.local/bin`; Termux:
 `$PREFIX/bin`; Windows: `%LOCALAPPDATA%\Kuromatsu\bin`), adds it to your user PATH and runs
 `kuromatsu onboard`. If no release is published yet, it stops with `no release published yet`:
@@ -81,7 +82,8 @@ bash scripts/download-model.sh  # fetches Bonsai-1.7B-Q1_0.gguf and checks its S
 ```
 
 Without compiling, download `kuromatsu-native_Linux_x86_64.tar.gz` from the release (listed in
-the same `checksums.txt`; the installers never pick it). It is linked against the glibc and
+the same `checksums.txt`; the installers never pick it), then fetch the model with
+`bash scripts/download-model.sh`. It is linked against the glibc and
 libstdc++ of Debian bookworm, so it needs that or a newer distribution ([details (pt-BR)](./workspace/skills/kuromatsu-docs/references/install.md)).
 
 To run it as a service: [`deploy/systemd/`](./deploy/systemd) holds the unit (with `MemoryMax`)
@@ -101,8 +103,8 @@ Ollama, Anthropic, Gemini or OpenRouter, with a connection test that lists the m
 **Telegram** (bot token and your numeric ID) or no channel; **hardware profile**; **timezone**;
 and a **permission preset** (Safe, Assistant, Advanced — none lets chats run shell commands).
 `q` quits without writing anything. Running it again starts from the current config.
-`onboard --non-interactive` asks nothing (scripts, Docker, no terminal) and keeps the built-in
-defaults. To add a model later: `kuromatsu model add -b <api-base> -k <your-key>`.
+`onboard --non-interactive` asks nothing (scripts, Docker, no terminal): built-in defaults plus,
+on a new config, the detected hardware profile; no provider or channel. To add a model later: `kuromatsu model add -b <api-base> -k <your-key>`.
 
 ### Web UI
 
@@ -213,11 +215,11 @@ startup; restart after changing them.
 | Linux arm64 | `kuromatsu_Linux_arm64.tar.gz` | Cross-built, not run |
 | macOS (Apple silicon, Intel) | `kuromatsu_Darwin_arm64.tar.gz`, `kuromatsu_Darwin_x86_64.tar.gz` | Cross-built, not run |
 | Android / Termux (arm64) | `kuromatsu_Android_arm64.tar.gz` | Cross-built, not run |
-| Docker image (linux/amd64, arm64, riscv64) | `ghcr.io/andre25costa-code/kuromatsu` | Cross-built, not run |
+| Docker image (linux/amd64, arm64, riscv64) | `ghcr.io/andre25costa-code/kuromatsu` (and Docker Hub when configured) | Cross-built, not run |
 | Windows arm64; Linux armv6, armv7, riscv64, loong64, s390x; FreeBSD; NetBSD; `.deb`/`.rpm` | `kuromatsu_<Os>_<Arch>.tar.gz` (Windows: `.zip`); `kuromatsu_<arch>.deb`, `.rpm` | Cross-built, not run |
 
-On Termux, use the Android archive, not the Linux arm64 one. macOS binaries are not notarized:
-a browser download is blocked by Gatekeeper, the `curl` install is not.
+On Termux, use the Android archive, not the Linux arm64 one. macOS binaries are not notarized unless
+the release is signed: a browser download may be blocked by Gatekeeper, the `curl` install is not.
 
 ## Limits
 
