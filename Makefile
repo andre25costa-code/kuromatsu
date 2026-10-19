@@ -286,7 +286,7 @@ llama-lib:
 	@echo "Static libs in $(LLAMA_BUILD_DIR)/lib:"
 	@ls $(LLAMA_BUILD_DIR)/lib/*.a
 
-## llama-lib-x86-64: PRIMARY deploy target (ADR-012). Pinned CPU baseline.
+## llama-lib-x86-64: PRIMARY deploy target. Pinned CPU baseline.
 ## Reference deploy VM: Google Cloud e2-micro. The pinned baseline
 ## AVX2+FMA+F16C (no AVX-512/AVX-VNNI) also covers the Oracle
 ## VM.Standard.E2.1.Micro (AMD EPYC 7551, Zen1) used earlier.
@@ -309,7 +309,7 @@ llama-lib-x86-64:
 	@cp -f $(LLAMA_BUILD_DIR_X86_64)/lib/*.a $(LLAMA_BUILD_DIR)/lib/
 
 ## llama-lib-arm64: SECONDARY/future target (superseded as the primary path
-## by ADR-012 -- the reference VM is x86_64, not ARM64).
+## because the reference VM is x86_64, not ARM64).
 ## Kept for a possible future ARM64 deploy (Raspberry Pi, or if an A1 shape
 ## becomes available). True cross-compile for linux/arm64 (Ampere/Neoverse-N1
 ## class -- dotprod yes, i8mm NO), running natively on an amd64 build host via
