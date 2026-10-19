@@ -65,7 +65,11 @@ type Config struct {
 	Timezone string `json:"timezone,omitempty" yaml:"-" env:"KUROMATSU_TIMEZONE"`
 	// WebUI is the local configuration page at /ui; its token is kept in
 	// the security file only.
-	WebUI WebUIConfig `json:"webui" yaml:"webui,omitempty"`
+	// The block is left out of config.json while it holds the defaults
+	// (WebUIConfig.IsZero), so a config saved now still loads on a binary
+	// that predates it. The YAML side has no omitempty: the token must
+	// always reach the security file.
+	WebUI WebUIConfig `json:"webui,omitzero" yaml:"webui"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 

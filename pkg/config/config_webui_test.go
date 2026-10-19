@@ -46,7 +46,7 @@ func TestWebUI_TokenSavedOnlyToSecurityFile(t *testing.T) {
 	data, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), token)
-	assert.Contains(t, string(data), `"webui"`)
+	assert.NotContains(t, string(data), `"webui"`, "a default block is left out of config.json")
 
 	secPath := filepath.Join(home, SecurityConfigFile)
 	sec, err := os.ReadFile(secPath)
@@ -84,4 +84,68 @@ func TestWebUI_EnvTokenCountsButIsNotSaved(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, edit.WebUI.Token.String())
 	assert.False(t, edit.WebUI.AllowRemote)
+}
+
+// A default webui block is not written to config.json (a binary older than
+// the block rejects unknown keys), while non-default values round-trip.
+func TestWebUI_DefaultBlockOmittedNonDefaultKept(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(EnvHome, home)
+	path := filepath.Join(home, "config.json")
+	require.NoError(t, SaveConfig(path, DefaultConfig()))
+
+	edit, err := LoadConfigForEdit(path)
+	require.NoError(t, err)
+	require.NoError(t, SaveConfig(path, edit))
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"webui"`)
+
+	for name, set := range map[string]func(*WebUIConfig){
+		"disabled":     func(w *WebUIConfig) { w.Enabled = false },
+		"allow_remote": func(w *WebUIConfig) { w.AllowRemote = true },
+	} {
+		cfg, err := LoadConfigForEdit(path)
+		require.NoError(t, err)
+		want := cfg.WebUI
+		set(&want)
+		cfg.WebUI = want
+		require.NoError(t, SaveConfig(path, cfg))
+		raw, err = os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Contains(t, string(raw), `"webui"`, name)
+
+		back, err := LoadConfigForEdit(path)
+		require.NoError(t, err)
+		assert.Equal(t, want.Enabled, back.WebUI.Enabled, name)
+		assert.Equal(t, want.AllowRemote, back.WebUI.AllowRemote, name)
+		rt, err := LoadConfig(path)
+		require.NoError(t, err)
+		assert.Equal(t, want.Enabled, rt.WebUI.Enabled, name)
+
+		// Back to defaults for the next case.
+		back.WebUI = WebUIConfig{Enabled: true}
+		require.NoError(t, SaveConfig(path, back))
+	}
+}
+
+// The token stays in the security file even when the block is omitted
+// from config.json.
+func TestWebUI_TokenKeptWhenBlockOmitted(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(EnvHome, home)
+	path := filepath.Join(home, "config.json")
+	cfg := DefaultConfig()
+	_, err := cfg.WebUI.EnsureToken()
+	require.NoError(t, err)
+	token := cfg.WebUI.Token.String()
+	require.NoError(t, SaveConfig(path, cfg))
+
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), `"webui"`)
+	back, err := LoadConfigForEdit(path)
+	require.NoError(t, err)
+	assert.Equal(t, token, back.WebUI.Token.String())
+	assert.True(t, back.WebUI.Enabled)
 }
