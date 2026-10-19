@@ -19,7 +19,8 @@ nova sobre o mesmo assunto.
 | `model_list`, providers, fallback entre modelos, o modelo nativo Bonsai | [references/models.md](references/models.md) |
 | Telegram, WhatsApp, Pico, como adicionar um canal novo | [references/channels.md](references/channels.md) |
 | Tools do agente (exec, arquivos, memória/seahorse, web, skills) | [references/tools.md](references/tools.md) |
-| cron, heartbeat, janelas de foco (`/foco`), reflexos | [references/scheduling.md](references/scheduling.md) |
+| Mecanismo do cron (status, histórico, auto-desligamento, `tz`, CLI com o gateway), heartbeat, janelas de foco (`/foco`), reflexos | [references/scheduling.md](references/scheduling.md) |
+| Criar e gerir automações: catálogo de modelos, `/cron`, `/config`, regra de dono, religar job desligado | [references/automations.md](references/automations.md) |
 | Modo dormir, consolidação de `MEMORY.md`, `pkg/sleep` | [references/sleep.md](references/sleep.md) |
 | Orçamento de RAM, `memguard`, PSI, `GOMEMLIMIT`, motor `runstate` | [references/memory-management.md](references/memory-management.md) |
 | Instalar (`install.sh`/`install.ps1`), `onboard`, perfis de hardware, `kuromatsu status`, `update`, `uninstall`, build do fonte e do nativo | [references/install.md](references/install.md) |
