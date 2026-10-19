@@ -72,10 +72,8 @@ falhar o boot):
 
 - Campo no topo do config: `"timezone": "America/Sao_Paulo"` (env
   `KUROMATSU_TIMEZONE`). Vazio (default) = usa `TZ` ou o fuso do sistema.
-- No assistente do `onboard`, o default do passo 5 é o `timezone` atual, senão
-  `TZ`, senão o fuso lido de `/etc/localtime` (alvo do symlink depois de
-  `zoneinfo/`) ou `/etc/timezone`. No Windows o fuso não é detectado. Sem fuso
-  conhecido, Enter deixa `timezone` vazio (= fuso do sistema).
+- O assistente do `onboard` pergunta o fuso no passo 5 (detecção em
+  [install.md](install.md)).
 - Aplicado **uma vez por processo** (`config.ApplyProcessTimezone`, com
   `sync.Once`) no primeiro carregamento de cada comando
   (`internal.LoadConfig`) e no boot do gateway, antes de iniciar os
@@ -87,23 +85,11 @@ falhar o boot):
 - No Windows o binário embute `time/tzdata` (~400 KB), porque o sistema não
   tem a base zoneinfo; Linux, macOS e Android usam a do sistema.
 
-## Assistente do `onboard`
+## Predefinições de permissões
 
-Num terminal (stdin e stdout TTY), `kuromatsu onboard` roda um assistente em
-6 passos: idioma (linha `- Idioma preferido: pt-BR` / `- Preferred
-language: en` no `USER.md` do workspace), provedor de modelo com teste de
-conexão (`ProbeModels` em `pkg/setup`: Bearer para OpenAI-compatível e
-OpenRouter, nada para Ollama, `x-api-key` + `anthropic-version` para
-Anthropic, `x-goog-api-key` para Gemini), canal Telegram (token no
-`.security.yml` e o ID do dono em `allow_from`), perfil de hardware, fuso e
-predefinição de permissões. Grava uma vez, depois de um resumo; `q` sai sem
-gravar nada (assim como recusar o resumo ou o fim da entrada) e sai com código
-2, que o `install.sh`/`install.ps1` tratam como aviso ("setup skipped"), não
-falha; erro continua saindo com 1. Sem TTY, com `--non-interactive` ou com `--enc`, roda o fluxo
-antigo, sem perguntas (é o que o `install.sh`/`install.ps1` sem terminal e
-o Docker usam).
-
-Predefinições (`ApplyPermissions` em `pkg/setup`, também usadas pela web UI):
+O assistente do `onboard` (passos em [install.md](install.md)) e a tela de
+permissões da web UI gravam uma destas predefinições (`ApplyPermissions` em
+`pkg/setup`):
 
 | Chave | `seguro` | `assistente` | `avancado` |
 |---|---|---|---|
@@ -121,9 +107,6 @@ Predefinições (`ApplyPermissions` em `pkg/setup`, também usadas pela web UI):
   só em canais internos, cron com comandos).
 - Numa config nova, Enter no passo 6 escolhe `assistente` (exec desligado);
   o `--non-interactive` mantém o `DefaultConfig()` (= `avancado`).
-- Reexecução: cada passo oferece `[0] Manter atual` como default (modelo,
-  canal, perfil e permissões); Enter em tudo não muda nenhuma dessas
-  chaves.
 
 ## Web UI (`webui`)
 
@@ -210,26 +193,14 @@ turno.
 Não existe campo `profile` no config. Um perfil é um conjunto de valores
 de chaves que já existem, gravado uma vez como valores explícitos:
 
-- no `kuromatsu onboard` de uma config nova, com o perfil detectado (uma
-  linha `Hardware: ... → profile <nome> (applied)` mostra qual);
+- no `kuromatsu onboard` de uma config nova, com o perfil detectado;
 - com `kuromatsu onboard --profile <ultra-light|light|balanced|performance|auto>`
   numa config existente (`auto` = o detectado);
-- no passo 4 do assistente, escolhido explicitamente (numa config nova,
-  Enter usa o detectado; numa existente, Enter mantém o atual). Sem isso,
-  uma config existente não muda.
+- no passo 4 do assistente, escolhido explicitamente. Sem isso, uma config
+  existente não muda.
 
-O perfil é escolhido pela RAM efetiva (a menor entre a RAM total e o limite
-do cgroup) e pelo número de CPUs, nesta ordem:
-
-| Perfil | Condição |
-|---|---|
-| Ultra-Light | RAM < 768 MiB |
-| Light | RAM < 2048 MiB |
-| Balanced | RAM < 8192 MiB, ou menos de 4 CPUs |
-| Performance | o resto |
-| (RAM não detectada) | Light |
-
-Valores gravados:
+As faixas de RAM/CPU de cada perfil, a detecção e o `kuromatsu status`
+estão em [install.md](install.md#perfis-de-hardware). Valores gravados:
 
 | Chave | Ultra-Light | Light | Balanced | Performance |
 |---|---|---|---|---|
@@ -254,13 +225,15 @@ Valores gravados:
   `heartbeat.enabled`, modelos, canais ou permissões).
 - O `extra_body` do nativo só é tocado se a entrada `bonsai-local` existir
   em `model_list`; o perfil nunca cria a entrada.
-- `kuromatsu status` mostra o hardware detectado, o perfil sugerido e a
-  qual perfil a config corresponde (`custom` se nenhum bater; um campo
-  zerado conta como o default).
-- **CPU do nativo:** o build nativo exige AVX2+FMA (x86-64) ou
-  dotprod+fp16 (arm64). Numa CPU sem isso, o modelo nativo não é ligado
-  como default nem como fallback, uma carga explícita é recusada com erro, e
-  o gateway registra um aviso no boot.
+- **Limite conhecido do `n_ctx` pequeno:** o prompt do primeiro turno de um
+  workspace novo, com todas as tools, tem cerca de 2,9 mil tokens. Isso não
+  cabe em `n_ctx` ≤ 2048 (Ultra-Light, Light e o default do motor nativo).
+  Com o modelo nativo como **primário** nesses perfis, o primeiro turno
+  estoura o contexto; como fallback de um modelo externo, ele só é usado
+  quando o externo falha. Para usar o nativo como primário, aumente o
+  `n_ctx` onde a RAM permitir ou restrinja as tools (janelas de foco, ver
+  [scheduling.md](scheduling.md), ou `tools` no `AGENT.md`, ver
+  [workspace.md](workspace.md)).
 - **CPU pinning/affinity:** não suportado; use `taskset` ou o
   `CPUAffinity=` do systemd fora do Kuromatsu.
 
