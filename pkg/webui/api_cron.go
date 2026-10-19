@@ -75,15 +75,12 @@ func (s *server) listCron(w http.ResponseWriter, _ *http.Request) {
 // defaultTarget is where a new automation reports by default: the first
 // enabled channel (name order) with an allow_from entry other than "*",
 // and that entry, reduced to the ID when it has one. Without such a
-// channel it is the first enabled channel and no recipient.
+// channel both are empty, so the user has to choose: a job without a
+// channel and a recipient is refused.
 func defaultTarget(cfg *config.Config) (channel, to string) {
-	first := ""
 	for _, c := range channelViews(cfg) {
 		if !c.Enabled {
 			continue
-		}
-		if first == "" {
-			first = c.Name
 		}
 		for _, e := range c.AllowFrom {
 			if e == "*" {
@@ -95,7 +92,7 @@ func defaultTarget(cfg *config.Config) (channel, to string) {
 			return c.Name, e
 		}
 	}
-	return first, ""
+	return "", ""
 }
 
 func (s *server) cronTemplates(w http.ResponseWriter, _ *http.Request) {

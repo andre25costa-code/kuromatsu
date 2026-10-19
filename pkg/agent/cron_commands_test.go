@@ -169,9 +169,14 @@ func TestCronAdapter_CreateFromTemplate(t *testing.T) {
 	cfg.Tools.Cron.Enabled = true
 	cfg.Tools.Web.Enabled = true
 	cfg.Tools.WebFetch.Enabled = true
+	cfg.Channels["telegram"].Enabled = true // the job reports to an enabled channel
 	api := newCronCommands(cs, cfg)
 
 	when := time.Now().Add(2 * time.Minute).Format(time.RFC3339)
+	// /cron new from an internal channel would give the job internal trust.
+	if _, err := api.Create("lembrete", map[string]string{"texto": "x", "quando": when}, "cli", "direct"); err == nil {
+		t.Fatal("Create from the cli channel accepted")
+	}
 	view, err := api.Create("lembrete", map[string]string{"texto": "beber água", "quando": when}, "telegram", "42")
 	if err != nil {
 		t.Fatal(err)

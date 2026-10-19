@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/constants"
 	"github.com/andre25costa-code/kuromatsu/pkg/cron"
 )
 
@@ -28,8 +29,10 @@ func invalidf(format string, args ...any) error {
 // CreateJob renders template id with params and adds the job to cs, as the
 // /cron chat command and the web UI do. cfg is the running config: its
 // switches decide Unmet and its timezone (or time.Local when empty)
-// interprets times. An identical existing job is returned with
-// created=false. Errors caused by the input wrap ErrInvalid.
+// interprets times. The job reports to channel/to, which must be an
+// enabled, non-internal channel of cfg and a recipient (see checkTarget).
+// An identical existing job is returned with created=false. Errors caused
+// by the input wrap ErrInvalid.
 func CreateJob(
 	cs *cron.CronService,
 	cfg *config.Config,
@@ -41,6 +44,7 @@ func CreateJob(
 	if cs == nil {
 		return nil, false, errors.New("scheduler is not running")
 	}
+	channel, to = strings.TrimSpace(channel), strings.TrimSpace(to)
 	t, ok := Get(id)
 	if !ok {
 		return nil, false, invalidf("unknown template %q", id)
@@ -61,6 +65,9 @@ func CreateJob(
 	if err != nil {
 		return nil, false, invalidError{err}
 	}
+	if err = checkTarget(cfg, channel, to); err != nil {
+		return nil, false, err
+	}
 	job, created, err = cs.AddJobWithPayload(name, sched, payload)
 	if err != nil {
 		return nil, false, err
@@ -74,4 +81,31 @@ func CreateJob(
 		}
 	}
 	return job, created, nil
+}
+
+// checkTarget refuses a destination a template job must not have. A job's
+// agent turn runs with its channel's trust: an empty channel would run as
+// the internal "cli" channel, and an internal channel may run shell
+// commands and command jobs, while templates feed fetched web pages to that
+// turn. So the channel must be configured, enabled and not internal, and
+// the recipient must be given: there is no fallback chat.
+func checkTarget(cfg *config.Config, channel, to string) error {
+	switch {
+	case channel == "":
+		return invalidf("choose the channel the automation reports to")
+	case constants.IsInternalChannel(channel):
+		return invalidf("channel %q is internal; choose a chat channel", channel)
+	case cfg == nil:
+		return invalidf("channel %q cannot be checked without a config", channel)
+	}
+	ch := cfg.Channels.Get(channel)
+	switch {
+	case ch == nil:
+		return invalidf("channel %q is not configured", channel)
+	case !ch.Enabled:
+		return invalidf("channel %q is disabled", channel)
+	case to == "":
+		return invalidf("choose the recipient (chat ID) on channel %q the automation reports to", channel)
+	}
+	return nil
 }

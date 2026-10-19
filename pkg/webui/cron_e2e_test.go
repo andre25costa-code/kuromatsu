@@ -188,7 +188,39 @@ func TestDefaultTarget_SkipsChannelsWithoutRecipient(t *testing.T) {
 	cfg.Channels = config.ChannelsConfig{
 		"pico": {Enabled: true, Type: "pico", AllowFrom: config.FlexibleStringSlice{"*"}},
 	}
+	// No recipient to suggest: no channel either, the user must choose.
 	ch, to = defaultTarget(cfg)
-	assert.Equal(t, "pico", ch)
+	assert.Empty(t, ch)
 	assert.Empty(t, to)
+
+	cfg.Channels = config.ChannelsConfig{}
+	ch, to = defaultTarget(cfg)
+	assert.Empty(t, ch)
+	assert.Empty(t, to)
+}
+
+// The web UI must not create a template job that would run as an internal
+// channel, report nowhere, or report to a channel the config does not run.
+func TestWebUI_CreateCronRefusesUnsafeTarget(t *testing.T) {
+	e := newTestEnv(t)
+	e.now = time.Now()
+	startCron(t, e)
+
+	params := `"template":"lembrete","params":{"texto":"x","todo_dia":"07:00"}`
+	for _, target := range []string{
+		``,
+		`,"channel":"","to":"987654"`,
+		`,"channel":"cli","to":"987654"`,
+		`,"channel":"system","to":"987654"`,
+		`,"channel":"subagent","to":"987654"`,
+		`,"channel":"nope","to":"987654"`,
+		`,"channel":"pico","to":"987654"`, // configured but disabled
+		`,"channel":"telegram","to":""`,
+	} {
+		body := `{` + params + target + `}`
+		rec := e.do(bearer(req(http.MethodPost, "/api/ui/cron", body)))
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, body)
+		assert.Contains(t, rec.Body.String(), "channel", body)
+	}
+	assert.Empty(t, e.cron.Load().ListJobs(true))
 }
