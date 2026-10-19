@@ -89,7 +89,8 @@ func buildOnboardingSteps(encrypt bool, configPath string) string {
 func recommendedBlock() string {
 	return "• OpenRouter: https://openrouter.ai/keys\n  (access 100+ models)\n\n" +
 		"• Ollama: https://ollama.com\n  (local, free)\n\n" +
-		"See README.md for 17+ supported providers."
+		"Any OpenAI- or Ollama-compatible endpoint works with kuromatsu model add.\n" +
+		"More: https://github.com/andre25costa-code/kuromatsu"
 }
 
 func chatStep(encrypt bool) string {
