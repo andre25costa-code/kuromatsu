@@ -223,7 +223,7 @@
         if (s.source === 'workspace') {
           li.append(btn('Remover', function () {
             if (!confirm('Remover a skill ' + s.name + '?')) return;
-            api('DELETE', 'skills/' + encodeURIComponent(s.name)).then(saved).then(loaders.skills).catch(fail);
+            api('DELETE', 'skills/' + encodeURIComponent(s.dir)).then(saved).then(loaders.skills).catch(fail);
           }));
         }
         ul.append(li);

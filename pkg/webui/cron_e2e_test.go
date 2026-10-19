@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/cron"
 )
 
@@ -171,4 +172,23 @@ func TestWebUI_CronGetterAfterReload(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	assert.Contains(t, rec.Body.String(), "new job")
 	assert.NotContains(t, rec.Body.String(), "old job")
+}
+
+func TestDefaultTarget_SkipsChannelsWithoutRecipient(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Channels = config.ChannelsConfig{
+		"pico":     {Enabled: true, Type: "pico", AllowFrom: config.FlexibleStringSlice{"*"}},
+		"telegram": {Enabled: true, Type: "telegram", AllowFrom: config.FlexibleStringSlice{"*", "telegram:42|ana"}},
+		"aaa":      {Enabled: false, Type: "telegram", AllowFrom: config.FlexibleStringSlice{"7"}},
+	}
+	ch, to := defaultTarget(cfg)
+	assert.Equal(t, "telegram", ch)
+	assert.Equal(t, "42", to)
+
+	cfg.Channels = config.ChannelsConfig{
+		"pico": {Enabled: true, Type: "pico", AllowFrom: config.FlexibleStringSlice{"*"}},
+	}
+	ch, to = defaultTarget(cfg)
+	assert.Equal(t, "pico", ch)
+	assert.Empty(t, to)
 }

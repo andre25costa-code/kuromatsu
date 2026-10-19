@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
@@ -21,6 +22,21 @@ var (
 	repoPattern      = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 	skillNamePattern = regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
 )
+
+// validRepo accepts "owner/name" with no segment made only of dots: the
+// name becomes a directory under workspace/skills, and ".." would be the
+// workspace itself. A leading dot (".github") is a real name and allowed.
+func validRepo(repo string) bool {
+	if !repoPattern.MatchString(repo) {
+		return false
+	}
+	for _, seg := range strings.Split(repo, "/") {
+		if strings.Trim(seg, ".") == "" {
+			return false
+		}
+	}
+	return true
+}
 
 // skillInstaller is the part of skills.SkillInstaller the UI uses.
 type skillInstaller interface {
@@ -55,13 +71,19 @@ func (s *server) listSkills(w http.ResponseWriter, _ *http.Request) {
 	}
 	type view struct {
 		Name        string `json:"name"`
+		Dir         string `json:"dir"`
 		Source      string `json:"source"`
 		Description string `json:"description"`
 	}
 	list := skills.NewSkillsLoader(ws, "", "").ListSkills()
 	out := make([]view, 0, len(list))
 	for _, sk := range list {
-		out = append(out, view{Name: sk.Name, Source: sk.Source, Description: sk.Description})
+		// Dir is the directory name, which DELETE takes; the front-matter
+		// name can differ from it.
+		out = append(out, view{
+			Name: sk.Name, Dir: filepath.Base(filepath.Dir(sk.Path)),
+			Source: sk.Source, Description: sk.Description,
+		})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"skills": out})
 }
@@ -80,7 +102,7 @@ func (s *server) installSkill(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if !repoPattern.MatchString(body.Repo) {
+	if !validRepo(body.Repo) {
 		writeError(w, http.StatusUnprocessableEntity, `repo must be "owner/name"`)
 		return
 	}

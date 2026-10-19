@@ -62,7 +62,14 @@ func TestSkillsInstall_ExtendsWriteDeadline(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, plain.Code)
 	assert.Empty(t, inst.repo)
 
-	bad := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
-	e.srv.ServeHTTP(bad, bearer(req(http.MethodPost, "/api/ui/skills", `{"repo":"../../etc"}`)))
-	assert.Equal(t, http.StatusUnprocessableEntity, bad.Code)
+	inst.repo = ""
+	for _, repo := range []string{"../../etc", "../..", "owner/..", "./x", "owner/...", "owner", "a/b/c"} {
+		bad := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+		e.srv.ServeHTTP(bad, bearer(req(http.MethodPost, "/api/ui/skills", `{"repo":"`+repo+`"}`)))
+		assert.Equal(t, http.StatusUnprocessableEntity, bad.Code, repo)
+	}
+	assert.Empty(t, inst.repo, "no install started for a bad repo")
+	ok := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	e.srv.ServeHTTP(ok, bearer(req(http.MethodPost, "/api/ui/skills", `{"repo":"owner/.github"}`)))
+	assert.Equal(t, http.StatusOK, ok.Code, "a leading dot is a valid name")
 }

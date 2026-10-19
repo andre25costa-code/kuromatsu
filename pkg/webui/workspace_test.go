@@ -87,3 +87,31 @@ func TestSkills_RemoveRefusesTraversal(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 	assert.Equal(t, "keep", readFile(t, soul))
 }
+
+// The list gives the directory name, which DELETE takes, even when the
+// skill's front-matter name differs.
+func TestSkills_ListGivesDirForDelete(t *testing.T) {
+	e := newTestEnv(t)
+	dir := filepath.Join(e.workspace, "skills", "dir-name")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"),
+		[]byte("---\nname: front-name\ndescription: x\n---\n# x\n"), 0o644))
+
+	rec := e.do(bearer(req(http.MethodGet, "/api/ui/skills", "")))
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got struct {
+		Skills []struct {
+			Name string `json:"name"`
+			Dir  string `json:"dir"`
+		} `json:"skills"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Len(t, got.Skills, 1)
+	assert.Equal(t, "front-name", got.Skills[0].Name)
+	assert.Equal(t, "dir-name", got.Skills[0].Dir)
+
+	rec = e.do(bearer(req(http.MethodDelete, "/api/ui/skills/"+got.Skills[0].Dir, "")))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	_, err := os.Stat(dir)
+	assert.True(t, os.IsNotExist(err))
+}
