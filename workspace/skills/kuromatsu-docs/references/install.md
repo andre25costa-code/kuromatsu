@@ -106,9 +106,11 @@ não muda nenhuma dessas chaves.
 
 ### Sem perguntas (`--non-interactive`)
 
-Sem TTY, com `--non-interactive` ou com `--enc`, roda o fluxo sem
-perguntas: cria o que falta e mantém o `DefaultConfig()` (= predefinição
-`avancado`: exec ligado só em canais internos). É o que os instaladores sem
+Sem TTY, com `--non-interactive` ou com `--enc`, o assistente de 6 passos
+não roda: o onboard cria o que falta e mantém o `DefaultConfig()` (=
+predefinição `avancado`: exec ligado só em canais internos). O
+`--non-interactive` nunca pergunta nada; o `--enc` ainda pede a senha da
+criptografia. É o que os instaladores sem
 terminal e o `docker/entrypoint.sh` usam (ver [deploy.md](deploy.md)).
 
 ## Perfis de hardware

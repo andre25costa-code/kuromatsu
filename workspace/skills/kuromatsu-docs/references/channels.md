@@ -157,7 +157,7 @@ em `config.json`.
   plataforma), `"telegram:123456"` (canônico, exato), `"123456|alice"`
   (legado: ID ou username), `"@alice"` (username).
 - **Dono:** só um **ID** conta como dono para alterar coisas pelo chat
-  (`/cron`, `/config set`); `@alice`/`alice` e `*` deixam falar, mas não
+  (`/cron`, `/config set`); `@alice` e `*` deixam falar, mas não
   dão esse direito. A regra completa, inclusive o JID do WhatsApp e o caso
   `["*"]`, está em [automations.md](automations.md#quem-pode-alterar-pelo-chat-regra-de-dono).
 - **Pico (`pico`/`pico_client`):** o remetente é fixo e a autenticação é o

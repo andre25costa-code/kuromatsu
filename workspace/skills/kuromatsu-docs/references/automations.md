@@ -17,7 +17,9 @@ heartbeat) está em [scheduling.md](scheduling.md).
 2. **Chat:** `/cron new <modelo> chave=valor ...` com um modelo do catálogo
    (abaixo). O job é entregue no chat que o criou.
 3. **Web UI:** tela Automações (ver [webui.md](webui.md)). O destino
-   padrão é o primeiro canal ligado que tem um ID em `allow_from`.
+   padrão é o primeiro canal ligado (em ordem de nome) com uma entrada de
+   `allow_from` diferente de `*`, reduzida ao ID quando tem um; sem isso, o
+   primeiro canal ligado, sem destinatário.
 4. **CLI:** `kuromatsu cron add` (`--cron` + `--tz`, `--every <segundos>`,
    `--message` para um turno do agente ou `--command` para um comando sem
    LLM, `--channel`/`--to` para o destino, `--quiet`/`--anomaly-regex`/
@@ -69,7 +71,8 @@ jobs entregues a ele (jobs de comando só se o chat estiver em
 `/config` mostra um resumo sem segredos (modelo, canais com contagem de
 IDs, preset de permissões, heartbeat, fuso, busca web, limite do turno,
 nível de log). `/config set <chave> <valor>` aceita só `heartbeat.enabled`,
-`heartbeat.interval` (≥ 5), `agents.defaults.user_turn_max_minutes` (≥ 0),
+`heartbeat.interval` (≥ 5), `agents.defaults.user_turn_max_minutes` (≥ 0;
+vale após reiniciar, ver [config.md](config.md#guardas-do-loop-do-agente)),
 `tools.web.duckduckgo.enabled`, `gateway.log_level`
 (`debug|info|warn|error`) e `timezone` (nome IANA ou `""`; o relógio do
 processo só muda após reiniciar). A gravação lê o arquivo sem variáveis de

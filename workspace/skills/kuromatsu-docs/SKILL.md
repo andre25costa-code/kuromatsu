@@ -1,6 +1,6 @@
 ---
 name: kuromatsu-docs
-description: Documentação canônica do Kuromatsu (config, modelos, canais, tools, cron/heartbeat, sono, RAM, deploy) — árvore de decisão por tópico. Use ao configurar/depurar o Kuromatsu, ao explicar como um subsistema funciona, ou antes de escrever documentação nova sobre ele (evita duplicar o que já existe em outro arquivo).
+description: Documentação canônica do Kuromatsu (config, modelos, canais, tools, cron/heartbeat, sono, RAM, deploy, instalação, interface web, automações) — árvore de decisão por tópico. Use ao configurar/depurar o Kuromatsu, ao explicar como um subsistema funciona, ou antes de escrever documentação nova sobre ele (evita duplicar o que já existe em outro arquivo).
 ---
 
 # Documentação do Kuromatsu
