@@ -111,6 +111,9 @@ O gateway sobe pelo `docker/entrypoint.sh`. Na primeira execução (sem
 `config.json` já montado nunca é reescrito. Nas execuções seguintes, o
 entrypoint apaga um arquivo de PID velho e roda `kuromatsu gateway`.
 
+A web UI escuta no loopback do container e não é alcançável de fora dele
+sem uma configuração deliberada: ver [webui.md](webui.md#em-docker).
+
 ## Backup
 
 Faça backup de `config.json`, `.security.yml`, `workspace/` e `telemetry/`

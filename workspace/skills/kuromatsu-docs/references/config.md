@@ -62,11 +62,16 @@ falhar o boot):
   (`C:\...`, `\\...`) num workspace configurado quando o processo está
   rodando em SO não-Windows, em vez de falhar de forma confusa depois.
 - `ValidateFocus` — nomes de janela referenciados em `origins`/`escalate_to`
-  existem de fato (ver `scheduling.md`).
+  existem de fato, e `memory`/`workspace`/`history` de cada janela têm um
+  valor conhecido (ver `scheduling.md`).
 - `ValidateTimezone` — `timezone`, se não vazio, tem que ser um nome IANA
   que `time.LoadLocation` conheça; senão o boot falha com
   `timezone "<valor>": ...`. Só valida: o `LoadConfig` nunca altera
   `time.Local`.
+- Chaves de canal reservadas — um canal em `channel_list` com a chave
+  `cli`, `system` ou `subagent` (nomes dos canais internos, tratados como
+  dono) falha o boot com `channel key "<nome>" is reserved for internal
+  use; rename the channel`.
 
 ## Fuso horário (`timezone`)
 

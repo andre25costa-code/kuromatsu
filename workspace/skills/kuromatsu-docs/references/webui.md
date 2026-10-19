@@ -104,6 +104,19 @@ gateway na rede.
 O gateway avisa no boot: `web UI reachable from the network over plain
 HTTP; prefer an SSH tunnel`. Não há TLS: prefira o túnel.
 
+## Em Docker
+
+O gateway escuta em `gateway.host` (padrão `localhost`, o loopback **do
+container**) e os composes de `docker/` não publicam porta. Então a UI não
+é alcançável de fora do container, nem pelo host. Configure pelo
+`config.json` montado ou pela CLI (`docker compose exec kuromatsu-gateway
+kuromatsu ...`). Expor a UI é uma decisão deliberada e exige as três coisas:
+`gateway.host` `0.0.0.0` (ou `KUROMATSU_GATEWAY_HOST`), a porta publicada
+só no loopback do host (`"127.0.0.1:18790:18790"`) e `webui.allow_remote:
+true`, porque a requisição chega pelo IP da rede do Docker e não como
+loopback. Aí só o token protege: nunca publique a porta em todas as
+interfaces.
+
 ## Exige reinício
 
 `webui.enabled`, `webui.allow_remote` e o token são lidos no start do

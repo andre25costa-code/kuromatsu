@@ -189,6 +189,39 @@ guardando o anterior como `<executável>.old`.
 - Não compara versões: roda sempre e reinstala a última release, mesmo que
   seja a versão atual.
 
+## Atualizar uma instalação existente
+
+Antes de trocar o binário de uma instalação que já roda, guarde cópias de
+`config.json`, `.security.yml`, `jobs.json` (em `<workspace>/cron/`) e do binário
+atual. Depois confira:
+
+- **`allow_from` vazio rejeita todos.** Cada canal ligado precisa de uma
+  lista não vazia (o primeiro remetente descartado aparece no log com o
+  ID). `"*"` abre o bot a qualquer pessoa; para usar `/cron` e
+  `/config set` num bot assim, liste também o seu ID: `["*", "123"]`.
+- **Jobs de comando com `..`** num caminho são bloqueados quando
+  `agents.defaults.restrict_to_workspace` está ligado: falham e, depois de
+  `tools.cron.max_consecutive_failures` falhas em pelo menos 1 h, são
+  desligados com aviso. Troque por um caminho absoluto dentro do workspace.
+- **O boot valida mais.** Uma janela de foco com nome de janela, `memory`,
+  `workspace` ou `history` desconhecido, `max_repeated_tool_calls` igual a
+  `1`, um `timezone` que o sistema não conhece e um canal com chave `cli`,
+  `system` ou `subagent` impedem o gateway de subir (ver
+  [config.md](config.md#validações-que-rodam-no-loadconfig)). Teste antes
+  com `kuromatsu status` apontando `KUROMATSU_HOME`/`KUROMATSU_CONFIG` para
+  uma cópia dos arquivos.
+- **Variável renomeada:** `KUROMATSU_MAX_SEARCH_RESULTS` ainda funciona,
+  com aviso no log; use `KUROMATSU_TOOLS_DISCOVERY_MAX_SEARCH_RESULTS`.
+- **Comportamentos novos:** a resposta exatamente `NADA` de um job não é
+  entregue ([automations.md](automations.md)); turnos de usuário param em
+  `agents.defaults.user_turn_max_minutes` (30 por padrão) e a terceira
+  chamada idêntica seguida de uma tool encerra o turno
+  ([config.md](config.md#guardas-do-loop-do-agente)).
+- **Voltar atrás** exige o binário anterior **e** o `config.json` de antes:
+  a qualquer gravação o binário novo escreve chaves que o antigo não
+  conhece (como `webui` e `user_turn_max_minutes`), e o antigo recusa campo
+  desconhecido. O `.security.yml` pode ficar.
+
 ## `kuromatsu uninstall [--purge] [--force] [--yes]`
 
 Sem flags, remove o binário instalado pelo instalador e as entradas de

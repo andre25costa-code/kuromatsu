@@ -61,6 +61,10 @@ build from source instead. Which platforms are tested: [Compatibility](#compatib
 Both installers accept `KUROMATSU_INSTALL_DIR` (install directory), `KUROMATSU_INSTALL_BASE_URL`
 (where the archives are; `file://` for a local build) and `KUROMATSU_INSTALL_NO_ONBOARD=1`.
 `kuromatsu update` replaces the binary with the latest release after checking its SHA-256.
+**Upgrading an existing install** changes some defaults (an empty `allow_from` now rejects
+everyone) and a rollback needs the previous `config.json` too: read the
+[upgrade checklist (pt-BR)](./workspace/skills/kuromatsu-docs/references/install.md#atualizar-uma-instalação-existente)
+first.
 `kuromatsu uninstall` removes the binary and the PATH lines and keeps your data;
 `kuromatsu uninstall --purge` also deletes the data directory, **after** writing
 `~/kuromatsu-backup-<date>.zip` (it refuses directories that do not look like a Kuromatsu home).
@@ -110,7 +114,9 @@ on a new config, the detected hardware profile; no provider or channel. To add a
 
 The gateway serves a configuration page at `http://localhost:18790/ui/`: assistant files,
 models, channels, permissions, skills, automations, heartbeat and status (in pt-BR, usable on a
-phone). It answers **only on loopback** by default. Treat the token like a password: whoever has
+phone). It answers **only on loopback** by default; in Docker that is the container's own
+loopback, so the page is not reachable from outside the container unless you expose it on
+purpose. Treat the token like a password: whoever has
 it can turn on command execution. From another machine, use an SSH tunnel:
 
 ```bash
