@@ -1,7 +1,8 @@
 # Deploy em produção
 
 Fonte real: `deploy/`, `scripts/deploy.sh`,
-`.github/workflows/build-native-image.yml`, ADR-013.
+`.github/workflows/build-native-image.yml` (decisão de projeto: o servidor
+roda o binário direto sob systemd, sem Docker em runtime).
 
 ## Alvo real
 
@@ -13,7 +14,7 @@ VM pequena (referência: Google Cloud e2-micro, 1 GB de RAM).
 `Type=notify` + `WatchdogSec=120` (o Kuromatsu publica `sd_notify` via
 `pkg/runstate` — ping de vida independente das transições de runstate, não
 mata um agente genuinamente ocioso). `MemoryMax=900M`/`MemoryHigh=850M`
-(orçamento de 1GB, ADR-013/017). `Environment=KUROMATSU_HOME=...` e
+(orçamento de uma VM de 1 GB; o memguard ajusta o limite do Go dentro dele). `Environment=KUROMATSU_HOME=...` e
 `KUROMATSU_CONFIG=...` **declarados explicitamente na unit** (evita
 ambiguidade sobre qual config está ativa). Endurecimento: `NoNewPrivileges`, `ProtectSystem=full`,
 `ProtectHome`, `ReadWritePaths` restrito ao `KUROMATSU_HOME`.

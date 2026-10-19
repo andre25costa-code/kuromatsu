@@ -1,7 +1,10 @@
 # Modo dormir (consolidação noturna)
 
 Fonte real: `pkg/sleep/`, `pkg/agent/sleep_bridge.go`, `pkg/config/sleep.go`.
-ADR-006/008/018.
+Decisões de projeto: o sono tem agendador próprio dentro do processo (não é
+um job de cron, que poderia ser apagado ou depender de canal); a memória é
+recuperada por busca textual (SQLite FTS5/BM25), sem embeddings; e o sono
+exige um modelo externo, nunca o nativo de 1 bit.
 
 ## O que faz
 
@@ -29,7 +32,7 @@ Bonsai nativo — ver "Exige modelo externo" abaixo), e aplica o resultado em
 `enabled: false` (default) — nenhuma goroutine/timer criada, sem custo
 nenhum em runtime.
 
-## Exige modelo externo (ADR-018)
+## Exige modelo externo
 
 `sleep.unconscious_model` (e, se a evolução usa cold path, `evolution.model`
 também) **tem que** resolver pra um provider que não seja nativo —
@@ -40,7 +43,7 @@ Sem modelo externo válido, o sono fica desligado com um log claro em vez de
 deixar o Bonsai "sonhar com os próprios pesos" — motivo: orçamento de CPU
 de uma VM pequena, e o Bonsai 1-bit nunca reescreve `MEMORY.md` sozinho.
 
-## Cursor por sessão (corrigido no audit de 2026-09-16, MEM-01)
+## Cursor por sessão
 
 Cada sessão tem um cursor **baseado em hash de conteúdo**
 (`state/sleep-cursors.json`, persistido — sobrevive a restart), avançado
@@ -53,7 +56,7 @@ essas sessões ficavam marcadas como "já vistas" e nunca eram tentadas de
 novo. Não confiar em nenhum outro lugar do código que pareça reintroduzir
 esse padrão (avançar cursor/marcar "visto" antes de confirmar sucesso).
 
-## Orçamento de tokens (corrigido no audit, MEM-02)
+## Orçamento de tokens
 
 `pkg/sleep/budget.go`: cada chamada reserva conservadoramente
 `len(system)+len(user)+512` bytes de entrada e manda `max_tokens` real ao
@@ -63,14 +66,14 @@ inflou o lote. Se o provider não reporta uso de tokens (`TotalTokens <= 0`),
 o Kuromatsu estima pelo tamanho do texto em vez de contar zero — sem essa
 estimativa, o orçamento nunca detectava esgotamento com um provider desses.
 
-## Deadline propagado até a chamada (corrigido no audit, MEM-03)
+## Deadline propagado até a chamada
 
 O fim da janela agendada agora é um `context.WithDeadline` que chega até a
 chamada real ao modelo (`runOnceContext`/`runTriage`), não só um valor
 comparado depois. Cancelamento no meio de uma chamada impede persistir
 memória parcial ou confirmar o cursor daquele lote — refaz do zero na
 próxima janela (mesma semântica de retry-do-zero que o resto do desenho já
-tinha, S17).
+tinha).
 
 ## O que o modo dormir NÃO garante
 
@@ -92,7 +95,7 @@ cria um agendamento (`sleepBridge`) independente por grupo — dois agentes
 com janela/modelo diferentes no mesmo processo rodam sono em horários
 diferentes, sem interferir um no outro; um agente com
 `sleep: {enabled: false}` próprio fica de fora mesmo com o sono global
-ligado para os demais. `ValidateSleep` aplica o mesmo gate do ADR-018
+ligado para os demais. `ValidateSleep` aplica a mesma exigência
 (modelo externo, não-nativo) a cada override por agente, não só ao bloco
 global.
 

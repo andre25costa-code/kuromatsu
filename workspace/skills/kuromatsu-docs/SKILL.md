@@ -1,11 +1,11 @@
 ---
 name: kuromatsu-docs
-description: Documentação canônica do Kuromatsu (config, modelos, canais, tools, cron/heartbeat, sono, RAM, deploy) — árvore de decisão por tópico. Use ao configurar/depurar o Kuromatsu, ao explicar como um subsistema funciona, ou antes de escrever documentação nova sobre ele (evita duplicar o que já existe em outro arquivo). ADR-010.
+description: Documentação canônica do Kuromatsu (config, modelos, canais, tools, cron/heartbeat, sono, RAM, deploy) — árvore de decisão por tópico. Use ao configurar/depurar o Kuromatsu, ao explicar como um subsistema funciona, ou antes de escrever documentação nova sobre ele (evita duplicar o que já existe em outro arquivo).
 ---
 
 # Documentação do Kuromatsu
 
-Fonte canônica única (ADR-010): um arquivo por tópico, sem duplicação. Se a
+Fonte canônica única: um arquivo por tópico, sem duplicação. Se a
 pergunta cabe num dos tópicos abaixo, a resposta já existe em `references/` —
 leia o arquivo certo antes de explicar de memória ou de criar documentação
 nova sobre o mesmo assunto.

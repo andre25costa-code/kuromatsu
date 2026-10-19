@@ -14,9 +14,9 @@ em `.security.yml`, indexada pelo `model_name`, nunca aqui.
 `model_list` deve manter o `model_name` configurado, não sobrescrevê-lo
 pelo ID físico devolvido pela fábrica do provider — fazer isso faz
 `/show model` e a resolução seguinte perderem de vista qual provider aquele
-modelo realmente é (achado real do audit, CFG-01/CFG-03: startup e reload
-faziam exatamente essa troca; corrigido em `pkg/gateway/gateway.go` e
-`cmd/kuromatsu/internal/agent/helpers.go` — preservar o alias).
+modelo realmente é (o startup e o reload já fizeram essa troca; hoje
+`pkg/gateway/gateway.go` e `cmd/kuromatsu/internal/agent/helpers.go`
+preservam o alias).
 
 ## O modelo nativo (Bonsai)
 
@@ -27,7 +27,7 @@ Roda `Bonsai-1.7B-Q1_0.gguf` in-process via cgo/llama.cpp
 (`pkg/providers/localllm/`). Só existe numa build com a tag `nativellm`
 (`make build-native`) **e** com o `.gguf` presente em disco — sem as duas
 coisas, a entrada semeada fica desabilitada silenciosamente
-(`ApplyNativeFallback`, BR-002), não é erro de config.
+(`ApplyNativeFallback`), não é erro de config.
 
 `ApplyNativeFallback` decide o papel do nativo nos **defaults globais**
 (`cfg.Agents.Defaults`): sem nenhuma chave de API configurada em lugar
@@ -56,9 +56,10 @@ provider — populado por `populateCandidateProvidersFromNames`/
 
 Estruturalmente é só mais uma entrada `provider: "ollama"`/openai-compat —
 o cabeçalho `Authorization: Bearer <chave>` já é enviado sempre que a chave
-existe, sem código dedicado. Ver ADR-019 para o exemplo completo de config
-(dois agentes, um só-nativo, outro com Ollama Cloud + nativo como
-fallback).
+existe, sem código dedicado. Exemplo de desenho: dois agentes em
+`agents.list`, um só com o nativo (`model.fallbacks` explícito sem entrada
+externa) e outro com Ollama Cloud como primário e o nativo como fallback
+(decisão de projeto: o fallback externo é por agente, não global).
 
 ## Schema de tools compacto (`tool_schema_transform: "compact"`)
 

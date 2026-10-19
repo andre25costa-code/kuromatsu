@@ -2,7 +2,8 @@
 
 Fonte real: `pkg/tools/cron.go`, `pkg/cron/service.go`,
 `pkg/heartbeat/service.go`, `pkg/agent/focus.go`, `pkg/config/focus.go`,
-`pkg/routing/focus.go`, ADR-014.
+`pkg/routing/focus.go` (decisão de projeto: o roteamento de foco e os
+reflexos são determinísticos e não gastam token de LLM).
 
 ## Janelas de foco (`agents.defaults.focus`)
 
@@ -58,7 +59,7 @@ hardware modesto.
 **`keep_alive_secs` tem que ser maior que o intervalo do heartbeat** (ou
 `-1`, nunca descarrega) — senão o modelo nativo recarrega do zero em todo
 heartbeat, o oposto do que o cache de prefixo existe pra evitar. Ver
-`memory-management.md`/S39 para o número real medido em produção.
+`memory-management.md`.
 
 ## Cron (`tools.cron`)
 
@@ -79,13 +80,12 @@ tarefa que não precisa de raciocínio.
 **Cuidado com erro técnico virando resposta ao usuário**: um job cujo
 payload é uma mensagem de LLM, se uma tool dentro do turno falhar, o
 próprio modelo formula a resposta final — inclusive podendo errar o
-diagnóstico do que aconteceu (achado de um audit interno de 2026-09-16,
-seção "Mensagem espontânea no Telegram"). Confirmado ao vivo em 2026-09-21
-que esse é exatamente o mecanismo por trás de um caso real: um job com
-`payload.message` em vez de `payload.command` acabou custando 7 cron jobs
-duplicados, porque `cron add` não é idempotente por `job_id` e o modelo,
-seguindo uma instrução de `HEARTBEAT.md` que não fazia sentido nesse
-servidor, insistiu em "agendar" a mesma coisa turno após turno. Prefira sempre
+diagnóstico do que aconteceu e chegando ao chat como uma mensagem
+espontânea. Um turno de LLM também pode repetir ações: um modelo seguindo
+uma instrução do `HEARTBEAT.md` que não fazia sentido já "agendou" a mesma
+coisa turno após turno. Hoje um `add` idêntico (mesmo nome, agenda,
+mensagem e destino) devolve o job existente em vez de duplicar, e um `add`
+idêntico com outro comando falha sem mudar nada; mesmo assim, prefira
 `payload.command` para qualquer notificação/checagem que não precise de
 raciocínio — não só é mais barato, é a diferença entre "um erro repetido"
 e "N efeitos colaterais reais repetidos".

@@ -16,11 +16,10 @@ ver `scheduling.md`. Uma tool que existe no registro global mas está fora
 da janela atual não é "não encontrada": o modelo recebe uma dica de nomes
 parecidos e, se insistir, o turno escala pra uma janela maior.
 
-## Isolamento entre agentes/sessões (achado de segurança, corrigido 2026-09-16)
+## Isolamento entre agentes/sessões
 
-Duas tools guardavam estado global sem checar a que sessão/agente ele
-pertencia — corrigido num audit interno de 2026-09-16
-(SEC-01/SEC-02):
+Duas tools guardam estado por sessão e checam a que sessão/agente ele
+pertence:
 
 - **`exec` (sessões de shell em background)**: cada `ProcessSession` agora
   tem um `owner` derivado da identidade real do runtime (workspace + agent
@@ -55,8 +54,8 @@ que o parâmetro existe.
 
 `pkg/tools/registry.go` loga metadados de execução (nome, contagem de
 argumentos, duração) — **não** loga o conteúdo dos argumentos nem o texto
-de erro completo (achado SEC-03 do audit: isso vazava potencialmente
-segredo/PII pro log, que é menos protegido que a resposta ao chamador).
+de erro completo (isso poderia vazar segredo/PII pro log, que é menos
+protegido que a resposta ao chamador).
 O detalhe do erro continua disponível na resposta normal da tool.
 
 ## `exec` — o essencial

@@ -5,9 +5,8 @@ Fonte real: `pkg/channels/`, `pkg/bus/`, `pkg/media/`, `pkg/identity/`,
 
 ## Canais que existem hoje
 
-Só estes quatro estão implementados e registrados (confirmado em
-`pkg/channels/`, 2026-09-21 — qualquer lista maior é de uma versão anterior
-do fork/upstream):
+Só estes quatro estão implementados e registrados em `pkg/channels/`
+(qualquer lista maior é de uma versão anterior do fork/upstream):
 
 | Sub-pacote | Nome registrado | Interfaces opcionais que implementa |
 |---|---|---|

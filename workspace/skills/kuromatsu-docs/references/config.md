@@ -8,10 +8,9 @@ Fonte real: `pkg/config/` (schema principal em `config.go`, `config_struct.go`).
   setado; senão `<GetHome()>/config.json`. `GetHome()` usa `KUROMATSU_HOME`
   se setado, senão o diretório default (`~/.kuromatsu` fora do Windows).
   **O diretório de trabalho (workspace) não substitui essa seleção** — uma
-  cópia de `config.json` dentro do workspace nunca é a config ativa
-  (achado real de um audit interno de 2026-09-16: uma cópia obsoleta em
-  `workspace/config.json` causou confusão justamente por parecer
-  autoritativa sem ser).
+  cópia de `config.json` dentro do workspace nunca é a config ativa. Um
+  `config.json` obsoleto dentro da pasta do workspace confunde justamente
+  por parecer autoritativo sem ser.
 - **`.security.yml`** — chaves de API e outros segredos, indexados pelo
   `model_name` do `model_list` (nunca em `config.json`).
 - `Config.SourcePath` (campo não persistido, populado por `LoadConfig`)
@@ -45,7 +44,7 @@ As mais usadas no dia a dia: `KUROMATSU_HOME`, `KUROMATSU_CONFIG`,
 
 **Compat legada**: env vars `PICOCLAW_*` (nome anterior do fork) continuam
 honradas como shim quando a variável `KUROMATSU_*` equivalente não está
-setada (`pkg/config/env_compat.go`, AC-008-3).
+setada (`pkg/config/env_compat.go`).
 
 ## Validações que rodam no `LoadConfig`
 
@@ -54,7 +53,8 @@ falhar o boot):
 
 - `ValidateSleep` — `sleep.unconscious_model` (se `sleep.enabled`) e
   `evolution.model` (se a evolução usa cold path) têm que resolver para um
-  provider **não-nativo** (ADR-018) — ver `sleep.md`.
+  provider **não-nativo** (decisão de projeto: o sono e a evolução nunca
+  rodam no modelo nativo de 1 bit) — ver `sleep.md`.
 - `ValidateAgentLoopGuards` — `agents.defaults.max_repeated_tool_calls`
   tem que ser `0` (desligado) ou `>= 2`; com `1` (ou negativo) o boot falha
   com `agents.defaults.max_repeated_tool_calls must be 0 (off) or >= 2`.
@@ -92,7 +92,7 @@ falhar o boot):
 Num terminal (stdin e stdout TTY), `kuromatsu onboard` roda um assistente em
 6 passos: idioma (linha `- Idioma preferido: pt-BR` / `- Preferred
 language: en` no `USER.md` do workspace), provedor de modelo com teste de
-conexão (`pkg/setup.ProbeModels`: Bearer para OpenAI-compatível e
+conexão (`ProbeModels` em `pkg/setup`: Bearer para OpenAI-compatível e
 OpenRouter, nada para Ollama, `x-api-key` + `anthropic-version` para
 Anthropic, `x-goog-api-key` para Gemini), canal Telegram (token no
 `.security.yml` e o ID do dono em `allow_from`), perfil de hardware, fuso e
@@ -103,7 +103,7 @@ falha; erro continua saindo com 1. Sem TTY, com `--non-interactive` ou com `--en
 antigo, sem perguntas (é o que o `install.sh`/`install.ps1` sem terminal e
 o Docker usam).
 
-Predefinições (`pkg/setup.ApplyPermissions`, também usadas pela web UI):
+Predefinições (`ApplyPermissions` em `pkg/setup`, também usadas pela web UI):
 
 | Chave | `seguro` | `assistente` | `avancado` |
 |---|---|---|---|
@@ -278,11 +278,13 @@ implícito `main`, usando `agents.defaults` inteiro — nenhum comportamento
 muda. Com `agents.list` preenchido, cada entrada pode sobrescrever
 `workspace`/`model`/`skills`/`heartbeat` campo a campo (fallback pro
 default quando omitido); `agents.dispatch.rules` roteia por
-canal/conta/chat para um `agent` específico. Ver ADR-019 para o desenho
-completo (pin `/agent`, precedência pin > dispatch > default, isolamento
-por `AgentInstance`).
+canal/conta/chat para um `agent` específico. Precedência: pin `/agent` >
+regra de dispatch > default; cada agente roda numa `AgentInstance` própria
+(decisão de projeto: multi-agente é opt-in e, sem `agents.list`, nada muda).
 
 ## Migração de config antiga
 
 Única migração hoje: `~/.picoclaw` → `~/.kuromatsu` (leitura in-place, sem
-reescrever nada) — ver `pkg/migrate/` e ADR-005.
+reescrever nada) — ver `pkg/migrate/` (decisão de projeto: o rebrand lê o
+diretório antigo no lugar, sem cópia, para não gastar disco e RAM numa
+máquina pequena).
