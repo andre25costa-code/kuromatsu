@@ -379,3 +379,23 @@ func TestLoadConfig_LegacyMigrationKeepsSecurityFileSecrets(t *testing.T) {
 	assert.NotContains(t, raw, "sk-file-secret")
 	assert.NotContains(t, raw, "123:tg-secret-token")
 }
+
+// A chat channel under an internal channel's key would make its senders
+// count as the owner, so such a key is refused at load.
+func TestLoadConfig_RejectsInternalChannelKeys(t *testing.T) {
+	for _, key := range []string{"cli", "system", "subagent"} {
+		t.Run(key, func(t *testing.T) {
+			path, _ := editTestPaths(t)
+			seed := DefaultConfig()
+			seed.Channels[key] = &Channel{Enabled: true, Type: "telegram", Settings: RawNode(`{}`)}
+			require.NoError(t, SaveConfig(path, seed))
+
+			_, err := LoadConfig(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "reserved")
+			_, err = LoadConfigForEdit(path)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "reserved")
+		})
+	}
+}

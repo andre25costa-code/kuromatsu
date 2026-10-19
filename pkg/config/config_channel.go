@@ -13,6 +13,7 @@ import (
 	"github.com/caarlos0/env/v11"
 	"gopkg.in/yaml.v3"
 
+	"github.com/andre25costa-code/kuromatsu/pkg/constants"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
@@ -597,10 +598,17 @@ func InitChannelList(channels ChannelsConfig) error {
 }
 
 // decodeChannelSettings sets the channel name from its map key, infers the
-// type from the name when it is empty, rejects unknown types, and decodes the
-// raw settings into the typed struct for that type. It reads no environment
-// and runs no validation beyond the type check.
+// type from the name when it is empty, rejects unknown types and the names of
+// internal channels, and decodes the raw settings into the typed struct for
+// that type. It reads no environment and runs no other validation.
+//
+// Messages carry the channel's key as their channel name, and the internal
+// names (cli, system, subagent) are trusted as the owner, so a chat channel
+// under one of those keys would give every accepted sender owner rights.
 func decodeChannelSettings(name string, bc *Channel) error {
+	if constants.IsInternalChannel(name) {
+		return fmt.Errorf("channel key %q is reserved for internal use; rename the channel", name)
+	}
 	bc.SetName(name)
 	if bc.Type == "" {
 		bc.Type = name
