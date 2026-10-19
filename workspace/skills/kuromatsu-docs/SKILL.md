@@ -23,6 +23,7 @@ nova sobre o mesmo assunto.
 | Modo dormir, consolidação de `MEMORY.md`, `pkg/sleep` | [references/sleep.md](references/sleep.md) |
 | Orçamento de RAM, `memguard`, PSI, `GOMEMLIMIT`, motor `runstate` | [references/memory-management.md](references/memory-management.md) |
 | Instalar (`install.sh`/`install.ps1`), `onboard`, perfis de hardware, `kuromatsu status`, `update`, `uninstall`, build do fonte e do nativo | [references/install.md](references/install.md) |
+| Interface web local (`/ui`): telas, token, `kuromatsu ui token\|open`, segurança, túnel SSH | [references/webui.md](references/webui.md) |
 | Deploy em servidor, systemd, Docker, CI | [references/deploy.md](references/deploy.md) |
 | Voz — transcrição (ASR) e síntese de fala (TTS) | [references/voice.md](references/voice.md) |
 | Isolamento de processos filhos (`bwrap`, tokens restritos) | [references/isolation.md](references/isolation.md) |

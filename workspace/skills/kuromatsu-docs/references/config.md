@@ -111,7 +111,8 @@ permissões da web UI gravam uma destas predefinições (`ApplyPermissions` em
 ## Web UI (`webui`)
 
 Página local de configuração servida pelo gateway em `/ui/` (API JSON em
-`/api/ui/`), no mesmo listener dos webhooks.
+`/api/ui/`). Telas, token, modelo de segurança e acesso remoto:
+[webui.md](webui.md).
 
 | Chave | Default | Env | Onde |
 |---|---|---|---|
@@ -119,46 +120,12 @@ Página local de configuração servida pelo gateway em `/ui/` (API JSON em
 | `webui.allow_remote` | `false` | `KUROMATSU_WEBUI_ALLOW_REMOTE` | `config.json` |
 | `webui.token` | criado pelo `onboard` ou por `kuromatsu ui token` | `KUROMATSU_WEBUI_TOKEN` | só no `.security.yml` |
 
-- **Token:** 32 bytes aleatórios em hex. Nasce só no `onboard` (quando falta)
-  ou no `kuromatsu ui token` (cria se faltar e imprime). O gateway nunca grava
-  o config: sem token ele não monta a UI e registra `web UI disabled: no
-  token; run 'kuromatsu ui token'`. `kuromatsu ui open` imprime a URL.
-- **Acesso:** com `allow_remote: false`, 403 para quem não é loopback
-  (`::ffff:127.0.0.1` conta), para qualquer cabeçalho de proxy
-  (`X-Forwarded-For`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `Forwarded`,
-  `X-Real-IP`, `CF-Connecting-IP`, `True-Client-IP`) e para `Host` fora de
-  `localhost`/`127.0.0.1`/`[::1]` (qualquer porta, então
-  `ssh -L 8080:localhost:18790` funciona). Um túnel que não acrescenta
-  cabeçalhos (`ssh -R`, `socat`) chega como loopback e aí só o token protege:
-  não exponha a porta inteira do gateway. Com `allow_remote: true` o gateway
-  avisa no boot e só essas checagens caem; token, Origin e CSRF continuam.
-- **Login:** `POST /api/ui/login {token}` cria a sessão (cookie `km_session`,
-  HttpOnly, SameSite=Strict, 12 h deslizantes, em memória: restart pede novo
-  login) e devolve o token CSRF. Scripts usam `Authorization: Bearer <token>`.
-  5 erros em 1 min por IP dão 429 até o minuto acabar (em loopback isso vale
-  para todo processo local; o Bearer não é limitado).
-- **CSRF/Origin:** com o cookie, toda mudança exige `Origin` (ou `Referer`)
-  igual a `http://<Host>` e o cabeçalho `X-CSRF-Token` da sessão. Sem CORS.
-- **Gravação:** cada mudança carrega o arquivo como está (`LoadConfigForEdit`,
-  sem valores do ambiente), valida com `config.ValidateForSave`, grava e pede o
-  mesmo reload do `/reload` (reload já em curso → 202, mudança salva).
-  Inválido → 422 e nada gravado. `allow_from` vazio num canal ligado é
-  recusado. Chave de modelo em branco mantém a atual; chaves nunca voltam
-  nas respostas.
-- **Arquivos do workspace:** só `SOUL.md`, `USER.md`, `AGENT.md` e
-  `HEARTBEAT.md`, até 256 KB.
+- **Exige reinício:** `webui.enabled`, `webui.allow_remote` e o token só
+  valem no próximo start do gateway.
 - Com os valores padrão (`enabled: true`, `allow_remote: false`) o bloco
   `webui` não é gravado no `config.json` (`WebUIConfig.IsZero` + `omitzero`),
   então um binário anterior a ele ainda carrega o arquivo. Um `enabled: false`
   explícito é gravado.
-- `webui.enabled`, `webui.allow_remote` e o token só valem no próximo start.
-  Em máquina compartilhada, use `webui.enabled: false`.
-- **Equivale a um shell:** o token e uma sessão logada podem ligar a execução
-  de comandos (tela de permissões); trate o token como senha. Cookies não são
-  isolados por porta: outros apps web locais abertos no mesmo navegador
-  (`http://localhost:<outra porta>`) podem receber o cookie da sessão. Em
-  máquina que roda apps web locais não confiáveis, deixe a UI desligada ou
-  saia (Sair) ao terminar.
 
 ## Guardas do loop do agente
 
