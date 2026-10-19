@@ -2,20 +2,8 @@
   <img src="./assets/readme/hero.png" width="100%" alt="Kuromatsu — the black-pine bonsai logo beside the promise: a personal AI agent that runs a 1-bit LLM inside its own binary, on a 1 GB VM">
 </p>
 
-<p align="center">
-  <a href="#quick-start">Quick start</a> ·
-  <a href="#how-it-works">How it works</a> ·
-  <a href="#configuration">Configuration</a> ·
-  <a href="#resumo-em-português">Português</a>
-</p>
-
-**Kuromatsu** is a personal AI agent written in Go that lives 24/7 on very small machines. It
-ships a 1-bit language model *inside its own binary* (no model server, no API key), talks to you
-over Telegram, WhatsApp or its own channel, runs scheduled routines, and keeps a long-term memory —
-reaching for a larger external model only when the language actually needs it.
-
-Like the bonsai it is named after (黒松, *black pine*), it is grown by pruning: every token, every
-megabyte and every CPU second on a burst-credit VM is treated as a budget.
+<p align="center"><a href="#install">Install</a> · <a href="#first-run">First run</a> · <a href="#automations">Automations</a> ·
+  <a href="#compatibility">Compatibility</a> · <a href="#resumo-em-português">Português</a></p>
 
 ## Running in production
 
@@ -31,6 +19,15 @@ native binary under systemd — no Docker. Numbers measured on that VM:
 | First reply through an external model | 1.9 s (Ollama-compatible endpoint) |
 | An idle heartbeat with nothing to do | 0 tokens, 0 model calls |
 
+## What it is
+
+**Kuromatsu** is a personal AI agent written in Go that lives 24/7 on very small machines. It
+ships a 1-bit language model *inside its own binary* (no model server, no API key), talks to you
+over Telegram, WhatsApp or its own channel, runs scheduled routines, and keeps a long-term memory —
+reaching for a larger external model only when the language actually needs it.
+
+Like the bonsai it is named after (黒松, *black pine*), it is grown by pruning: every token, every
+megabyte and every CPU second on a burst-credit VM is treated as a budget.
 
 ## How it works
 
@@ -38,262 +35,204 @@ native binary under systemd — no Docker. Numbers measured on that VM:
   <img src="./assets/readme/how-it-works.svg" width="100%" alt="Every message passes a zero-token reflex, a focus window that loads only what the turn needs, the in-process Bonsai model with KV prefix caching, and an external model only when it pays off. In the background run quiet routines, runstate and memguard, nightly sleep consolidation and per-turn telemetry.">
 </p>
 
-- **Reflexes** answer pattern-matched messages instantly, without calling any model.
-- **Focus windows** route each turn (by origin and content) to a small set of tools, skills and
-  memory, so the prompt stays short and cacheable.
-- **Native inference** runs Bonsai-1.7B through llama.cpp linked with cgo; the KV cache keeps the
-  stable prompt prefix between turns instead of re-reading it.
-- **External models** (any OpenAI- or Ollama-compatible API) take the turns that need more
-  language; credentials found in outgoing messages are masked and restored locally.
-- **Routines** are cron jobs that run plain commands and stay silent when everything is fine; the
-  model is woken only to interpret an anomaly, within a daily cap.
-- **Runstate + memguard** keep a bitmask of what the agent is doing and protect the 1 GB budget,
-  reading the service's real cgroup limit and kernel memory pressure (PSI).
-- **Sleep** consolidates long-term memory at night using an external model — never the 1-bit one.
-- **Telemetry** records tokens, cache hits and latency per turn in SQLite; `/stats` summarizes it.
+- **Reflexes** answer pattern-matched messages instantly; **focus windows** give each turn only
+  the tools, skills and memory it needs, so the prompt stays short and cacheable.
+- **Native inference** runs Bonsai-1.7B through llama.cpp (cgo), keeping the stable prompt prefix
+  in the KV cache; **external models** (any OpenAI- or Ollama-compatible API) take the turns that
+  need more language, with credentials masked on the way out.
+- **Routines** run plain commands, silent when all is fine; **runstate + memguard** protect the
+  1 GB budget (real cgroup limit, PSI); **sleep** consolidates memory at night on an external
+  model; **telemetry** records tokens, cache hits and latency per turn (`/stats`).
 
-## Quick start
-
-### Install a release (no Go, no root)
+## Install
 
 ```bash
 # Linux, macOS, Termux
 curl -fsSL https://raw.githubusercontent.com/andre25costa-code/kuromatsu/main/scripts/install.sh | sh
-```
-
-```powershell
 # Windows (PowerShell 5.1+)
 irm https://raw.githubusercontent.com/andre25costa-code/kuromatsu/main/scripts/install.ps1 | iex
 ```
 
 The installer downloads the archive for your OS and CPU from the latest release, checks its
-SHA-256 against `checksums.txt`, installs the binary in `~/.local/bin` (Termux: `$PREFIX/bin`;
-Windows: `%LOCALAPPDATA%\Kuromatsu\bin`), adds that directory to your user PATH and runs
-`kuromatsu onboard` (`--non-interactive` when there is no terminal). It never uses sudo. On
-Linux/macOS the PATH goes into `~/.profile`, plus `~/.bash_profile`, `~/.bash_login`,
-`~/.bashrc` and `~/.zshrc` when present (fish: run `fish_add_path ~/.local/bin`).
+SHA-256 against `checksums.txt`, installs the binary without root (`~/.local/bin`; Termux:
+`$PREFIX/bin`; Windows: `%LOCALAPPDATA%\Kuromatsu\bin`), adds it to your user PATH and runs
+`kuromatsu onboard`. If no release is published yet, it stops with `no release published yet`:
+build from source instead. Which platforms are tested: [Compatibility](#compatibility).
 
-| Variable | Default | Use |
-|---|---|---|
-| `KUROMATSU_INSTALL_BASE_URL` | latest GitHub release | where the archives are; `file://` to test a local build |
-| `KUROMATSU_INSTALL_DIR` | see above | install directory |
-| `KUROMATSU_INSTALL_NO_ONBOARD` | empty | `1` skips `kuromatsu onboard` |
+Both installers accept `KUROMATSU_INSTALL_DIR` (install directory), `KUROMATSU_INSTALL_BASE_URL`
+(where the archives are; `file://` for a local build) and `KUROMATSU_INSTALL_NO_ONBOARD=1`.
 
-macOS binaries are not notarized: a browser download is blocked by Gatekeeper, the `curl`
-install is not.
-
-To remove it: `kuromatsu uninstall` deletes the binary and the PATH lines and keeps your data;
-`kuromatsu uninstall --purge` also deletes the data directory after writing
-`~/kuromatsu-backup-<date>.zip`. It refuses directories without a Kuromatsu `config.json` or
-`.security.yml`, and your home directory or any directory containing it; it leaves alone a
-binary installed by a package manager (`apt remove kuromatsu`) and, on Windows, a PATH entry
-the installer did not add.
+`kuromatsu update` replaces the binary with the latest release after checking its SHA-256.
+`kuromatsu uninstall` removes the binary and the PATH lines and keeps your data;
+`kuromatsu uninstall --purge` also deletes the data directory, **after** writing
+`~/kuromatsu-backup-<date>.zip` (it refuses directories that do not look like a Kuromatsu home).
+Details, PATH handling per shell and every refusal: [install guide (pt-BR)](./workspace/skills/kuromatsu-docs/references/install.md).
 
 ### Build from source
 
-**Requirements:** Go 1.25+ and git. The pure-Go build needs nothing else and runs on Linux,
-macOS, Windows and Android/Termux (`pkg install golang git`), on amd64, arm64 and 32-bit ARM.
-
 ```bash
+# requires Go 1.25+ and git
 git clone https://github.com/andre25costa-code/kuromatsu.git
 cd kuromatsu
 go build -o kuromatsu ./cmd/kuromatsu   # on Windows: -o kuromatsu.exe
-
-./kuromatsu onboard                     # setup wizard: creates ~/.kuromatsu with config and workspace
-./kuromatsu agent -m "What can you do?" # talk to it from the terminal
-./kuromatsu gateway                     # starts the agent and its channels
+./kuromatsu onboard
 ```
 
-**First run.** In a terminal, `kuromatsu onboard` asks six questions, each with a default in
-brackets (Enter accepts it; `q` quits without writing anything, and onboard then exits with
-code 2, which the installers report as "setup skipped" without failing the install):
-
-1. language (Português or English; written as a line in the workspace `USER.md`, which sets
-   the language the agent answers in);
-2. model provider (OpenAI-compatible, local Ollama, Anthropic, Gemini or OpenRouter), with a
-   connection test that lists the models to pick from; if the test fails you can retry, edit,
-   save anyway with a model id, or skip;
-3. channel: Telegram (bot token and **your** numeric Telegram ID, which becomes `allow_from`)
-   or none;
-4. hardware profile (see below);
-5. timezone (the `timezone` key; the default is `TZ` or the zone read from `/etc/localtime` or
-   `/etc/timezone`, and when none is known, Enter leaves it empty, meaning the system zone);
-6. permission preset:
-
-| Key | Safe | Assistant | Advanced |
-|---|---|---|---|
-| `agents.defaults.restrict_to_workspace` | true | true | true |
-| `tools.exec.enabled` | false | false | true |
-| `tools.exec.allow_remote` | false | false | false |
-| `tools.web.enabled` | false | true | true |
-| `tools.cron.enabled` | false | true | true |
-| `tools.cron.allow_command` | false | false | true |
-
-No preset lets exec run from Telegram (`allow_remote` stays off: exec only runs from the
-terminal and internal channels); turning that on is a deliberate manual edit. On a new config,
-Enter at step 6 picks Assistant (exec off). `onboard --non-interactive` (also used when there
-is no terminal, e.g. installers and Docker) asks nothing and keeps the built-in defaults,
-which equal Advanced (exec on, internal channels only). Running `onboard` again starts from the
-current config: every step offers "Keep current" as its default, so Enter through all of them
-changes nothing in the config except writing a detected zone into an empty `timezone`.
-
-The `timezone` key (an IANA name such as `America/Sao_Paulo`; env `KUROMATSU_TIMEZONE`) sets
-the local time of the process. The `TZ` variable, when set, wins over it, and a change takes
-effect after a restart. Empty keeps `TZ` or the system zone.
-
-To add or switch a model later: `./kuromatsu model add -b https://openrouter.ai/api/v1 -k <your-key>`
-(any OpenAI-compatible endpoint: lists its models, saves the one you pick and makes it the
-default). For a local Ollama: `./kuromatsu model add -b http://localhost:11434/v1 -k ollama`.
-`make build` produces the same binary with release flags under `build/`.
-
-With the in-process model (Linux x86-64 with AVX2; needs `cmake` and a C/C++ toolchain):
+**Native model (optional).** Linux x86-64 with AVX2 and FMA, plus `cmake` and a C/C++ toolchain:
 
 ```bash
 git submodule update --init llama.cpp
-make build-native-x86-64   # links llama.cpp (AVX2) -> build/kuromatsu-native-linux-amd64
-scripts/download-model.sh  # fetches Bonsai-1.7B-Q1_0.gguf and checks its SHA-256
+make build-native-x86-64        # -> build/kuromatsu-native-linux-amd64
+bash scripts/download-model.sh  # fetches Bonsai-1.7B-Q1_0.gguf and checks its SHA-256
 ```
 
-### Release archives
+Without compiling, download `kuromatsu-native_Linux_x86_64.tar.gz` from the release (listed in
+the same `checksums.txt`; the installers never pick it). It is linked against the glibc and
+libstdc++ of Debian bookworm, so it needs that or a newer distribution ([details (pt-BR)](./workspace/skills/kuromatsu-docs/references/install.md)).
 
-Each GitHub release carries prebuilt binaries under fixed, version-less names, each with the
-`kuromatsu` binary (or `kuromatsu.exe`) and `LICENSE`:
+To run it as a service: [`deploy/systemd/`](./deploy/systemd) holds the unit (with `MemoryMax`)
+and [`docker/`](./docker) the compose files, whose entrypoint runs `onboard --non-interactive`
+on first start.
 
-| Platform | Archive |
+## First run
+
+```bash
+kuromatsu onboard                     # six questions, each with a default
+kuromatsu agent -m "What can you do?" # talk to it from the terminal
+kuromatsu gateway                     # starts the agent, its channels and the web UI
+```
+
+In a terminal, `onboard` asks for: **language**; **model provider** (OpenAI-compatible, local
+Ollama, Anthropic, Gemini or OpenRouter, with a connection test that lists the models);
+**Telegram** (bot token and your numeric ID) or no channel; **hardware profile**; **timezone**;
+and a **permission preset** (Safe, Assistant, Advanced — none lets chats run shell commands).
+`q` quits without writing anything. Running it again starts from the current config.
+`onboard --non-interactive` asks nothing (scripts, Docker, no terminal) and keeps the built-in
+defaults. To add a model later: `kuromatsu model add -b <api-base> -k <your-key>`.
+
+### Web UI
+
+The gateway serves a configuration page at `http://localhost:18790/ui/`: assistant files,
+models, channels, permissions, skills, automations, heartbeat and status (in pt-BR, usable on a
+phone). It answers **only on loopback** by default. Treat the token like a password: whoever has
+it can turn on command execution. From another machine, use an SSH tunnel:
+
+```bash
+kuromatsu ui token                          # prints the access token (created by onboard)
+kuromatsu ui open                           # prints the address
+ssh -L 18790:localhost:18790 <your-host>    # from another machine, then open the same URL
+```
+
+`webui.allow_remote` exposes the page over plain HTTP and is discouraged; prefer the tunnel.
+Security model, sessions and lockout: [web UI guide (pt-BR)](./workspace/skills/kuromatsu-docs/references/webui.md).
+
+### Hardware profiles
+
+On a new config, `onboard` reads RAM (the smaller of total RAM and the cgroup limit) and CPUs and
+writes a profile as plain config values (native context, threads, memguard, sub-turns, heartbeat):
+
+| Profile | When |
 |---|---|
-| Linux x86-64 / arm64 | `kuromatsu_Linux_x86_64.tar.gz`, `kuromatsu_Linux_arm64.tar.gz` |
-| Linux 32-bit ARM | `kuromatsu_Linux_armv6.tar.gz`, `kuromatsu_Linux_armv7.tar.gz` |
-| Linux, other | `kuromatsu_Linux_riscv64.tar.gz`, `kuromatsu_Linux_loong64.tar.gz`, `kuromatsu_Linux_s390x.tar.gz` |
-| macOS | `kuromatsu_Darwin_arm64.tar.gz`, `kuromatsu_Darwin_x86_64.tar.gz` |
-| Windows | `kuromatsu_Windows_x86_64.zip`, `kuromatsu_Windows_arm64.zip` |
-| Android / Termux (arm64) | `kuromatsu_Android_arm64.tar.gz` |
-| FreeBSD / NetBSD | `kuromatsu_Freebsd_x86_64.tar.gz`, `kuromatsu_Freebsd_arm64.tar.gz`, `kuromatsu_Freebsd_armv6.tar.gz`, `kuromatsu_Freebsd_armv7.tar.gz`, `kuromatsu_Netbsd_x86_64.tar.gz` |
-| Linux x86-64, native model (AVX2) | `kuromatsu-native_Linux_x86_64.tar.gz` |
+| Ultra-Light | RAM < 768 MiB |
+| Light | RAM < 2 GiB (equals the built-in defaults) |
+| Balanced | RAM < 8 GiB, or fewer than 4 CPUs |
+| Performance | 8 GiB or more and at least 4 CPUs |
 
-`checksums.txt` holds the SHA-256 of every archive. On Termux, use the Android archive rather
-than the Linux arm64 one: it finds the system CA certificates and avoids system calls that
-Android's seccomp filter kills.
-
-`kuromatsu update` downloads the archive whose name matches the running binary exactly and checks
-its SHA-256 before replacing itself. A native build only updates from
-`kuromatsu-native_Linux_x86_64.tar.gz`, and refuses a release that lacks it rather than
-dropping local inference.
+An existing config only changes with `kuromatsu onboard --profile <ultra-light|light|balanced|performance|auto>`
+or a choice in the wizard. `kuromatsu status` shows the hardware, the matching profile and
+whether the CPU has what the native build needs: without AVX2/FMA the native model is refused
+rather than loaded (see [Limits](#limits)).
 
 ## Configuration
 
 Configuration lives in `~/.kuromatsu/config.json`; secrets go in `.security.yml`. A minimal
-setup with an external model first and the native model as fallback:
+setup with an external model first, the native model as fallback, and Telegram for one user:
 
 ```json
 {
-  "agents": {
-    "defaults": {
-      "model_name": "cloud",
-      "model_fallbacks": ["bonsai-local"],
-      "focus": { "enabled": true }
-    }
-  },
+  "agents": { "defaults": {
+    "model_name": "cloud", "model_fallbacks": ["bonsai-local"], "focus": { "enabled": true } } },
   "model_list": [
-    { "model_name": "cloud", "provider": "ollama", "model": "<model>",
-      "api_base": "https://<your-endpoint>/v1" },
-    { "model_name": "bonsai-local", "provider": "native", "model": "Bonsai-1.7B-Q1_0",
-      "tool_schema_transform": "compact" }
-  ]
+    { "model_name": "cloud", "provider": "ollama", "model": "<model>", "api_base": "https://<your-endpoint>/v1" },
+    { "model_name": "bonsai-local", "provider": "native", "model": "Bonsai-1.7B-Q1_0", "tool_schema_transform": "compact" }
+  ],
+  "channel_list": {
+    "telegram": { "enabled": true, "type": "telegram", "allow_from": ["<your-telegram-user-id>"] }
+  }
 }
 ```
 
-**Hardware profiles.** `kuromatsu onboard` on a new config detects RAM (the smaller of total
-RAM and the cgroup limit) and CPUs and writes one of four profiles as plain config values:
-Ultra-Light (< 768 MiB), Light (< 2 GiB), Balanced (< 8 GiB, or fewer than 4 CPUs) or
-Performance. A profile sets the native model's context size and threads, the memguard limits,
-the sub-turn limits and the heartbeat interval; Light equals the built-in defaults. An existing
-config only changes with `kuromatsu onboard --profile <ultra-light|light|balanced|performance|auto>`
-or an explicit choice in the wizard,
-and `kuromatsu status` shows the detected hardware and which profile the config matches.
+The full reference — every key, channel, tool and schedule — is the `kuromatsu-docs` skill the
+agent itself reads: [`workspace/skills/kuromatsu-docs`](./workspace/skills/kuromatsu-docs/SKILL.md) (pt-BR).
 
-Channels: **Telegram**, **WhatsApp** and the built-in **Pico** channel. Every channel is
-fail-closed: a channel with an empty `allow_from` **rejects everyone** and logs an error at
-boot (the first dropped message also logs the sender ID, so you can copy it). List your own
-ID, or use `"*"` to open the bot to anyone on purpose:
+### Security
 
-```json
-"channel_list": {
-  "telegram": { "enabled": true, "type": "telegram", "allow_from": ["<your-telegram-user-id>"] }
-}
+Channels are **Telegram**, **WhatsApp** and the built-in **Pico**. Each is fail-closed: an empty
+`allow_from` **rejects everyone** (the first dropped message logs the sender ID so you can copy
+it). `"*"` opens the bot **to anyone**, so use it only on purpose; even then, changing things
+from chat (`/config set`, `/cron` pause/resume/run/new) needs your numeric ID in the list too,
+as in `["*", "<your-telegram-user-id>"]`. Pico uses `"*"` because its token gates access.
+
+Shell commands requested from a chat are off by default (`tools.exec.allow_remote`). The exec
+guard is a best-effort pattern filter, **not a sandbox**; child-process isolation is separate
+and off by default: [isolation (pt-BR)](./workspace/skills/kuromatsu-docs/references/isolation.md).
+
+## Automations
+
+```text
+/cron templates                         list the ready-made automations
+/cron new lembrete texto="drink water" todo_dia=15:00
+/cron list | pause <id> | resume <id> | run <id> | history <id>
+/config                                 summary of the config, no secrets
+/config set heartbeat.interval 30       only a short list of safe keys
 ```
 
-Upgrading from a version where an empty `allow_from` accepted anyone? Set `allow_from` on
-every enabled channel before restarting, or the bot goes silent.
+Four templates: `lembrete` (reminder), `resumo-diario` (daily summary), `monitorar-pagina`
+(watch a page for a condition) and `pesquisa-diaria` (daily research). Anyone the channel accepts
+can read; changing needs the sender's numeric ID in `allow_from`. Security keys never change from chat.
 
-**Pico.** Its sender is fixed and access is gated by the token (compared in constant time), so
-use `"allow_from": ["*"]`. The built-in default `pico` entry has no `allow_from`: if you only
-write `"enabled": true`, add `"allow_from": ["*"]` as well. `allow_origins` (under `settings`)
-is the list of Origins accepted on the WebSocket; empty accepts any Origin, and the token is
-still required.
+Other ways to schedule: ask the agent in plain language, use the **Automations** screen of the
+web UI, run `kuromatsu cron add --command '…' --quiet` for deterministic routines that speak
+only on anomaly, or write `HEARTBEAT.md` for periodic tasks that need judgment. Every job keeps
+its real status and run history, and is switched off after repeated failures, with a notice.
+How-to and re-enabling: [automations guide (pt-BR)](./workspace/skills/kuromatsu-docs/references/automations.md).
 
-Shell commands requested from a chat are off by default; enable them only for channels you
-trust with `"tools": { "exec": { "allow_remote": true } }`.
+### Loop protections
 
-Agent-loop guards (all under `agents.defaults`): `user_turn_max_minutes` caps a whole user
-turn, **30 minutes by default** — this also applies to the CLI and to turns on the slow native
-model, so a very long legitimate turn ends with an error naming the key; set it to `0` to turn
-the cap off. `max_repeated_tool_calls` (default 3, `0` = off) ends a turn that keeps making the
-same tool call with the same result, and `subturn.max_concurrent_global` (default 8 per depth
-level) caps concurrent sub-turns process-wide. `user_turn_max_minutes` and the sub-turn pools
-(`subturn.max_concurrent_global`, `subturn.max_depth`) are read at startup: restart after
-changing them, a live config reload does not apply them.
+Under `agents.defaults`: `user_turn_max_minutes` (default 30, `0` = off) caps a whole user turn,
+also on the CLI and the slow native model; `max_repeated_tool_calls` (default 3) ends a turn
+that keeps repeating the same call with the same result; `subturn.max_concurrent_global`
+(default 8 per depth level) caps concurrent sub-turns. Each exec call has its own timeout
+(`tools.exec.timeout_seconds`, default 60). The turn cap and sub-turn pools are read at
+startup; restart after changing them.
 
-Scheduling:
-`kuromatsu cron add --command '…' --quiet` for deterministic routines, `HEARTBEAT.md` for
-periodic tasks that need judgment. The workspace (`AGENT.md`, `SOUL.md`, `USER.md`,
-`HEARTBEAT.md`, `memory/`) defines who the agent is; the repository ships a neutral template.
+## Compatibility
 
-**Web UI.** The gateway serves a configuration page at `http://localhost:18790/ui/`
-(`kuromatsu ui open` prints the address): assistant files, models, channels and permission
-presets, skills, automations, heartbeat and status, in pt-BR, usable on a phone. It answers only
-from loopback, refuses requests carrying proxy headers (`X-Forwarded-For`, `Forwarded`, ...)
-and any `Host` other than `localhost`, `127.0.0.1` or `[::1]`, and needs the access token
-printed by `kuromatsu ui token` (created by `onboard`, stored in `.security.yml`; the gateway
-never creates it and does not serve the page without one). From another machine, use an SSH
-tunnel (`ssh -L 18790:localhost:18790 <host>`); do not tunnel or proxy the whole gateway port
-to the internet. Five wrong logins in a minute lock the login for that minute (on loopback
-this applies to every local process; the Bearer token keeps working for scripts). On a shared
-machine, set `"webui": {"enabled": false}`. The token and a logged-in session are shell-equivalent: the
-permissions page can turn on command execution, so treat the token like a password. Browser
-cookies are not isolated by port, so other local web apps opened in the same browser
-(`http://localhost:<other port>`) can receive the session cookie; on machines that run untrusted
-local web apps, keep the UI disabled or log out when done. `webui.enabled`, `webui.allow_remote` and the
-token apply on the next gateway start.
-
-The full reference — every config key, channel, tool, schedule and the sleep mode — is the
-`kuromatsu-docs` skill the agent itself reads: [`workspace/skills/kuromatsu-docs`](./workspace/skills/kuromatsu-docs/SKILL.md).
-
-## Deployment
-
-The production path is a native binary under systemd on Linux x86-64:
-[`deploy/systemd/`](./deploy/systemd) holds the unit (with `MemoryMax`) and
-[`deploy/`](./deploy) the sysctl and nftables tuning. Copy the binary, install the unit and
-start it — no container runtime needed. Docker files remain in [`docker/`](./docker) for local use.
+On Termux, use the Android archive, not the Linux arm64 one. macOS binaries are not notarized:
+a browser download is blocked by Gatekeeper, the `curl` install is not.
 
 ## Limits
 
 - Native generation is slow on shared CPUs; Kuromatsu is built to need the native model rarely,
   not to make it fast.
 - The native build targets x86-64 with AVX2 and FMA; other platforms use the pure-Go build with
-  external models. On a CPU without AVX2/FMA the native binary refuses the native model (`kuromatsu
-  status` shows `Native CPU ✗ missing ...`), but llama.cpp's own startup code may still crash
-  there before Kuromatsu runs: on such a CPU, use the pure-Go release.
-- Memory search is lexical (SQLite FTS5, used by `memory: retrieved`); there is no semantic
-  (embeddings) search yet.
+  external models. On a CPU without them, Kuromatsu refuses the native model, but llama.cpp's own
+  startup code may still crash first: use the pure-Go release there.
+- The web UI answers only on loopback by default; there is no TLS.
+- Memory search is lexical (SQLite FTS5); there is no semantic (embeddings) search yet.
 
 ## Resumo em português
 
-O **Kuromatsu** é um agente pessoal de IA em Go que roda 24/7 em máquinas pequenas — a referência
-é uma VM e2-micro do Google Cloud com 1 GB de RAM. Ele carrega um modelo de linguagem de 1 bit
-(Bonsai-1.7B) **dentro do próprio binário**, conversa por Telegram, WhatsApp ou canal próprio,
-executa rotinas agendadas que só acordam o modelo quando algo sai do normal, e consolida a
-memória de longo prazo à noite usando um modelo externo. Cada token, megabyte e segundo de CPU é
-tratado como orçamento.
+O **Kuromatsu** é um agente pessoal de IA em Go para máquinas pequenas (a referência é uma VM
+e2-micro com 1 GB de RAM), com um modelo de 1 bit (Bonsai-1.7B) **dentro do próprio binário**.
+Instala em um comando (`install.sh` no Linux, macOS e Termux; `install.ps1` no Windows), sem
+root e com checksum, e em seguida roda o `kuromatsu onboard`, um assistente de seis perguntas
+(idioma, modelo, Telegram, perfil de hardware, fuso, permissões). A página web local fica em
+`http://localhost:18790/ui/`, só por loopback, com o token de `kuromatsu ui token`; de outra
+máquina, use um túnel SSH. Automações por `/cron` no chat, pela tela Automações ou pelo
+`HEARTBEAT.md`; alterar pelo chat exige o seu ID numérico no `allow_from`. Os perfis Ultra-Light,
+Light, Balanced e Performance gravam valores explícitos no config. Documentação completa em
+pt-BR: skill [`kuromatsu-docs`](./workspace/skills/kuromatsu-docs/SKILL.md).
 
 ## Credits
 
