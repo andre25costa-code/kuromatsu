@@ -165,9 +165,11 @@ agent itself reads: [`workspace/skills/kuromatsu-docs`](./workspace/skills/kurom
 
 Channels are **Telegram**, **WhatsApp** and the built-in **Pico**. Each is fail-closed: an empty
 `allow_from` **rejects everyone** (the first dropped message logs the sender ID so you can copy
-it). `"*"` opens the bot **to anyone**, so use it only on purpose; even then, changing things
-from chat (`/config set`, `/cron` pause/resume/run/new) needs your numeric ID in the list too,
-as in `["*", "<your-telegram-user-id>"]`. Pico uses `"*"` because its token gates access.
+it). `"*"` opens the bot **to anyone**, so use it only on purpose; even then, the slash
+commands that change things (`/config set`, `/cron` pause/resume/run/new) need your numeric ID
+in the list too, as in `["*", "<your-telegram-user-id>"]`. Asking the agent instead, any
+accepted sender can manage the message jobs of their own chat. Pico uses `"*"` because its token
+gates access.
 
 Shell commands requested from a chat are off by default (`tools.exec.allow_remote`). The exec
 guard is a best-effort pattern filter, **not a sandbox**; child-process isolation is separate
@@ -185,7 +187,9 @@ and off by default: [isolation (pt-BR)](./workspace/skills/kuromatsu-docs/refere
 
 Four templates: `lembrete` (reminder), `resumo-diario` (daily summary), `monitorar-pagina`
 (watch a page for a condition) and `pesquisa-diaria` (daily research). Anyone the channel accepts
-can read; changing needs the sender's numeric ID in `allow_from`. Security keys never change from chat.
+can read; changing with `/cron` or `/config set` needs the sender's numeric ID in `allow_from`.
+Asking the agent, any accepted sender can create, change and delete the message jobs of their own
+chat. Security keys never change from chat.
 
 Other ways to schedule: ask the agent in plain language, use the **Automations** screen of the
 web UI, run `kuromatsu cron add --command '…' --quiet` for deterministic routines that speak
@@ -241,7 +245,8 @@ root e com checksum, e em seguida roda o `kuromatsu onboard`, um assistente de s
 (idioma, modelo, Telegram, perfil de hardware, fuso, permissões). A página web local fica em
 `http://localhost:18790/ui/`, só por loopback, com o token de `kuromatsu ui token`; de outra
 máquina, use um túnel SSH. Automações por `/cron` no chat, pela tela Automações ou pelo
-`HEARTBEAT.md`; alterar pelo chat exige o seu ID numérico no `allow_from`. Os perfis Ultra-Light,
+`HEARTBEAT.md`; alterar por `/cron` ou `/config set` exige o seu ID numérico no `allow_from`
+(pedindo ao agente, qualquer remetente aceito gere os jobs de mensagem do próprio chat). Os perfis Ultra-Light,
 Light, Balanced e Performance gravam valores explícitos no config. Documentação completa em
 pt-BR: skill [`kuromatsu-docs`](./workspace/skills/kuromatsu-docs/SKILL.md).
 

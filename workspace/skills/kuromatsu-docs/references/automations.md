@@ -18,8 +18,11 @@ heartbeat) está em [scheduling.md](scheduling.md).
    (abaixo). O job é entregue no chat que o criou.
 3. **Web UI:** tela Automações (ver [webui.md](webui.md)). O destino
    padrão é o primeiro canal ligado (em ordem de nome) com uma entrada de
-   `allow_from` diferente de `*`, reduzida ao ID quando tem um; sem isso, o
-   primeiro canal ligado, sem destinatário.
+   `allow_from` diferente de `*`, reduzida ao ID quando tem um; sem isso,
+   canal e destinatário ficam vazios e você escolhe. Canal vazio, interno
+   (`cli`, `system`, `subagent`), inexistente ou desligado, ou destinatário
+   vazio, é recusado (422), porque o turno do job roda com a confiança do
+   canal. O mesmo vale para o `/cron new`.
 4. **CLI:** `kuromatsu cron add` (`--cron` + `--tz`, `--every <segundos>`,
    `--message` para um turno do agente ou `--command` para um comando sem
    LLM, `--channel`/`--to` para o destino, `--quiet`/`--anomaly-regex`/
@@ -84,7 +87,8 @@ API) nunca mudam pelo chat: use a web UI ou a CLI.
 
 ## Quem pode alterar pelo chat (regra de dono)
 
-Ler (`/cron list|history|templates`) vale para qualquer remetente aceito
+A regra de dono vale para os comandos de barra `/cron` e `/config`. Ler
+(`/cron list|history|templates`) vale para qualquer remetente aceito
 pelo canal. Alterar (`/cron pause|resume|run|new`, `/config set`) exige ser
 o dono: canal interno (`cli`, `system`, `subagent`), ou o **ID** do
 remetente listado no `allow_from` do canal como `123`, `telegram:123` ou
@@ -94,6 +98,18 @@ WhatsApp o ID é o JID que chega como remetente (`5511999999999@s.whatsapp.net`,
 `whatsapp:<jid>`. Num bot aberto (`["*"]`) sem o ID do dono, ninguém altera
 pelo chat, e o resumo do `/config` também fica restrito ao dono. Por isso,
 num bot aberto, liste também o seu ID: `["*", "123"]`.
+
+Fora dos comandos de barra a regra é outra:
+
+- **Pedindo ao agente** (tool `cron`), qualquer remetente aceito pelo canal
+  cria, altera, liga/desliga, roda e apaga jobs de **mensagem** do próprio
+  chat, sem ser o dono. Num grupo aberto (`["*"]`), qualquer membro pode
+  então apagar ou reescrever os lembretes daquele grupo. Jobs de outros
+  chats ficam fora de alcance. Jobs de **comando** seguem
+  `tools.cron.command_allowed_remotes` (vazio por padrão: só canais
+  internos).
+- **Web UI:** quem tem o token (ou uma sessão logada) altera tudo; ver
+  [webui.md](webui.md).
 
 ## Resposta silenciosa `NADA`
 

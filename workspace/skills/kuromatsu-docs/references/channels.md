@@ -156,9 +156,10 @@ em `config.json`.
 - **Formatos aceitos** (`MatchAllowed`, `pkg/identity`): `"123456"` (ID da
   plataforma), `"telegram:123456"` (canônico, exato), `"123456|alice"`
   (legado: ID ou username), `"@alice"` (username).
-- **Dono:** só um **ID** conta como dono para alterar coisas pelo chat
-  (`/cron`, `/config set`); `@alice` e `*` deixam falar, mas não
-  dão esse direito. A regra completa, inclusive o JID do WhatsApp e o caso
+- **Dono:** só um **ID** conta como dono para alterar coisas pelos
+  comandos de barra (`/cron`, `/config set`); `@alice` e `*` deixam falar,
+  mas não dão esse direito. Pedindo ao agente, qualquer remetente aceito
+  gere os jobs de mensagem do próprio chat. A regra completa, inclusive o JID do WhatsApp e o caso
   `["*"]`, está em [automations.md](automations.md#quem-pode-alterar-pelo-chat-regra-de-dono).
 - **Pico (`pico`/`pico_client`):** o remetente é fixo e a autenticação é o
   token do canal (no `pico`, obrigatório: sem ele o canal não sobe, `pico
