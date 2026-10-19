@@ -27,8 +27,8 @@ heartbeat) está em [scheduling.md](scheduling.md).
    julgamento a cada execução, prefira o `HEARTBEAT.md` (ver
    [scheduling.md](scheduling.md)).
 
-Um `add` idêntico a um job existente (mesmo nome, agenda, mensagem e
-destino) devolve o job existente em vez de duplicar.
+Repetir a criação de um job idêntico não duplica (regra em
+[scheduling.md](scheduling.md#cron-toolscron)).
 
 ## Catálogo de modelos
 
@@ -115,8 +115,10 @@ religar, corrija a causa (`/cron history <id>` ou `kuromatsu cron history
 
 - `/cron resume <id>` no chat;
 - Retomar na tela Automações;
-- `kuromatsu cron enable <id>`, ou `kuromatsu cron edit <id>` mudando a
-  agenda ou o conteúdo.
+- `kuromatsu cron enable <id>`.
+
+`kuromatsu cron edit <id>` mudando a agenda ou o conteúdo zera a contagem
+de falhas, mas **não** religa o job.
 
 ## Proteções de loop em turnos de automação
 

@@ -145,8 +145,10 @@ job roda, ou com o gateway parado, se perde).
 - **Rename no Windows:** o `jobs.json` é gravado de forma atômica
   (arquivo temporário + rename). No Windows o rename pode falhar se outro
   processo estiver com o arquivo aberto (antivírus, indexador, um editor).
-  A falha é registrada (`Failed to write cron store`), o estado em memória
-  continua valendo e a próxima alteração grava o arquivo inteiro de novo.
+  A falha é registrada (`Failed to write cron store`) e quem pediu a
+  alteração recebe erro; o processo que falhou continua com o estado novo
+  em memória (o do outro processo pode diferir) e a próxima alteração grava
+  o arquivo inteiro de novo.
 - **Auto-desligamento:** um job de alta frequência que falha por mais de
   1 h seguida (e pelo menos `max_consecutive_failures` vezes) é desligado
   e fica desligado até alguém religar (ver

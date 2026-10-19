@@ -16,8 +16,8 @@ AVX2). Sem AVX2+FMA a CPU não roda o modelo nativo (guarda de CPU em
 
 ## Binário: release nativa ou build do CI
 
-- **Release:** o `kuromatsu-native_Linux_x86_64.tar.gz` (glibc/libstdc++
-  de nível Debian bookworm ou mais novo) vem no `checksums.txt` da release.
+- **Release:** o `kuromatsu-native_Linux_x86_64.tar.gz` (requisitos de
+  sistema em [install.md](install.md#build-a-partir-do-fonte)) vem no `checksums.txt` da release.
   Depois de instalado, `kuromatsu update` nesse binário só aceita o arquivo
   nativo (detalhes em [install.md](install.md#kuromatsu-update)).
 - **CI:** `.github/workflows/build-native-image.yml` builda a imagem

@@ -52,8 +52,7 @@ fallback **entre providers diferentes**, não só entre modelos do mesmo
 provider — populado por `populateCandidateProvidersFromCandidates`.
 
 O limite de contexto do modelo nativo como **primário** nos perfis pequenos
-(`n_ctx` ≤ 2048 contra um primeiro turno de ~2,9 mil tokens) está em
-[config.md](config.md#perfis-de-hardware).
+está em [config.md](config.md#perfis-de-hardware).
 
 ## Ollama Cloud como fallback externo
 

@@ -117,8 +117,8 @@ permissões da web UI gravam uma destas predefinições (`ApplyPermissions` em
 - `setup.MatchPermissions` devolve a predefinição cujos 6 valores batem, ou
   `custom`. O `DefaultConfig()` bate exatamente com `avancado` (exec ligado
   só em canais internos, cron com comandos).
-- Numa config nova, Enter no passo 6 escolhe `assistente` (exec desligado);
-  o `--non-interactive` mantém o `DefaultConfig()` (= `avancado`).
+- O que o assistente e o `--non-interactive` escolhem numa config nova está
+  em [install.md](install.md).
 
 ## Web UI (`webui`)
 

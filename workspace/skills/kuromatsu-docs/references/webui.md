@@ -52,7 +52,7 @@ Em ordem, para cada requisição:
 2. **Lista de `Host`** (com `allow_remote: false`): só `localhost`,
    `127.0.0.1` e `[::1]`, em qualquer porta (então um túnel numa outra
    porta local funciona). Outro nome: 403, o que barra DNS rebinding.
-3. **Cabeçalhos:** CSP restrita a `'self'`, `X-Frame-Options: DENY`,
+3. **Cabeçalhos:** CSP restrita a `'self'` (imagens também `data:`), `X-Frame-Options: DENY`,
    `nosniff`, `Referrer-Policy: same-origin`; a API responde
    `Cache-Control: no-store`. Caminhos não canônicos (`..`, `//`) dão 404.
 4. **Autenticação:** `POST /api/ui/login {"token": ...}` (com `Origin`

@@ -75,10 +75,16 @@ O detalhe do erro continua disponível na resposta normal da tool.
   30 min e depois some. `poll`/`read`/`write`/`kill` operam sobre ela —
   sempre sujeitas à checagem de dono acima. Saída: até 10.000 bytes numa
   execução em primeiro plano, buffer de 1 MB numa sessão em background.
-- **Guarda de comandos:** padrões de negação (`enable_deny_patterns`,
-  ligado por padrão, mais `custom_deny_patterns`), allowlist opcional
-  (`custom_allow_patterns`) e, com `agents.defaults.restrict_to_workspace`,
-  bloqueio de `..` como caminho e de caminhos absolutos fora do workspace.
+- **Guarda de comandos:** padrões de negação padrão
+  (`enable_deny_patterns`, ligado por padrão). `custom_deny_patterns` só
+  vale enquanto `enable_deny_patterns` está ligado; com ele desligado,
+  nenhum padrão de negação se aplica. Com
+  `agents.defaults.restrict_to_workspace`, há também o bloqueio de `..`
+  como caminho e de caminhos absolutos fora do workspace.
+- **`custom_allow_patterns` hoje não tem efeito:** as expressões só são
+  compiladas (uma regex inválida impede o exec de subir), mas não restringem
+  os comandos a uma lista nem os isentam dos padrões de negação. Não conte
+  com ela como allowlist.
 
 ### Riscos residuais da guarda do exec
 
