@@ -133,9 +133,24 @@ pode alterar jobs com o gateway rodando: o gateway relê `jobs.json` quando
 o conteúdo muda (no máximo a cada 1 min, e antes de cada alteração e de
 cada leitura da tool), sem recalcular o próximo disparo. `run-now` só marca
 o job como devido; quem o executa é o gateway (um `run-now` feito enquanto o
-job roda, ou com o gateway parado, se perde). Não há trava entre
-processos: uma gravação da CLI no mesmo instante de uma gravação do gateway
-pode se perder.
+job roda, ou com o gateway parado, se perde).
+
+### Riscos residuais do cron
+
+- **Lost update entre CLI e gateway:** não há trava entre processos. O
+  gateway relê o `jobs.json` antes de cada alteração, mas uma gravação da
+  CLI no mesmo instante de uma gravação do gateway pode se perder (a
+  última grava por cima). Depois de editar pela CLI com o gateway
+  rodando, confira com `kuromatsu cron list`.
+- **Rename no Windows:** o `jobs.json` é gravado de forma atômica
+  (arquivo temporário + rename). No Windows o rename pode falhar se outro
+  processo estiver com o arquivo aberto (antivírus, indexador, um editor).
+  A falha é registrada (`Failed to write cron store`), o estado em memória
+  continua valendo e a próxima alteração grava o arquivo inteiro de novo.
+- **Auto-desligamento:** um job de alta frequência que falha por mais de
+  1 h seguida (e pelo menos `max_consecutive_failures` vezes) é desligado
+  e fica desligado até alguém religar (ver
+  [automations.md](automations.md#reabilitar-um-job-auto-desligado)).
 
 ### Criar e gerir automações
 

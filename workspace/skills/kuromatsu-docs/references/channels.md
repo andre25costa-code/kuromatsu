@@ -122,9 +122,8 @@ ainda não está bem definido. Não é um bug esquecido; é uma decisão adiada.
 ## `pkg/identity/identity.go` — identidade canônica
 
 `BuildCanonicalID("telegram", "123456")` → `"telegram:123456"`.
-`MatchAllowed` aceita 4 formatos numa allow-list: `"123456"` (PlatformID),
-`"@alice"` (Username), `"123456|alice"` (legado, ou/ou), e
-`"telegram:123456"` (canônico, match exato).
+`MatchAllowed` compara um remetente com uma entrada de `allow_from` nos
+formatos listados em "Quem pode falar com o bot" abaixo.
 
 ## Como adicionar um canal novo
 
@@ -145,9 +144,27 @@ ainda não está bem definido. Não é um bug esquecido; é uma decisão adiada.
 Convenção de config: cada entrada de `channel_list` tem campos comuns no
 nível superior (`enabled`, `type`, `allow_from`) e o específico do canal
 dentro de `settings`; segredos (token, senha) vão em `.security.yml`, nunca
-em `config.json`. `allow_from` vazio **rejeita todos** (fail-closed, ERR no
-boot); acesso aberto só com `["*"]` explícito. No `pico`/`pico_client` o
-remetente é fixo e a autenticação é o token: use `["*"]`.
+em `config.json`.
+
+## Quem pode falar com o bot (`allow_from`)
+
+- **Vazio rejeita todos** (fail-closed): o boot registra
+  `allow_from is empty: every message on this channel will be rejected`
+  (ERR, com uma dica), e a primeira mensagem descartada registra um WARN
+  com o `sender_id` — é o jeito mais fácil de descobrir o seu ID.
+- **`["*"]` abre de propósito:** qualquer remetente é aceito.
+- **Formatos aceitos** (`MatchAllowed`, `pkg/identity`): `"123456"` (ID da
+  plataforma), `"telegram:123456"` (canônico, exato), `"123456|alice"`
+  (legado: ID ou username), `"@alice"` (username).
+- **Dono:** só um **ID** conta como dono para alterar coisas pelo chat
+  (`/cron`, `/config set`); `@alice`/`alice` e `*` deixam falar, mas não
+  dão esse direito. A regra completa, inclusive o JID do WhatsApp e o caso
+  `["*"]`, está em [automations.md](automations.md#quem-pode-alterar-pelo-chat-regra-de-dono).
+- **Pico (`pico`/`pico_client`):** o remetente é fixo e a autenticação é o
+  token do canal (no `pico`, obrigatório: sem ele o canal não sobe, `pico
+  token is required`). Use `allow_from: ["*"]`. `settings.allow_origins` restringe o `Origin` do
+  WebSocket; vazio aceita qualquer origem, então liste as origens quando o
+  Pico ficar exposto a um navegador.
 
 ## Convenções obrigatórias
 

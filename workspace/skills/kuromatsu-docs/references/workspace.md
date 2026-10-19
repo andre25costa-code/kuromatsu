@@ -9,7 +9,7 @@ arquivos existentes (`--force` restaura os modelos).
 |---|---|
 | `AGENT.md` | Papel e instruções do agente (corpo) + configuração no frontmatter |
 | `SOUL.md` | Personalidade, valores e estilo de comunicação |
-| `USER.md` | Quem é o usuário: preferências, contexto, fuso |
+| `USER.md` | Quem é o usuário: preferências, contexto, fuso; o idioma preferido é uma linha que o assistente do `onboard` grava (ver [install.md](install.md)) |
 | `HEARTBEAT.md` | Tarefas periódicas — ver [scheduling.md](scheduling.md) |
 | `memory/MEMORY.md` | Memória de longo prazo — ver [sleep.md](sleep.md) e [tools.md](tools.md) |
 | `skills/<nome>/SKILL.md` | Skills do workspace (abaixo) |

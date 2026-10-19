@@ -15,6 +15,28 @@ Tags de build padrão: `CGO_ENABLED=0`, `-tags goolm,stdjson`. Preservar
 essas tags em teste isolado:
 `go test -tags goolm,stdjson ./pkg/session/ -run TestName -v`.
 
+## Gates antes de submeter
+
+```bash
+gofmt -l cmd pkg *.go integration                       # vazio
+go test -tags goolm,stdjson ./...
+go vet -tags goolm,stdjson ./...
+GOOS=windows go vet -tags goolm,stdjson ./...           # o código tem caminhos só de Windows
+golangci-lint run --build-tags goolm,stdjson ./...
+```
+
+## Testes da raiz do módulo (pacote `kuromatsu`)
+
+- `TestSubmodules_HaveGitlinks` (`submodules_test.go`): todo submódulo do
+  `.gitmodules` (o `llama.cpp`) tem um gitlink no índice; sem ele, um
+  clone limpo faz `git submodule update --init` não baixar nada. Pula fora
+  de um checkout git (tarball).
+- `TestOnboardWorkspace_EmbedsOnlyTrackedFiles`
+  (`onboard_workspace_embed_test.go`): todo arquivo de `workspace/memory`
+  e `workspace/skills` que o binário embute está rastreado pelo git, para
+  um arquivo local (nota, skill pessoal, segredo) não vazar no binário.
+  Uma página nova da skill precisa de `git add` antes de rodar.
+
 ## Duas camadas de teste de integração
 
 1. Testes Go, normalmente em `*_integration_test.go`, atrás de
@@ -31,7 +53,14 @@ bloqueiam merge de PR).
 
 ## O que o CI roda
 
-`.github/workflows/{pr,build}.yml` executam `bash
+`.github/workflows/pr.yml` (em todo pull request) e
+`.github/workflows/build.yml` (em todo push para `main`) rodam os mesmos
+jobs: lint (`golangci-lint`), `govulncheck`,
+`go test -tags goolm,stdjson ./...` e as suítes de integração; o
+`build.yml` também roda `make build-all`. O `go vet` com `GOOS=windows` não
+está no CI: rode-o localmente.
+
+As suítes de integração rodam por `bash
 ./scripts/run-integration-tests.sh`, que autodescobre toda suíte em
 `integration/suites/` — adicionar uma suíte não exige editar o workflow.
 

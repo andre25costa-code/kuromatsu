@@ -28,8 +28,8 @@ Todo campo com tag `env:"KUROMATSU_..."` em `pkg/config/*.go` pode ser
 setado por variável de ambiente, sempre no padrão
 `KUROMATSU_<CAMINHO_EM_MAIUSCULO>_<CAMPO>` (ex.: `Agents.Defaults.Workspace`
 → `KUROMATSU_AGENTS_DEFAULTS_WORKSPACE`; alguns blocos usam `envPrefix` no
-struct tag em vez de repetir o prefixo campo a campo, ex.: subturn). Hoje
-existem 130 dessas variáveis — **não copiadas aqui uma a uma de propósito**:
+struct tag em vez de repetir o prefixo campo a campo, ex.: subturn). São
+mais de cem dessas variáveis — **não copiadas aqui uma a uma de propósito**:
 uma lista hardcoded ficaria desatualizada no primeiro campo novo. Para a
 lista exaustiva e sempre correta:
 
@@ -73,7 +73,8 @@ falhar o boot):
 - Campo no topo do config: `"timezone": "America/Sao_Paulo"` (env
   `KUROMATSU_TIMEZONE`). Vazio (default) = usa `TZ` ou o fuso do sistema.
 - O assistente do `onboard` pergunta o fuso no passo 5 (detecção em
-  [install.md](install.md)).
+  [install.md](install.md)); `/config set timezone <nome>` também grava o
+  campo (ver [automations.md](automations.md)).
 - Aplicado **uma vez por processo** (`config.ApplyProcessTimezone`, com
   `sync.Once`) no primeiro carregamento de cada comando
   (`internal.LoadConfig`) e no boot do gateway, antes de iniciar os
@@ -84,6 +85,17 @@ falhar o boot):
   tem precedência sobre o campo.
 - No Windows o binário embute `time/tzdata` (~400 KB), porque o sistema não
   tem a base zoneinfo; Linux, macOS e Android usam a do sistema.
+
+## Quem fala com o bot (`channel_list.<nome>.allow_from`)
+
+| Valor | Efeito |
+|---|---|
+| ausente ou `[]` | **rejeita todos** (fail-closed): o boot registra um ERR e cada canal avisa uma vez, com o ID do remetente descartado |
+| `["*"]` | aceita todos, de propósito (bot aberto) |
+| lista de IDs/nomes | aceita só esses |
+
+Formatos aceitos, o caso do Pico e quem conta como dono estão em
+[channels.md](channels.md).
 
 ## Predefinições de permissões
 
@@ -129,22 +141,28 @@ Página local de configuração servida pelo gateway em `/ui/` (API JSON em
 
 ## Guardas do loop do agente
 
-Três limites de recursos no loop do agente, todos em `agents.defaults`:
+Limites de recursos no loop do agente, todos em `agents.defaults`:
 
 | Chave | Default | Env | O que faz |
 |---|---|---|---|
 | `max_repeated_tool_calls` | `3` (`0` desliga; `1` é inválido) | `KUROMATSU_AGENTS_DEFAULTS_MAX_REPEATED_TOOL_CALLS` | Quando a mesma tool é chamada com os mesmos argumentos e devolve o mesmo resultado N-1 vezes seguidas, a N-ésima chamada não executa: o modelo recebe um aviso. Se insistir, o turno termina com uma mensagem pedindo para reformular. Polling cuja saída muda nunca conta como repetição. |
 | `user_turn_max_minutes` | `30` (`0` = sem teto) | `KUROMATSU_AGENTS_DEFAULTS_USER_TURN_MAX_MINUTES` | Teto de tempo de um turno de usuário inteiro (mensagem de canal ou CLI, incluindo o dreno das mensagens de steering enfileiradas). No estouro, o usuário recebe `Error processing message: turn exceeded agents.defaults.user_turn_max_minutes (<N> min)`. Cron, heartbeat e sistema não usam este teto: usam `non_user_turn_max_minutes` (default 60). |
 | `subturn.max_concurrent_global` | `8` (`<= 0` usa o default) | `KUROMATSU_AGENTS_DEFAULTS_SUBTURN_MAX_CONCURRENT_GLOBAL` | Máximo de sub-turnos simultâneos **por nível de profundidade** no processo inteiro (além do limite por pai, `subturn.max_concurrent`). Com os defaults (profundidade 3), no máximo 24 sub-turnos rodam ao mesmo tempo. Um filho que não consegue vaga em `subturn.concurrency_timeout_sec` falha com timeout de concorrência. Com memória apertada, reduza. |
+| `non_user_turn_max_minutes` | `60` (`0` = sem teto) | `KUROMATSU_AGENTS_DEFAULTS_NON_USER_TURN_MAX_MINUTES` | Teto de tempo dos turnos de cron, heartbeat e sistema. |
+| `subturn.max_depth` | `3` (`<= 0` usa o default) | `KUROMATSU_AGENTS_DEFAULTS_SUBTURN_MAX_DEPTH` | Profundidade máxima de sub-turnos aninhados. |
+| `subturn.max_concurrent` | `5` (`<= 0` usa o default) | `KUROMATSU_AGENTS_DEFAULTS_SUBTURN_MAX_CONCURRENT` | Sub-turnos simultâneos por turno pai. |
+| `subturn.concurrency_timeout_sec` | `30` (`<= 0` usa o default) | `KUROMATSU_AGENTS_DEFAULTS_SUBTURN_CONCURRENCY_TIMEOUT_SEC` | Espera máxima por uma vaga de sub-turno. |
+| `subturn.default_timeout_minutes` | `5` (`<= 0` usa o default) | `KUROMATSU_AGENTS_DEFAULTS_SUBTURN_DEFAULT_TIMEOUT_MINUTES` | Prazo de um sub-turno que não define o próprio. |
 
 O teto de 30 min vale também na CLI e com o modelo nativo, que é lento: um
 turno legítimo muito longo é cortado. Para desligar, use
 `"user_turn_max_minutes": 0`.
 
-O teto não interrompe um sub-turno síncrono em andamento: se o prazo vence
-enquanto o turno espera um filho, ele só retorna quando o filho termina, o
-que é limitado por `subturn.default_timeout_minutes`. Logo, 30 min não é um
-limite rígido nesse caso.
+**Risco residual:** o teto não interrompe um sub-turno síncrono em
+andamento: se o prazo vence enquanto o turno espera um filho, ele só
+retorna quando o filho termina, o que é limitado por
+`subturn.default_timeout_minutes` (ou pelo prazo que o próprio sub-turno
+pediu). Logo, 30 min não é um limite rígido nesse caso.
 
 Sub-turnos herdam o contexto do processo (o de `Run`), não o do turno pai:
 continuam depois que o pai termina, mas param no desligamento.
