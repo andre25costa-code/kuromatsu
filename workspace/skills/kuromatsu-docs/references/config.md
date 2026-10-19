@@ -164,8 +164,18 @@ Página local de configuração servida pelo gateway em `/ui/` (API JSON em
   nas respostas.
 - **Arquivos do workspace:** só `SOUL.md`, `USER.md`, `AGENT.md` e
   `HEARTBEAT.md`, até 256 KB.
+- Com os valores padrão (`enabled: true`, `allow_remote: false`) o bloco
+  `webui` não é gravado no `config.json` (`WebUIConfig.IsZero` + `omitzero`),
+  então um binário anterior a ele ainda carrega o arquivo. Um `enabled: false`
+  explícito é gravado.
 - `webui.enabled`, `webui.allow_remote` e o token só valem no próximo start.
   Em máquina compartilhada, use `webui.enabled: false`.
+- **Equivale a um shell:** o token e uma sessão logada podem ligar a execução
+  de comandos (tela de permissões); trate o token como senha. Cookies não são
+  isolados por porta: outros apps web locais abertos no mesmo navegador
+  (`http://localhost:<outra porta>`) podem receber o cookie da sessão. Em
+  máquina que roda apps web locais não confiáveis, deixe a UI desligada ou
+  saia (Sair) ao terminar.
 
 ## Guardas do loop do agente
 

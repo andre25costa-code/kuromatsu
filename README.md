@@ -258,7 +258,11 @@ never creates it and does not serve the page without one). From another machine,
 tunnel (`ssh -L 18790:localhost:18790 <host>`); do not tunnel or proxy the whole gateway port
 to the internet. Five wrong logins in a minute lock the login for that minute (on loopback
 this applies to every local process; the Bearer token keeps working for scripts). On a shared
-machine, set `"webui": {"enabled": false}`. `webui.enabled`, `webui.allow_remote` and the
+machine, set `"webui": {"enabled": false}`. The token and a logged-in session are shell-equivalent: the
+permissions page can turn on command execution, so treat the token like a password. Browser
+cookies are not isolated by port, so other local web apps opened in the same browser
+(`http://localhost:<other port>`) can receive the session cookie; on machines that run untrusted
+local web apps, keep the UI disabled or log out when done. `webui.enabled`, `webui.allow_remote` and the
 token apply on the next gateway start.
 
 The full reference — every config key, channel, tool, schedule and the sleep mode — is the
