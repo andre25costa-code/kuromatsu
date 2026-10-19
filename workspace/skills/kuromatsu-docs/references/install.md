@@ -219,7 +219,7 @@ atual. Depois confira:
   ([config.md](config.md#guardas-do-loop-do-agente)).
 - **Voltar atrás** exige o binário anterior **e** o `config.json` de antes:
   a qualquer gravação o binário novo escreve chaves que o antigo não
-  conhece (como `webui` e `user_turn_max_minutes`), e o antigo recusa campo
+  conhece (como `user_turn_max_minutes`, e `webui` depois de alterado), e o antigo recusa campo
   desconhecido. O `.security.yml` pode ficar.
 
 ## `kuromatsu uninstall [--purge] [--force] [--yes]`
