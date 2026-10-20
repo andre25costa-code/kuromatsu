@@ -32,6 +32,8 @@ func DefaultConfig() *Config {
 				Temperature:               nil, // nil means use provider default
 				MaxToolIterations:         50,
 				NonUserTurnMaxMinutes:     60,
+				UserTurnMaxMinutes:        30,
+				MaxRepeatedToolCalls:      3,
 				MemoryBudgetOverTokens:    1200, // FR-022 phase 1 initial values (ADR-020 P5: recalibrate
 				MemoryBudgetTokens:        600,  // from the load report once real memory grows)
 				SummarizeMessageThreshold: 20,
@@ -387,7 +389,7 @@ func DefaultConfig() *Config {
 					MaxResults: 5,
 				},
 				DuckDuckGo: DuckDuckGoConfig{
-					Enabled:    false,
+					Enabled:    true,
 					MaxResults: 5,
 				},
 				Gemini: GeminiSearchConfig{
@@ -420,8 +422,9 @@ func DefaultConfig() *Config {
 				ToolConfig: ToolConfig{
 					Enabled: true,
 				},
-				ExecTimeoutMinutes: 5,
-				AllowCommand:       true,
+				ExecTimeoutMinutes:     5,
+				AllowCommand:           true,
+				MaxConsecutiveFailures: 5,
 			},
 			Exec: ExecConfig{
 				ToolConfig: ToolConfig{
@@ -529,6 +532,11 @@ func DefaultConfig() *Config {
 		Heartbeat: HeartbeatConfig{
 			Enabled:  true,
 			Interval: 30,
+		},
+		// The page answers only on loopback and with a token, so it is on
+		// by default; without a token the gateway does not serve it.
+		WebUI: WebUIConfig{
+			Enabled: true,
 		},
 		Devices: DevicesConfig{
 			Enabled:    false,

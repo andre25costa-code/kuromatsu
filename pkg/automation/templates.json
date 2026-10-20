@@ -1,0 +1,52 @@
+{
+  "_notes": "Each template only uses tools that exist today. There is no e-mail template because there is no e-mail tool. Templates whose result depends on the model (resumo-diario, pesquisa-diaria) say so in their description. A job whose reply is exactly NADA publishes nothing.",
+  "templates": [
+    {
+      "id": "lembrete",
+      "title": "Lembrete",
+      "description": "Envia um texto neste chat uma vez (quando) ou todo dia no mesmo horário (todo_dia). Informe só um dos dois.",
+      "params": [
+        {"name": "texto", "label": "Texto do lembrete", "kind": "text", "required": true},
+        {"name": "quando", "label": "Quando (RFC3339 ou HH:MM, hoje ou amanhã)", "kind": "datetime"},
+        {"name": "todo_dia", "label": "Todo dia às (HH:MM)", "kind": "time"}
+      ],
+      "requires": ["tools.cron.enabled"],
+      "message": "Envie ao usuário exatamente este lembrete, sem comentários: {texto}"
+    },
+    {
+      "id": "resumo-diario",
+      "title": "Resumo diário",
+      "description": "Todo dia, um resumo curto do que está anotado na memória para o dia e das pendências. A qualidade depende do modelo em uso; com o modelo local pequeno o resumo pode sair raso.",
+      "params": [
+        {"name": "hora", "label": "Horário (HH:MM)", "kind": "time", "default": "08:00"}
+      ],
+      "requires": ["tools.cron.enabled"],
+      "message": "Faça um resumo curto do que está anotado na memória para hoje e das pendências registradas. Se não houver nada, diga só \"Sem pendências\"."
+    },
+    {
+      "id": "monitorar-pagina",
+      "title": "Monitorar página",
+      "description": "Abre uma página a cada N horas e avisa neste chat só quando a condição for verdadeira; nos outros casos não envia nada.",
+      "params": [
+        {"name": "url", "label": "Endereço da página (http ou https)", "kind": "url", "required": true},
+        {"name": "condicao", "label": "Avisar quando", "kind": "text", "required": true},
+        {"name": "a_cada_horas", "label": "A cada quantas horas (1 a 24)", "kind": "int", "default": "6"}
+      ],
+      "requires": ["tools.cron.enabled", "tools.web.enabled", "tools.web_fetch.enabled"],
+      "message": "Use web_fetch em {url}. Responda só se {condicao}; caso contrário responda exatamente \"NADA\".",
+      "window": "web"
+    },
+    {
+      "id": "pesquisa-diaria",
+      "title": "Notícias sobre um tema",
+      "description": "Todo dia, até 5 notícias das últimas 24 horas sobre um tema, com links. A qualidade depende do modelo em uso e da busca disponível.",
+      "params": [
+        {"name": "tema", "label": "Tema", "kind": "text", "required": true},
+        {"name": "hora", "label": "Horário (HH:MM)", "kind": "time", "default": "07:30"}
+      ],
+      "requires": ["tools.cron.enabled", "tools.web.enabled"],
+      "message": "Use web_search para notícias das últimas 24 h sobre {tema} e resuma em até 5 itens com links.",
+      "window": "web"
+    }
+  ]
+}

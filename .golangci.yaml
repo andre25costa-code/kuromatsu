@@ -1,12 +1,18 @@
 version: "2"
 
+run:
+  # bedrock is behind a build tag; lint it too so depguard sees its files.
+  build-tags:
+    - goolm
+    - stdjson
+    - bedrock
+
 linters:
   default: all
   disable:
     # TODO: Tweak for current project needs
     - containedctx
     - cyclop
-    - depguard
     - dupword
     - err113
     - exhaustruct
@@ -62,6 +68,16 @@ linters:
     - usestdlibvars
     - usetesting
   settings:
+    depguard:
+      rules:
+        no-stdlib-log-in-pkg:
+          files:
+            - "**/pkg/**/*.go"
+            - "**/pkg/*.go"
+            - "!$test"
+          deny:
+            - pkg: "log$"
+              desc: "use pkg/logger (logger.*CF with a component)"
     gomoddirectives:
       replace-allow-list:
         - github.com/bwmarrin/discordgo
@@ -94,6 +110,7 @@ linters:
         - calcular
         - problemas
         - incorpore
+        - processos
     mnd:
       checks:
         - argument

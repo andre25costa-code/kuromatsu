@@ -156,6 +156,16 @@ type turnExecution struct {
 	// Abort signaling for coordinator (set by Pipeline methods)
 	abortedByHardAbort bool // true when hard abort triggered during LLM/tools
 	abortedByHook      bool // true when HookActionAbortTurn triggered
+
+	// Repeated-tool-call guard (repeat_guard.go). lastToolSig and
+	// lastResultHash describe the last call that ran; toolRepeatCount is how
+	// many times in a row it ran with that same result.
+	lastToolSig        string
+	lastResultHash     string
+	toolRepeatCount    int
+	repeatGuardWarned  bool   // the model was already told to stop repeating
+	repeatGuardTripped bool   // the guard ended the turn
+	repeatGuardTool    string // tool named in the final message when tripped
 }
 
 func (exec *turnExecution) closeOwnedProviders() {

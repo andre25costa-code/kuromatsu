@@ -11,8 +11,7 @@ services:
     profiles:
       - agent
     volumes:
-      - ../config/config.json:/root/.kuromatsu/config.json:ro
-      - kuromatsu-workspace:/root/.kuromatsu/workspace
+      - ./data:/root/.kuromatsu
       - kuromatsu-npm-cache:/root/.npm # npm cache for faster MCP server installs
     entrypoint: ["kuromatsu", "agent"]
     stdin_open: true
@@ -31,14 +30,11 @@ services:
     profiles:
       - gateway
     volumes:
-      # Configuration file
-      - ../config/config.json:/root/.kuromatsu/config.json:ro
-      # Persistent workspace (sessions, memory, logs)
-      - kuromatsu-workspace:/root/.kuromatsu/workspace
+      # Config, security file and workspace (sessions, memory, logs).
+      # The first run creates them here and exits; add a model, then start again.
+      - ./data:/root/.kuromatsu
       # NPM cache for faster MCP server installs
       - kuromatsu-npm-cache:/root/.npm
-    command: ["gateway"]
 
 volumes:
-  kuromatsu-workspace:
   kuromatsu-npm-cache: # Cache npm packages to speed up MCP server installations

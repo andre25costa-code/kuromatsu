@@ -48,6 +48,8 @@ func TestNewKuromatsuCommand(t *testing.T) {
 		"onboard",
 		"skills",
 		"status",
+		"ui",
+		"uninstall",
 		"update",
 		"version",
 	}

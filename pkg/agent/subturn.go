@@ -20,8 +20,11 @@ const (
 	// Default values for SubTurn configuration (used when config is not set or is zero)
 	defaultMaxSubTurnDepth       = 3
 	defaultMaxConcurrentSubTurns = 5
-	defaultConcurrencyTimeout    = 30 * time.Second
-	defaultSubTurnTimeout        = 5 * time.Minute
+	// defaultMaxConcurrentGlobalSubTurns caps the sub-turns of one depth
+	// level running at once across the process.
+	defaultMaxConcurrentGlobalSubTurns = 8
+	defaultConcurrencyTimeout          = 30 * time.Second
+	defaultSubTurnTimeout              = 5 * time.Minute
 	// maxEphemeralHistorySize limits the number of messages stored in ephemeral sessions.
 	// This prevents memory accumulation in long-running sub-turns.
 	maxEphemeralHistorySize = 50
@@ -47,6 +50,11 @@ func (al *AgentLoop) getSubTurnConfig() subTurnRuntimeConfig {
 		maxConcurrent = defaultMaxConcurrentSubTurns
 	}
 
+	maxConcurrentGlobal := cfg.MaxConcurrentGlobal
+	if maxConcurrentGlobal <= 0 {
+		maxConcurrentGlobal = defaultMaxConcurrentGlobalSubTurns
+	}
+
 	concurrencyTimeout := time.Duration(cfg.ConcurrencyTimeoutSec) * time.Second
 	if concurrencyTimeout <= 0 {
 		concurrencyTimeout = defaultConcurrencyTimeout
@@ -58,21 +66,39 @@ func (al *AgentLoop) getSubTurnConfig() subTurnRuntimeConfig {
 	}
 
 	return subTurnRuntimeConfig{
-		maxDepth:           maxDepth,
-		maxConcurrent:      maxConcurrent,
-		concurrencyTimeout: concurrencyTimeout,
-		defaultTimeout:     defaultTimeout,
-		defaultTokenBudget: cfg.DefaultTokenBudget,
+		maxDepth:            maxDepth,
+		maxConcurrent:       maxConcurrent,
+		maxConcurrentGlobal: maxConcurrentGlobal,
+		concurrencyTimeout:  concurrencyTimeout,
+		defaultTimeout:      defaultTimeout,
+		defaultTokenBudget:  cfg.DefaultTokenBudget,
 	}
+}
+
+// newSubTurnSlots builds the process-wide sub-turn pools, one per depth
+// level 1..maxDepth (index 0 stays nil: the root turn is not a sub-turn).
+//
+// A sub-turn at depth d holds a slot of level d and can only wait for a slot
+// of level d+1, never of its own level or a lower one, so waits cannot form
+// a cycle. Leaves (d == maxDepth) cannot spawn children, since the depth
+// limit is checked before any slot is taken, so they always finish and free
+// their slot. That is why the pools never deadlock (no hold-and-wait).
+func newSubTurnSlots(rtCfg subTurnRuntimeConfig) []chan struct{} {
+	slots := make([]chan struct{}, rtCfg.maxDepth+1)
+	for d := 1; d <= rtCfg.maxDepth; d++ {
+		slots[d] = make(chan struct{}, rtCfg.maxConcurrentGlobal)
+	}
+	return slots
 }
 
 // subTurnRuntimeConfig holds the effective runtime configuration for SubTurn execution.
 type subTurnRuntimeConfig struct {
-	maxDepth           int
-	maxConcurrent      int
-	concurrencyTimeout time.Duration
-	defaultTimeout     time.Duration
-	defaultTokenBudget int
+	maxDepth            int
+	maxConcurrent       int
+	maxConcurrentGlobal int
+	concurrencyTimeout  time.Duration
+	defaultTimeout      time.Duration
+	defaultTokenBudget  int
 }
 
 // ====================== SubTurn Config ======================
@@ -257,12 +283,12 @@ func spawnSubTurn(
 	// a full pendingResults channel. Holding the semaphore through cleanup would allow the
 	// parent's goroutine to be blocked waiting for a semaphore slot while child turns are
 	// blocked delivering results — a deadlock.
+	// One timeout covers both the per-parent semaphore and the global slot.
+	timeoutCtx, cancelTimeout := context.WithTimeout(ctx, rtCfg.concurrencyTimeout)
+	defer cancelTimeout()
+
 	var semAcquired bool
 	if parentTS.concurrencySem != nil {
-		// Create a timeout context for semaphore acquisition
-		timeoutCtx, cancel := context.WithTimeout(ctx, rtCfg.concurrencyTimeout)
-		defer cancel()
-
 		select {
 		case parentTS.concurrencySem <- struct{}{}:
 			semAcquired = true
@@ -292,6 +318,35 @@ func spawnSubTurn(
 		return nil, ErrDepthLimitExceeded
 	}
 
+	// 1b. Process-wide slot for the child's depth level, taken after the
+	// depth check so d is always in 1..maxDepth and a child rejected for
+	// depth never touches the pools. Released together with the per-parent
+	// semaphore, right after runTurn. Skipped when the pools were not built
+	// (AgentLoop literals in tests) or are shorter than d.
+	childDepth := parentTS.depth + 1
+	var globalSlot chan struct{}
+	if childDepth >= 1 && childDepth < len(al.subTurnSlots) {
+		globalSlot = al.subTurnSlots[childDepth]
+	}
+	var slotAcquired bool
+	if globalSlot != nil {
+		select {
+		case globalSlot <- struct{}{}:
+			slotAcquired = true
+			defer func() {
+				if slotAcquired {
+					<-globalSlot
+				}
+			}()
+		case <-timeoutCtx.Done():
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			return nil, fmt.Errorf("%w: all %d global slots at depth %d occupied for %v",
+				ErrConcurrencyTimeout, cap(globalSlot), childDepth, rtCfg.concurrencyTimeout)
+		}
+	}
+
 	// 2. Config validation: Model is required unless TargetAgentID is set
 	//    (the target agent provides its own model).
 	if cfg.Model == "" && cfg.TargetAgentID == "" {
@@ -304,10 +359,11 @@ func spawnSubTurn(
 		timeout = rtCfg.defaultTimeout
 	}
 
-	// 4. Create INDEPENDENT child context (not derived from parent ctx).
-	// This allows the child to continue running after parent finishes gracefully.
-	// The child has its own timeout for self-protection.
-	childCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	// 4. Create the child context from the AgentLoop's lifetime context, not
+	// from the parent turn's ctx: the child keeps running after the parent
+	// finishes gracefully, but still ends when the process shuts down (Run's
+	// context is canceled). The child has its own timeout for self-protection.
+	childCtx, cancel := context.WithTimeout(al.lifetimeContext(), timeout)
 	defer cancel()
 
 	childID := al.generateSubTurnID()
@@ -474,6 +530,10 @@ func spawnSubTurn(
 	if semAcquired {
 		<-parentTS.concurrencySem
 		semAcquired = false // prevent the defer from double-releasing
+	}
+	if slotAcquired {
+		<-globalSlot
+		slotAcquired = false // prevent the defer from double-releasing
 	}
 
 	// Convert turnResult to tools.ToolResult

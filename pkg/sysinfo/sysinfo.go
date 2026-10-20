@@ -10,6 +10,10 @@
 // desliga com aviso"): callers detect "not available" from an ordinary
 // error at runtime, so no platform-specific file/build tag is needed in
 // this package OR in memguard.go.
+//
+// The one exception is Detect (hardware.go), the cross-platform hardware
+// snapshot used for profiles and status: it reads memory through per-OS
+// files (mem_*.go) and is kept separate from MemInfo on purpose.
 package sysinfo
 
 import (

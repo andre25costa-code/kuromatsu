@@ -1,8 +1,9 @@
 // Command nativebench measures the native provider's generation speed
 // (tokens/s) and process RSS against a real GGUF file, without going
-// through the full agent pipeline. It exists to produce the S39 baseline
-// numbers for the deploy target (NFR-002) -- run it on the actual Oracle
-// ARM64 box, not on a dev machine, since CPU dot-product/repack kernel
+// through the full agent pipeline. It exists to produce the baseline
+// numbers for the deploy target -- run it on the reference VM
+// (Google Cloud e2-micro, x86_64 with the pinned AVX2+FMA+F16C baseline),
+// not on a dev machine, since CPU dot-product/repack kernel
 // selection is hardware-dependent (see ADR-003, S18).
 //
 // Only meaningful on a binary built with `make bench-native` (build tag

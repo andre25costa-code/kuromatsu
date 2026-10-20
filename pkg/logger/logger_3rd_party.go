@@ -11,10 +11,23 @@ import (
 // Groups: 1 = "bot<id>:", 2 = first 4 chars of secret, 3 = middle, 4 = last 4 chars.
 var botTokenRe = regexp.MustCompile(`(bot\d+:)([A-Za-z0-9_-]{4})[A-Za-z0-9_-]{12,}([A-Za-z0-9_-]{4})`)
 
+// urlUserinfoRe matches the scheme and the userinfo of a URL ("scheme://user:pass@").
+// The userinfo runs greedily up to the last "@" of the authority, so a password
+// that itself contains "@" is masked entirely. Group 1 = "scheme://".
+var urlUserinfoRe = regexp.MustCompile(`([a-zA-Z][a-zA-Z0-9+.-]*://)[^/\s]*@`)
+
 // maskSecrets replaces any embedded bot tokens in s with a redacted placeholder
-// that keeps the first and last 4 characters of the secret for identification.
+// that keeps the first and last 4 characters of the secret for identification,
+// and replaces credentials embedded in URLs ("user:pass@") with "***@".
 func maskSecrets(s string) string {
-	return botTokenRe.ReplaceAllString(s, "${1}${2}****${3}")
+	s = botTokenRe.ReplaceAllString(s, "${1}${2}****${3}")
+	return urlUserinfoRe.ReplaceAllString(s, "${1}***@")
+}
+
+// MaskSecrets is the exported form of maskSecrets, for callers that put
+// user-supplied URLs or errors into log fields.
+func MaskSecrets(s string) string {
+	return maskSecrets(s)
 }
 
 // Logger implements common Logger interface

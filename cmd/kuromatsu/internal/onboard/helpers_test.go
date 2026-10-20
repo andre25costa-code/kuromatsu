@@ -1,9 +1,16 @@
 package onboard
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
+
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/hwprofile"
+	"github.com/andre25costa-code/kuromatsu/pkg/sysinfo"
 )
 
 func TestCopyEmbeddedToTargetUsesStructuredAgentFiles(t *testing.T) {
@@ -111,5 +118,163 @@ func TestCopyEmbeddedToTarget_SkipsSkillsWithMissingRequirements(t *testing.T) {
 		if len(res.skipped[name]) == 0 {
 			t.Errorf("skill %s not reported as skipped: %v", name, res.skipped)
 		}
+	}
+}
+
+func withDetectedHardware(t *testing.T, hw sysinfo.Hardware) {
+	t.Helper()
+	old := detect
+	detect = func() sysinfo.Hardware { return hw }
+	t.Cleanup(func() { detect = old })
+}
+
+func readSavedConfig(t *testing.T, path string) map[string]any {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func nativeNCtx(t *testing.T, m map[string]any) any {
+	t.Helper()
+	for _, raw := range m["model_list"].([]any) {
+		entry := raw.(map[string]any)
+		if entry["model_name"] == config.NativeModelName {
+			return entry["extra_body"].(map[string]any)["n_ctx"]
+		}
+	}
+	t.Fatal("native entry missing from the saved config")
+	return nil
+}
+
+// A new config (empty home) gets the detected hardware profile written as
+// explicit values.
+func TestOnboard_FreshConfigAppliesDetectedProfile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	configPath := filepath.Join(home, "config.json")
+	t.Setenv(config.EnvConfig, configPath)
+	withDetectedHardware(t, sysinfo.Hardware{TotalRAM: 512 << 20, CPUs: 1, NativeCPUOK: true})
+
+	onboard(false, false, "", true)
+
+	m := readSavedConfig(t, configPath)
+	if got := m["heartbeat"].(map[string]any)["interval"]; got != float64(60) {
+		t.Fatalf("heartbeat.interval = %v, want 60 (Ultra-Light)", got)
+	}
+	if got := nativeNCtx(t, m); got != float64(1024) {
+		t.Fatalf("native n_ctx = %v, want 1024 (Ultra-Light)", got)
+	}
+}
+
+// An existing config changes only with --profile.
+func TestOnboard_ExistingConfigProfileFlag(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	configPath := filepath.Join(home, "config.json")
+	t.Setenv(config.EnvConfig, configPath)
+	withDetectedHardware(t, sysinfo.Hardware{TotalRAM: 990 << 20, CPUs: 2, NativeCPUOK: true})
+
+	onboard(false, false, "", true) // fresh: Light
+	cfg, err := config.LoadConfigForEdit(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Heartbeat.Interval = 45
+	if err := config.SaveConfig(configPath, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	onboard(false, false, "", true) // existing, no flag: untouched
+	if got := readSavedConfig(t, configPath)["heartbeat"].(map[string]any)["interval"]; got != float64(45) {
+		t.Fatalf("existing config changed without --profile: interval = %v", got)
+	}
+
+	onboard(false, false, "performance", true)
+	m := readSavedConfig(t, configPath)
+	if got := m["heartbeat"].(map[string]any)["interval"]; got != float64(15) {
+		t.Fatalf("--profile performance: interval = %v, want 15", got)
+	}
+	if got := nativeNCtx(t, m); got != float64(8192) {
+		t.Fatalf("--profile performance: n_ctx = %v, want 8192", got)
+	}
+
+	onboard(false, false, "auto", true)
+	if got := nativeNCtx(t, readSavedConfig(t, configPath)); got != float64(2048) {
+		t.Fatalf("--profile auto on 990 MiB: n_ctx = %v, want 2048 (Light)", got)
+	}
+}
+
+func TestParseProfileFlag(t *testing.T) {
+	if n, auto, err := parseProfileFlag(""); n != "" || auto || err != nil {
+		t.Fatalf("empty flag: %q %v %v", n, auto, err)
+	}
+	if _, auto, err := parseProfileFlag("AUTO"); !auto || err != nil {
+		t.Fatalf("auto: %v %v", auto, err)
+	}
+	if n, _, err := parseProfileFlag("ultra-light"); n != hwprofile.UltraLight || err != nil {
+		t.Fatalf("ultra-light: %q %v", n, err)
+	}
+	if _, _, err := parseProfileFlag("custom"); err == nil {
+		t.Fatal("custom accepted")
+	}
+}
+
+// A fresh non-interactive onboard creates the web UI token in the security
+// file (0600), never in config.json, and a rerun keeps it.
+func TestOnboard_CreatesWebUITokenOnce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv(config.EnvHome, home)
+	configPath := filepath.Join(home, "config.json")
+	t.Setenv(config.EnvConfig, configPath)
+	withDetectedHardware(t, sysinfo.Hardware{TotalRAM: 990 << 20, CPUs: 2, NativeCPUOK: true})
+
+	onboard(false, false, "", true)
+	cfg, err := config.LoadConfigForEdit(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := cfg.WebUI.Token.String()
+	if len(token) != 64 {
+		t.Fatalf("webui token = %q, want 64 hex characters", token)
+	}
+	raw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), token) {
+		t.Fatal("webui token written to config.json")
+	}
+	secPath := filepath.Join(home, config.SecurityConfigFile)
+	sec, err := os.ReadFile(secPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sec), token) {
+		t.Fatal("webui token missing from the security file")
+	}
+	if runtime.GOOS != "windows" {
+		info, statErr := os.Stat(secPath)
+		if statErr != nil {
+			t.Fatal(statErr)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("security file mode = %v, want 0600", info.Mode().Perm())
+		}
+	}
+
+	onboard(false, false, "", true)
+	again, err := config.LoadConfigForEdit(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.WebUI.Token.String() != token {
+		t.Fatal("rerunning onboard replaced the web UI token")
 	}
 }

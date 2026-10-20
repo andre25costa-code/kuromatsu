@@ -14,6 +14,12 @@ func prepareCommandForTermination(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+// prepareContextCommandForTermination keeps the default context Cancel
+// (Process.Kill) on Unix. The command runs in its own process group, and the
+// group can still be signaled after the shell dies, so terminateProcessTree
+// reaches the children whichever kill lands first.
+func prepareContextCommandForTermination(cmd *exec.Cmd) {}
+
 func terminateProcessTree(cmd *exec.Cmd) error {
 	if cmd == nil || cmd.Process == nil {
 		return nil

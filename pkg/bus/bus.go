@@ -27,10 +27,6 @@ var (
 
 const defaultBusBufferSize = 64
 
-const (
-	defaultAudioPublishTimeout = 150 * time.Millisecond
-)
-
 type publishPolicy struct {
 	stream string
 	// timeout is the backpressure drop budget. When positive, a full channel
@@ -49,8 +45,6 @@ type MessageBusStats struct {
 	Inbound       StreamStats `json:"inbound"`
 	Outbound      StreamStats `json:"outbound"`
 	OutboundMedia StreamStats `json:"outbound_media"`
-	AudioChunks   StreamStats `json:"audio_chunks"`
-	VoiceControls StreamStats `json:"voice_controls"`
 }
 
 type StreamStats struct {
@@ -96,8 +90,6 @@ type MessageBus struct {
 	inbound       chan InboundMessage
 	outbound      chan OutboundMessage
 	outboundMedia chan OutboundMediaMessage
-	audioChunks   chan AudioChunk
-	voiceControls chan VoiceControl
 
 	closeOnce      sync.Once
 	done           chan struct{}
@@ -109,8 +101,6 @@ type MessageBus struct {
 	inboundStats   streamStats
 	outboundStats  streamStats
 	mediaStats     streamStats
-	audioStats     streamStats
-	voiceStats     streamStats
 }
 
 // EventPublisher is the minimal runtime event publisher used by MessageBus.
@@ -124,8 +114,6 @@ func NewMessageBus() *MessageBus {
 		inbound:       make(chan InboundMessage, defaultBusBufferSize),
 		outbound:      make(chan OutboundMessage, defaultBusBufferSize),
 		outboundMedia: make(chan OutboundMediaMessage, defaultBusBufferSize),
-		audioChunks:   make(chan AudioChunk, defaultBusBufferSize*4), // Audio chunks need more buffer.
-		voiceControls: make(chan VoiceControl, defaultBusBufferSize),
 		done:          make(chan struct{}),
 	}
 }
@@ -168,7 +156,7 @@ func publish[T any](
 
 	// timeout == 0 means no backpressure drop budget; block until context
 	// cancellation or bus close. This is the default for critical streams
-	// (inbound, outbound, outboundMedia, voiceControl) where dropping
+	// (inbound, outbound, outboundMedia) where dropping
 	// messages silently is undesirable.
 	if policy.timeout > 0 {
 		timer := time.NewTimer(policy.timeout)
@@ -279,41 +267,6 @@ func (mb *MessageBus) OutboundMediaChan() <-chan OutboundMediaMessage {
 	return mb.outboundMedia
 }
 
-func (mb *MessageBus) PublishAudioChunk(ctx context.Context, chunk AudioChunk) error {
-	if err := publish(ctx, mb, mb.audioChunks, chunk, publishPolicy{
-		stream:  "audio_chunk",
-		timeout: defaultAudioPublishTimeout,
-	}, &mb.audioStats, runtimeScopeFromAudioChunk(chunk)); err != nil {
-		scope := runtimeScopeFromAudioChunk(chunk)
-		if !errors.Is(err, ErrBusBackpressure) {
-			mb.publishFailure("audio_chunk", scope, err)
-		}
-		return err
-	}
-	return nil
-}
-
-func (mb *MessageBus) AudioChunksChan() <-chan AudioChunk {
-	return mb.audioChunks
-}
-
-func (mb *MessageBus) PublishVoiceControl(ctx context.Context, ctrl VoiceControl) error {
-	if err := publish(ctx, mb, mb.voiceControls, ctrl, publishPolicy{
-		stream: "voice_control",
-	}, &mb.voiceStats, runtimeScopeFromVoiceControl(ctrl)); err != nil {
-		scope := runtimeScopeFromVoiceControl(ctrl)
-		if !errors.Is(err, ErrBusBackpressure) {
-			mb.publishFailure("voice_control", scope, err)
-		}
-		return err
-	}
-	return nil
-}
-
-func (mb *MessageBus) VoiceControlsChan() <-chan VoiceControl {
-	return mb.voiceControls
-}
-
 // SetStreamDelegate registers a StreamDelegate (typically the channel Manager).
 func (mb *MessageBus) SetStreamDelegate(d StreamDelegate) {
 	mb.streamDelegate.Store(d)
@@ -340,8 +293,6 @@ func (mb *MessageBus) Stats() MessageBusStats {
 		Inbound:       snapshotStreamStats(mb.inbound, &mb.inboundStats),
 		Outbound:      snapshotStreamStats(mb.outbound, &mb.outboundStats),
 		OutboundMedia: snapshotStreamStats(mb.outboundMedia, &mb.mediaStats),
-		AudioChunks:   snapshotStreamStats(mb.audioChunks, &mb.audioStats),
-		VoiceControls: snapshotStreamStats(mb.voiceControls, &mb.voiceStats),
 	}
 }
 
@@ -354,21 +305,15 @@ func (mb *MessageBus) HealthCheck() (bool, string) {
 	stats := mb.Stats()
 	totalDropped := stats.Inbound.DroppedTotal +
 		stats.Outbound.DroppedTotal +
-		stats.OutboundMedia.DroppedTotal +
-		stats.AudioChunks.DroppedTotal +
-		stats.VoiceControls.DroppedTotal
+		stats.OutboundMedia.DroppedTotal
 	message := fmt.Sprintf(
-		"in=%d/%d out=%d/%d media=%d/%d audio=%d/%d voice=%d/%d dropped=%d",
+		"in=%d/%d out=%d/%d media=%d/%d dropped=%d",
 		stats.Inbound.Depth,
 		stats.Inbound.Capacity,
 		stats.Outbound.Depth,
 		stats.Outbound.Capacity,
 		stats.OutboundMedia.Depth,
 		stats.OutboundMedia.Capacity,
-		stats.AudioChunks.Depth,
-		stats.AudioChunks.Capacity,
-		stats.VoiceControls.Depth,
-		stats.VoiceControls.Capacity,
 		totalDropped,
 	)
 
@@ -410,8 +355,6 @@ func (mb *MessageBus) Close() {
 		close(mb.inbound)
 		close(mb.outbound)
 		close(mb.outboundMedia)
-		close(mb.audioChunks)
-		close(mb.voiceControls)
 
 		// clean up any remaining messages in channels
 		drained := 0
@@ -422,12 +365,6 @@ func (mb *MessageBus) Close() {
 			drained++
 		}
 		for range mb.outboundMedia {
-			drained++
-		}
-		for range mb.audioChunks {
-			drained++
-		}
-		for range mb.voiceControls {
 			drained++
 		}
 

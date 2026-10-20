@@ -24,7 +24,7 @@ import (
 func newTestPicoChannel(t *testing.T) *PicoChannel {
 	t.Helper()
 
-	bc := &config.Channel{Type: config.ChannelPico, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPico, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	cfg := &config.PicoSettings{}
 	cfg.SetToken("test-token")
 	ch, err := NewPicoChannel(bc, cfg, bus.NewMessageBus())
@@ -38,7 +38,7 @@ func newTestPicoChannel(t *testing.T) *PicoChannel {
 
 func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 	msgBus := bus.NewMessageBus()
-	bc := &config.Channel{Type: config.ChannelPico, Enabled: true}
+	bc := &config.Channel{Type: config.ChannelPico, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
 	cfg := &config.PicoSettings{}
 	cfg.SetToken("test-token")
 	ch, err := NewPicoChannel(bc, cfg, msgBus)
@@ -1038,4 +1038,90 @@ func newTestPicoWebSocket(t *testing.T) (*websocket.Conn, <-chan PicoMessage, fu
 	}
 	defer resp.Body.Close()
 	return clientConn, received, cleanup
+}
+
+func TestAuthenticate_ConstantTimeTokenPaths(t *testing.T) {
+	const token = "s3cret-token"
+	tests := []struct {
+		name       string
+		allowQuery bool
+		build      func() *http.Request
+		want       bool
+	}{
+		{
+			name: "bearer header with the right token",
+			build: func() *http.Request {
+				r := httptest.NewRequest(http.MethodGet, "/pico/ws", nil)
+				r.Header.Set("Authorization", "Bearer "+token)
+				return r
+			},
+			want: true,
+		},
+		{
+			name: "bearer header differing by one byte",
+			build: func() *http.Request {
+				r := httptest.NewRequest(http.MethodGet, "/pico/ws", nil)
+				r.Header.Set("Authorization", "Bearer s3cret-tokeX")
+				return r
+			},
+			want: false,
+		},
+		{
+			name: "subprotocol with the right token",
+			build: func() *http.Request {
+				r := httptest.NewRequest(http.MethodGet, "/pico/ws", nil)
+				r.Header.Set("Sec-WebSocket-Protocol", "token."+token)
+				return r
+			},
+			want: true,
+		},
+		{
+			name: "subprotocol differing by one byte",
+			build: func() *http.Request {
+				r := httptest.NewRequest(http.MethodGet, "/pico/ws", nil)
+				r.Header.Set("Sec-WebSocket-Protocol", "token.s3cret-tokeX")
+				return r
+			},
+			want: false,
+		},
+		{
+			name:       "query token accepted when allowed",
+			allowQuery: true,
+			build: func() *http.Request {
+				return httptest.NewRequest(http.MethodGet, "/pico/ws?token="+token, nil)
+			},
+			want: true,
+		},
+		{
+			name:       "query token differing by one byte",
+			allowQuery: true,
+			build: func() *http.Request {
+				return httptest.NewRequest(http.MethodGet, "/pico/ws?token=s3cret-tokeX", nil)
+			},
+			want: false,
+		},
+		{
+			name:       "query token rejected when not allowed",
+			allowQuery: false,
+			build: func() *http.Request {
+				return httptest.NewRequest(http.MethodGet, "/pico/ws?token="+token, nil)
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bc := &config.Channel{Type: config.ChannelPico, Enabled: true, AllowFrom: config.FlexibleStringSlice{"*"}}
+			cfg := &config.PicoSettings{AllowTokenQuery: tt.allowQuery}
+			cfg.SetToken(token)
+			ch, err := NewPicoChannel(bc, cfg, bus.NewMessageBus())
+			if err != nil {
+				t.Fatalf("NewPicoChannel: %v", err)
+			}
+			if got := ch.authenticate(tt.build()); got != tt.want {
+				t.Fatalf("authenticate() = %v, want %v", got, tt.want)
+			}
+		})
+	}
 }

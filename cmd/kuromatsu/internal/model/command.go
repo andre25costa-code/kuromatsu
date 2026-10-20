@@ -126,14 +126,18 @@ func setDefaultModel(configPath string, cfg *config.Config, modelName string) er
 		return fmt.Errorf("cannot found model '%s' in config", modelName)
 	}
 
-	// Update the default model
-	// Clear old model field and set new model_name
 	oldModel := cfg.Agents.Defaults.ModelName
 
-	cfg.Agents.Defaults.ModelName = modelName
+	// cfg is the runtime view (environment and native fallback applied) and is
+	// used only to validate; the file is changed through the on-disk view so
+	// no environment value is written back.
+	editCfg, err := config.LoadConfigForEdit(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	editCfg.Agents.Defaults.ModelName = modelName
 
-	// Save config back to file
-	if err := config.SaveConfig(configPath, cfg); err != nil {
+	if err := config.SaveConfig(configPath, editCfg); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
 

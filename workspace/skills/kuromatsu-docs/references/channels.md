@@ -5,9 +5,8 @@ Fonte real: `pkg/channels/`, `pkg/bus/`, `pkg/media/`, `pkg/identity/`,
 
 ## Canais que existem hoje
 
-Só estes quatro estão implementados e registrados (confirmado em
-`pkg/channels/`, 2026-09-21 — qualquer lista maior é de uma versão anterior
-do fork/upstream):
+Só estes quatro estão implementados e registrados em `pkg/channels/`
+(qualquer lista maior é de uma versão anterior do fork/upstream):
 
 | Sub-pacote | Nome registrado | Interfaces opcionais que implementa |
 |---|---|---|
@@ -68,7 +67,7 @@ channels.RegisterSafeFactory(config.ChannelTelegram, NewTelegramChannel)
 
 Cada sub-pacote se registra no próprio `init()`; o Gateway dispara isso com
 um blank import (`_ "github.com/andre25costa-code/kuromatsu/pkg/channels/telegram"`
-em `cmd/kuromatsu/internal/gateway/helpers.go`). O Manager só faz
+em `pkg/gateway/gateway.go`). O Manager só faz
 `InitChannelList()` (decodifica settings por tipo) e busca a fábrica pelo
 nome — nenhuma mudança no Manager é necessária para adicionar um canal.
 
@@ -123,9 +122,8 @@ ainda não está bem definido. Não é um bug esquecido; é uma decisão adiada.
 ## `pkg/identity/identity.go` — identidade canônica
 
 `BuildCanonicalID("telegram", "123456")` → `"telegram:123456"`.
-`MatchAllowed` aceita 4 formatos numa allow-list: `"123456"` (PlatformID),
-`"@alice"` (Username), `"123456|alice"` (legado, ou/ou), e
-`"telegram:123456"` (canônico, match exato).
+`MatchAllowed` compara um remetente com uma entrada de `allow_from` nos
+formatos listados em "Quem pode falar com o bot" abaixo.
 
 ## Como adicionar um canal novo
 
@@ -140,13 +138,34 @@ ainda não está bem definido. Não é um bug esquecido; é uma decisão adiada.
    `BaseChannel`/Manager.
 3. Registrar o tipo de settings em `channelSettingsFactory`
    (`pkg/config/config_channel.go`) e adicionar o blank import em
-   `cmd/kuromatsu/internal/gateway/helpers.go`.
+   `pkg/gateway/gateway.go`.
 4. Testar com `go test ./pkg/channels/<nome>/... -v`.
 
 Convenção de config: cada entrada de `channel_list` tem campos comuns no
 nível superior (`enabled`, `type`, `allow_from`) e o específico do canal
 dentro de `settings`; segredos (token, senha) vão em `.security.yml`, nunca
 em `config.json`.
+
+## Quem pode falar com o bot (`allow_from`)
+
+- **Vazio rejeita todos** (fail-closed): o boot registra
+  `allow_from is empty: every message on this channel will be rejected`
+  (ERR, com uma dica), e a primeira mensagem descartada registra um WARN
+  com o `sender_id` — é o jeito mais fácil de descobrir o seu ID.
+- **`["*"]` abre de propósito:** qualquer remetente é aceito.
+- **Formatos aceitos** (`MatchAllowed`, `pkg/identity`): `"123456"` (ID da
+  plataforma), `"telegram:123456"` (canônico, exato), `"123456|alice"`
+  (legado: ID ou username), `"@alice"` (username).
+- **Dono:** só um **ID** conta como dono para alterar coisas pelos
+  comandos de barra (`/cron`, `/config set`); `@alice` e `*` deixam falar,
+  mas não dão esse direito. Pedindo ao agente, qualquer remetente aceito
+  gere os jobs de mensagem do próprio chat. A regra completa, inclusive o JID do WhatsApp e o caso
+  `["*"]`, está em [automations.md](automations.md#quem-pode-alterar-pelo-chat-regra-de-dono).
+- **Pico (`pico`/`pico_client`):** o remetente é fixo e a autenticação é o
+  token do canal (no `pico`, obrigatório: sem ele o canal não sobe, `pico
+  token is required`). Use `allow_from: ["*"]`. `settings.allow_origins` restringe o `Origin` do
+  WebSocket; vazio aceita qualquer origem, então liste as origens quando o
+  Pico ficar exposto a um navegador.
 
 ## Convenções obrigatórias
 

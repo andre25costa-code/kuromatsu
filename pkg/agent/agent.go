@@ -21,6 +21,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/commands"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/constants"
+	"github.com/andre25costa-code/kuromatsu/pkg/cron"
 	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/media"
@@ -117,6 +118,22 @@ type AgentLoop struct {
 	// workerSem limits concurrent turn processing workers.
 	workerSem chan struct{}
 
+	// subTurnSlots[d] limits how many sub-turns of depth d (1..maxDepth) run
+	// at once across the process (subturn.go). Index 0 is unused. Set once in
+	// NewAgentLoop; nil in AgentLoop literals built by tests, which skips
+	// the global limit.
+	subTurnSlots []chan struct{}
+
+	// userTurnTimeout is the wall-clock cap on one user turn
+	// (agents.defaults.user_turn_max_minutes, 0 = none); userTurnMaxMinutes
+	// is the configured value quoted in the error. See userTurnContext.
+	userTurnTimeout    time.Duration
+	userTurnMaxMinutes int
+
+	// rootCtx holds the context Run was started with; lifetimeContext
+	// returns it so detached work (sub-turns) ends with the process.
+	rootCtx atomic.Pointer[context.Context]
+
 	// activeTurnStates tracks active turns per session to prevent duplicates.
 	activeTurnStates sync.Map
 	subTurnCounter   atomic.Int64
@@ -131,6 +148,10 @@ type AgentLoop struct {
 	activeReqCount int
 
 	reloadFunc func() error
+
+	// cronService is the gateway's scheduler, behind the /cron chat
+	// command; nil outside the gateway. Replaced on each config reload.
+	cronService atomic.Pointer[cron.CronService]
 
 	providerFactory func(*config.ModelConfig) (providers.LLMProvider, string, error)
 }
@@ -202,9 +223,20 @@ const (
 	metadataKeyParentPeerID    = "parent_peer_id"
 )
 
+// lifetimeContext returns the context Run was started with, so work that is
+// detached from any single turn still ends when the process shuts down.
+// Before Run (CLI mode, tests) it returns context.Background().
+func (al *AgentLoop) lifetimeContext() context.Context {
+	if p := al.rootCtx.Load(); p != nil && *p != nil {
+		return *p
+	}
+	return context.Background()
+}
+
 // registerSharedTools registers tools that are shared across all agents (web, message, spawn).
 
 func (al *AgentLoop) Run(ctx context.Context) error {
+	al.rootCtx.Store(&ctx)
 	al.running.Store(true)
 
 	if err := al.ensureHooksInitialized(ctx); err != nil {
@@ -340,14 +372,7 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 						Channel:    m.Channel,
 						ChatID:     m.ChatID,
 					}
-					continued, continueErr := al.drainQueuedSteeringContinuations(ctx, target)
-					if continueErr != nil {
-						al.maybePublishError(ctx, m.Channel, m.ChatID, sessionKey, continueErr)
-						return
-					}
-					if continued != "" {
-						al.PublishResponseIfNeeded(ctx, target.Channel, target.ChatID, target.SessionKey, continued)
-					}
+					al.drainAfterPendingStop(ctx, target)
 					return
 				}
 

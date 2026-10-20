@@ -13,6 +13,7 @@ import (
 	"github.com/caarlos0/env/v11"
 	"gopkg.in/yaml.v3"
 
+	"github.com/andre25costa-code/kuromatsu/pkg/constants"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 )
 
@@ -295,22 +296,6 @@ func (b *Channel) SetName(name string) {
 	b.name = name
 }
 
-// SetSecretField sets a secure field value by field name in the Settings JSON.
-// NOTE: This only operates on raw Settings. If Decode() has been called,
-// prefer modifying the typed struct directly — MarshalJSON serializes from extend.
-func (b *Channel) SetSecretField(fieldName string, value SecureString) {
-	var m map[string]any
-	if err := json.Unmarshal(b.Settings, &m); err != nil {
-		return
-	}
-	m[fieldName] = value
-	data, err := json.Marshal(m)
-	if err != nil {
-		return
-	}
-	b.Settings = data
-}
-
 // Decode decodes the Settings node into the given target struct and stores
 // the pointer internally. Subsequent modifications to the target are
 // automatically reflected in MarshalJSON/MarshalYAML (no explicit Encode needed).
@@ -583,20 +568,10 @@ func InitChannelList(channels ChannelsConfig) error {
 			delete(channels, name)
 			continue
 		}
-		// Ensure channel name is set from the map key
-		bc.SetName(name)
-		// Infer Type from map key if not explicitly set
-		if bc.Type == "" {
-			bc.Type = name
+		if err := decodeChannelSettings(name, bc); err != nil {
+			return err
 		}
-		if !isValidChannelType(bc.Type) {
-			return fmt.Errorf("channel %q has unknown type %q", name, bc.Type)
-		}
-		// Decode into the correct typed settings
-		if target := newChannelSettings(bc.Type); target != nil {
-			if err := bc.Decode(target); err != nil {
-				return fmt.Errorf("channel %q failed to decode settings: %w", name, err)
-			}
+		if target := bc.extend; target != nil {
 			// Apply env overrides for channel-specific fields via struct tags
 			// Env overrides for channel settings are non-fatal (some may not
 			// apply), but a value that is ignored is reported, not dropped.
@@ -619,6 +594,33 @@ func InitChannelList(channels ChannelsConfig) error {
 		return err
 	}
 
+	return nil
+}
+
+// decodeChannelSettings sets the channel name from its map key, infers the
+// type from the name when it is empty, rejects unknown types and the names of
+// internal channels, and decodes the raw settings into the typed struct for
+// that type. It reads no environment and runs no other validation.
+//
+// Messages carry the channel's key as their channel name, and the internal
+// names (cli, system, subagent) are trusted as the owner, so a chat channel
+// under one of those keys would give every accepted sender owner rights.
+func decodeChannelSettings(name string, bc *Channel) error {
+	if constants.IsInternalChannel(name) {
+		return fmt.Errorf("channel key %q is reserved for internal use; rename the channel", name)
+	}
+	bc.SetName(name)
+	if bc.Type == "" {
+		bc.Type = name
+	}
+	if !isValidChannelType(bc.Type) {
+		return fmt.Errorf("channel %q has unknown type %q", name, bc.Type)
+	}
+	if target := newChannelSettings(bc.Type); target != nil {
+		if err := bc.Decode(target); err != nil {
+			return fmt.Errorf("channel %q failed to decode settings: %w", name, err)
+		}
+	}
 	return nil
 }
 

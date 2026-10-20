@@ -1,12 +1,15 @@
 package openclaw
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/andre25costa-code/kuromatsu/pkg/config"
 )
 
 func TestNewOpenclawHandler(t *testing.T) {
@@ -244,4 +247,124 @@ func TestRewriteWorkspacePath(t *testing.T) {
 		result := rewriteWorkspacePath(tt.input)
 		assert.Equal(t, tt.expected, result, "rewriteWorkspacePath(%q)", tt.input)
 	}
+}
+
+const telegramOnlySource = `{"channels":{"telegram":{"botToken":"t","allowFrom":["123"]}}}`
+
+func newTestHandler(t *testing.T, srcJSON string) (Operation, string) {
+	t.Helper()
+	srcHome := t.TempDir()
+	srcPath := filepath.Join(srcHome, "openclaw.json")
+	require.NoError(t, os.WriteFile(srcPath, []byte(srcJSON), 0o644))
+	h, err := NewOpenclawHandler(Options{SourceHome: srcHome})
+	require.NoError(t, err)
+	return h, srcPath
+}
+
+func TestExecuteConfigMigration_EndToEndLoads(t *testing.T) {
+	t.Setenv("KUROMATSU_HOME", t.TempDir())
+	h, srcPath := newTestHandler(t, telegramOnlySource)
+	dst := filepath.Join(t.TempDir(), "out", "config.json")
+
+	require.NoError(t, h.ExecuteConfigMigration(srcPath, dst))
+
+	chans := writtenChannels(t, dst)
+	require.Len(t, chans, 1)
+	require.Contains(t, chans, "telegram")
+	assert.Equal(t, []any{"123"}, chans["telegram"]["allow_from"])
+
+	cfg, err := config.LoadConfig(dst)
+	require.NoError(t, err)
+	tg := cfg.Channels["telegram"]
+	require.NotNil(t, tg)
+	assert.Equal(t, []string{"123"}, []string(tg.AllowFrom))
+	assert.True(t, tg.Enabled)
+}
+
+func TestExecuteConfigMigration_NoChannelsLoads(t *testing.T) {
+	t.Setenv("KUROMATSU_HOME", t.TempDir())
+	h, srcPath := newTestHandler(t, `{"channels":{}}`)
+	dst := filepath.Join(t.TempDir(), "config.json")
+
+	require.NoError(t, h.ExecuteConfigMigration(srcPath, dst))
+
+	assert.Empty(t, writtenChannels(t, dst))
+	_, err := config.LoadConfig(dst)
+	require.NoError(t, err)
+}
+
+func TestValidateMigratedConfig_RejectsUnknownChannelType(t *testing.T) {
+	t.Setenv("KUROMATSU_HOME", t.TempDir())
+	cfg := config.DefaultConfig()
+	cfg.Channels = config.ChannelsConfig{"x": &config.Channel{Type: "line"}}
+
+	require.Error(t, config.ValidateForSave(cfg))
+	require.NoError(t, config.ValidateForSave(config.DefaultConfig()))
+}
+
+func TestExecuteConfigMigration_InvalidResultLeavesDestinationUntouched(t *testing.T) {
+	t.Setenv("KUROMATSU_HOME", t.TempDir())
+	h, srcPath := newTestHandler(t, telegramOnlySource)
+
+	orig := buildStandardConfig
+	t.Cleanup(func() { buildStandardConfig = orig })
+	buildStandardConfig = func(c *KuromatsuConfig) *config.Config {
+		cfg := c.ToStandardConfig()
+		cfg.Channels = config.ChannelsConfig{"x": &config.Channel{Type: "line"}}
+		return cfg
+	}
+
+	dst := filepath.Join(t.TempDir(), "config.json")
+	before := []byte("{\"keep\": \"me\"}\n")
+	require.NoError(t, os.WriteFile(dst, before, 0o600))
+
+	err := h.ExecuteConfigMigration(srcPath, dst)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "migrated config is invalid")
+
+	after, readErr := os.ReadFile(dst)
+	require.NoError(t, readErr)
+	assert.Equal(t, before, after)
+	entries, _ := os.ReadDir(filepath.Dir(dst))
+	assert.Len(t, entries, 1, "no companion file may be written next to the destination")
+}
+
+// writtenChannels returns the channel_list object exactly as it is on disk,
+// before LoadConfig fills in defaults for channels the file does not mention.
+func writtenChannels(t *testing.T, path string) map[string]map[string]any {
+	t.Helper()
+	raw, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var doc struct {
+		Channels map[string]map[string]any `json:"channel_list"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &doc))
+	return doc.Channels
+}
+
+// Validating the migrated config never repoints the process-wide secret
+// resolver: it keeps resolving against the directory it was set to.
+func TestExecuteConfigMigration_FailedValidationLeavesSecretResolver(t *testing.T) {
+	t.Setenv("KUROMATSU_HOME", t.TempDir())
+	h, srcPath := newTestHandler(t, telegramOnlySource)
+
+	orig := buildStandardConfig
+	t.Cleanup(func() { buildStandardConfig = orig })
+	buildStandardConfig = func(c *KuromatsuConfig) *config.Config {
+		cfg := c.ToStandardConfig()
+		cfg.Channels = config.ChannelsConfig{"x": &config.Channel{Type: "line"}}
+		return cfg
+	}
+
+	dstDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dstDir, "tok.key"), []byte("s3cret\n"), 0o600))
+	// Point the resolver at the destination, as loading its config does.
+	_, err := config.LoadConfigForEdit(filepath.Join(dstDir, "config.json"))
+	require.NoError(t, err)
+
+	require.Error(t, h.ExecuteConfigMigration(srcPath, filepath.Join(dstDir, "config.json")))
+
+	var s config.SecureString
+	require.NoError(t, s.UnmarshalText([]byte("file://tok.key")))
+	assert.Equal(t, "s3cret", s.String())
 }

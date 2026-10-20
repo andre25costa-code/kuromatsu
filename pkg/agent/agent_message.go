@@ -4,6 +4,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -40,9 +41,82 @@ func (al *AgentLoop) ProcessDirect(
 	return al.ProcessDirectWithChannel(ctx, content, sessionKey, "cli", "direct")
 }
 
+// ProcessDirectWithChannel is the direct entry point for a user turn (the CLI
+// and any caller acting on behalf of a person): the message carries SenderID
+// "cli", so focus routing, reflexes and telemetry treat it as origin user.
+//
+// The whole turn runs under the user-turn deadline (userTurnContext).
+// ProcessDirect delegates here, so the deadline is applied exactly once.
 func (al *AgentLoop) ProcessDirectWithChannel(
 	ctx context.Context,
 	content, sessionKey, channel, chatID string,
+) (string, error) {
+	// Hooks and MCP servers outlive this turn: start them on the caller's
+	// context, not on the turn context canceled when the turn returns.
+	if err := al.ensureHooksInitialized(ctx); err != nil {
+		return "", err
+	}
+	if err := al.ensureMCPInitialized(ctx); err != nil {
+		return "", err
+	}
+
+	turnCtx, cancel := al.userTurnContext(ctx)
+	defer cancel()
+	response, err := al.processDirectAs(turnCtx, content, sessionKey, channel, chatID, "cli")
+	return response, al.userTurnError(ctx, turnCtx, err)
+}
+
+// userTurnContext derives the context for one whole user turn: a deadline
+// of agents.defaults.user_turn_max_minutes, or ctx unchanged when it is 0.
+// One deadline covers the entire turn, including the drain of steering
+// messages queued while it ran; apply it once per turn, at the entry point
+// (ProcessDirectWithChannel, runTurnWithSteering, drainAfterPendingStop),
+// never in shared helpers such as processDirectAs, which cron also uses.
+// The deadline only feeds processing: publishing the reply or the error uses
+// the caller's context. It is read once at startup; changing
+// user_turn_max_minutes needs a restart.
+func (al *AgentLoop) userTurnContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	if al.userTurnTimeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, al.userTurnTimeout)
+}
+
+// userTurnError names the setting when the turn failed because the
+// user-turn deadline expired: turnCtx (derived from ctx by userTurnContext)
+// hit its deadline while ctx itself is still live, so a deadline the caller
+// set is never blamed on user_turn_max_minutes. The result still matches
+// context.DeadlineExceeded, and is not context.Canceled, so
+// maybePublishError reports it to the user.
+func (al *AgentLoop) userTurnError(ctx, turnCtx context.Context, err error) error {
+	if err == nil || al.userTurnTimeout <= 0 {
+		return err
+	}
+	if errors.Is(err, context.DeadlineExceeded) && turnCtx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
+		return fmt.Errorf(
+			"turn exceeded agents.defaults.user_turn_max_minutes (%d min): %w",
+			al.userTurnMaxMinutes,
+			err,
+		)
+	}
+	return err
+}
+
+// ProcessCronWithChannel is the entry point for a scheduled job's turn. It
+// declares the cron origin explicitly, so the turn uses the cron focus window
+// and never runs reflexes.
+func (al *AgentLoop) ProcessCronWithChannel(
+	ctx context.Context,
+	content, sessionKey, channel, chatID string,
+) (string, error) {
+	return al.processDirectAs(ctx, content, sessionKey, channel, chatID, OriginCron)
+}
+
+// processDirectAs builds a direct inbound message from senderID and processes
+// it. Do not apply user deadlines here: cron uses this path.
+func (al *AgentLoop) processDirectAs(
+	ctx context.Context,
+	content, sessionKey, channel, chatID, senderID string,
 ) (string, error) {
 	if err := al.ensureHooksInitialized(ctx); err != nil {
 		return "", err
@@ -56,7 +130,7 @@ func (al *AgentLoop) ProcessDirectWithChannel(
 			Channel:  channel,
 			ChatID:   chatID,
 			ChatType: "direct",
-			SenderID: "cron",
+			SenderID: senderID,
 		},
 		Content:    content,
 		SessionKey: sessionKey,
@@ -196,7 +270,7 @@ func (al *AgentLoop) prepareInboundMessageForAgent(
 }
 
 // originForInboundMessage derives the focus origin (ADR-014/S16) for a
-// message flowing through processMessage. ProcessDirectWithChannel (used by
+// message flowing through processMessage. ProcessCronWithChannel (used by
 // cron's "Message" job kind, pkg/tools/cron.go ExecuteJob) sets SenderID to
 // "cron"; every other inbound message here is a genuine user turn.
 func originForInboundMessage(msg bus.InboundMessage) string {

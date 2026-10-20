@@ -3,14 +3,69 @@ package status
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal"
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/cliui"
 	"github.com/andre25costa-code/kuromatsu/pkg/auth"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/hwprofile"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers/localllm"
+	"github.com/andre25costa-code/kuromatsu/pkg/sysinfo"
 )
+
+// detect is a seam over sysinfo.Detect so tests can simulate hardware.
+var detect = sysinfo.Detect
+
+// hardwareLines renders the status "Hardware" section: what was detected,
+// the profile it suggests, which profile cfg corresponds to, and whether
+// this CPU can run the native build (only meaningful on a native build).
+func hardwareLines(cfg *config.Config, hw sysinfo.Hardware, nativeBuilt bool) []string {
+	ram := "RAM unknown"
+	if hw.TotalRAM > 0 {
+		avail := hwprofile.FormatGiB(hw.AvailableRAM) + " available"
+		if hw.AvailableRAM == 0 {
+			avail = "available unknown"
+		}
+		ram = fmt.Sprintf("%s RAM (%s)", hwprofile.FormatGiB(hw.TotalRAM), avail)
+	}
+	limit := "none"
+	if hw.MemLimit > 0 {
+		limit = hwprofile.FormatGiB(hw.MemLimit)
+	}
+
+	detected := string(hwprofile.Select(hw))
+	if hw.Budget() == 0 {
+		detected += " (" + hwprofile.UnknownRAMNote + ")"
+	}
+
+	native := "n/a (pure-Go build)"
+	if nativeBuilt {
+		if hw.NativeCPUOK {
+			native = "✓ " + nativeFeatures(hw.Arch)
+		} else {
+			native = "✗ missing " + strings.Join(hw.NativeCPUMissing, " ") + " — native model disabled"
+		}
+	}
+
+	return []string{
+		fmt.Sprintf("Hardware   %s, limit %s, %d CPUs, %s", ram, limit, hw.CPUs, hw.Arch),
+		fmt.Sprintf("Profile    detected: %s · config matches: %s", detected, hwprofile.Match(cfg, hw)),
+		"Native CPU " + native,
+	}
+}
+
+// nativeFeatures names the extensions the native build relies on for arch.
+func nativeFeatures(arch string) string {
+	switch arch {
+	case "amd64":
+		return "AVX2 FMA"
+	case "arm64":
+		return "dotprod fp16"
+	}
+	return arch
+}
 
 func statusCmd() {
 	cfg, err := internal.LoadConfig()
@@ -38,6 +93,7 @@ func statusCmd() {
 		WorkspacePath: workspace,
 		WorkspaceOK:   wsOK,
 		Model:         cfg.Agents.Defaults.GetModelName(),
+		Hardware:      hardwareLines(cfg, detect(), localllm.Built()),
 	}
 
 	if configOK {

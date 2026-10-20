@@ -22,5 +22,7 @@ func BuiltinDefinitions() []Definition {
 		subagentsCommand(),
 		reloadCommand(),
 		statsCommand(),
+		configCommand(),
+		cronCommand(),
 	}
 }

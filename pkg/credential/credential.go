@@ -70,9 +70,9 @@ var ErrDecryptionFailed = errors.New("credential: enc:// decryption failed (wron
 // SSH private key used for enc:// credential encryption and decryption.
 const SSHKeyPathEnvVar = "KUROMATSU_SSH_KEY_PATH"
 
-// picoclawHome is a package-local copy of config.EnvHome. It is kept here to
+// envHome is a package-local copy of config.EnvHome. It is kept here to
 // avoid a circular import between pkg/credential and pkg/config.
-const picoclawHome = "KUROMATSU_HOME"
+const envHome = "KUROMATSU_HOME"
 
 const (
 	FileScheme = "file://"
@@ -263,8 +263,8 @@ func allowedSSHKeyPath(path string) bool {
 	}
 
 	// Within KUROMATSU_HOME.
-	if picoHome := os.Getenv(picoclawHome); picoHome != "" {
-		if isWithinDir(clean, picoHome) {
+	if homeDir := os.Getenv(envHome); homeDir != "" {
+		if isWithinDir(clean, homeDir) {
 			return true
 		}
 	}

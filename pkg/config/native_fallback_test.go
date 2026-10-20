@@ -247,3 +247,32 @@ func TestApplyNativeFallback_IdempotentOnRepeatedCalls(t *testing.T) {
 		t.Fatalf("ModelFallbacks = %v, want exactly one entry after two calls", cfg.Agents.Defaults.ModelFallbacks)
 	}
 }
+
+// A native build on a CPU without the build's instruction-set baseline
+// (e.g. no AVX2) must not wire the native model as default or fallback:
+// loading it would die with SIGILL.
+func TestApplyNativeFallback_SkipsUnsupportedCPU(t *testing.T) {
+	oldEngine, oldCPU := nativeEngineBuilt, nativeCPUOK
+	t.Cleanup(func() { nativeEngineBuilt, nativeCPUOK = oldEngine, oldCPU })
+	nativeEngineBuilt = func() bool { return true }
+	home := withHome(t)
+	writeTestGGUF(t, home, "bonsai-test.gguf")
+
+	nativeCPUOK = func() bool { return false }
+	cfg := &Config{ModelList: nativeTestModelList()}
+	ApplyNativeFallback(cfg)
+	if cfg.ModelList[0].Enabled || cfg.Agents.Defaults.ModelName != "" ||
+		len(cfg.Agents.Defaults.ModelFallbacks) != 0 {
+		t.Fatalf("native model wired on an unsupported CPU: enabled=%v model=%q fallbacks=%v",
+			cfg.ModelList[0].Enabled, cfg.Agents.Defaults.ModelName, cfg.Agents.Defaults.ModelFallbacks)
+	}
+
+	// Same build on a supported CPU: wired as before.
+	nativeCPUOK = func() bool { return true }
+	cfg = &Config{ModelList: nativeTestModelList()}
+	ApplyNativeFallback(cfg)
+	if !cfg.ModelList[0].Enabled || cfg.Agents.Defaults.ModelName != nativeModelName {
+		t.Fatalf("native model not wired on a supported CPU: enabled=%v model=%q",
+			cfg.ModelList[0].Enabled, cfg.Agents.Defaults.ModelName)
+	}
+}

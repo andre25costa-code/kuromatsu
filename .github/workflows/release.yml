@@ -17,22 +17,111 @@ on:
         required: false
         type: boolean
         default: false
+      skip_native:
+        description: "Skip the native (llama.cpp) linux/amd64 archive (emergency release; saves ~20-40 min)"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
-  release:
-    name: GoReleaser Release
+  native:
+    name: Native linux/amd64 archive
+    if: ${{ !inputs.skip_native }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      packages: write
+      contents: read
     steps:
       - name: Verify tag exists
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
         run: |
-          if ! gh api "repos/${{ github.repository }}/git/ref/tags/${{ inputs.tag }}" --silent 2>/dev/null; then
-            echo "::error::Tag '${{ inputs.tag }}' does not exist. Create it first using the 'Create Tag' workflow."
+          if ! gh api "repos/${REPO}/git/ref/tags/${TAG}" --silent 2>/dev/null; then
+            echo "::error::Tag '${TAG}' does not exist. Create it first using the 'Create Tag' workflow."
+            exit 1
+          fi
+
+      - name: Checkout tag (with llama.cpp submodule)
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          submodules: recursive
+
+      # .git is not in the Docker build context, so the version stamped into
+      # the binary comes from here. Same format as goreleaser: the tag
+      # without its leading "v".
+      - name: Resolve version and commit
+        id: version
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short=8 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build native image, export as tarball
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: docker/Dockerfile.native
+          tags: kuromatsu:native-amd64
+          build-args: |
+            LLAMA_BUILD_JOBS=4
+            VERSION=${{ steps.version.outputs.version }}
+            GIT_COMMIT=${{ steps.version.outputs.commit }}
+          outputs: type=docker,dest=/tmp/native.tar
+
+      # The archive layout matches the goreleaser archives (binary + LICENSE
+      # at the root) so `kuromatsu update` and installers treat it the same.
+      - name: Package kuromatsu-native_Linux_x86_64.tar.gz
+        run: |
+          set -euo pipefail
+          docker load -i /tmp/native.tar
+          stage="$RUNNER_TEMP/native"
+          mkdir -p "$stage"
+          container_id=$(docker create kuromatsu:native-amd64)
+          docker cp "$container_id":/usr/local/bin/kuromatsu "$stage/kuromatsu"
+          docker rm "$container_id" >/dev/null
+          chmod +x "$stage/kuromatsu"
+          cp LICENSE "$stage/"
+          tar -C "$stage" -czf kuromatsu-native_Linux_x86_64.tar.gz kuromatsu LICENSE
+          tar -tzvf kuromatsu-native_Linux_x86_64.tar.gz
+
+      - name: Upload native archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-archive
+          path: kuromatsu-native_Linux_x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: GoReleaser Release
+    needs: native
+    if: ${{ always() && (needs.native.result == 'success' || needs.native.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    # Docker Hub is optional: without both secrets and the DOCKERHUB_REPOSITORY
+    # variable the login is skipped and images go to ghcr.io only.
+    env:
+      DOCKERHUB_ENABLED: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' && vars.DOCKERHUB_REPOSITORY != '' }}
+    steps:
+      - name: Verify tag exists
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if ! gh api "repos/${REPO}/git/ref/tags/${TAG}" --silent 2>/dev/null; then
+            echo "::error::Tag '${TAG}' does not exist. Create it first using the 'Create Tag' workflow."
             exit 1
           fi
 
@@ -41,6 +130,15 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.tag }}
+
+      # After checkout (which cleans the workspace). goreleaser checksums and
+      # uploads dist-native/*.tar.gz alongside its own archives.
+      - name: Download native archive
+        if: ${{ !inputs.skip_native }}
+        uses: actions/download-artifact@v4
+        with:
+          name: native-archive
+          path: dist-native
 
       - name: Setup Go from go.mod
         id: setup-go
@@ -62,6 +160,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to Docker Hub
+        if: env.DOCKERHUB_ENABLED == 'true'
         uses: docker/login-action@v4
         with:
           registry: docker.io
@@ -75,12 +174,12 @@ jobs:
         uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
-          version: ~> v2
+          version: v2.18.2
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
-          DOCKERHUB_IMAGE_NAME: ${{ vars.DOCKERHUB_REPOSITORY }}
+          DOCKERHUB_IMAGE_NAME: ${{ env.DOCKERHUB_ENABLED == 'true' && vars.DOCKERHUB_REPOSITORY || '' }}
           GOVERSION: ${{ steps.setup-go.outputs.go-version }}
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
           MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}
@@ -92,8 +191,11 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          DRAFT: ${{ inputs.draft }}
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          gh release edit "${{ inputs.tag }}" \
-            --draft=${{ inputs.draft }} \
-            --prerelease=${{ inputs.prerelease }}
+          gh release edit "$TAG" \
+            --draft="$DRAFT" \
+            --prerelease="$PRERELEASE"
 

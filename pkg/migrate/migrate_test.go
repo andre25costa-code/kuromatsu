@@ -1,6 +1,7 @@
 package migrate
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -408,4 +409,29 @@ func (m *mockOperation) GetMigrateableDirs() []string {
 		return m.migrateDirs
 	}
 	return []string{}
+}
+
+func TestRun_BannerUsesSourceName(t *testing.T) {
+	sourceDir := t.TempDir()
+	targetDir := t.TempDir()
+
+	instance := &MigrateInstance{
+		options:  Options{Source: "mock"},
+		handlers: make(map[string]Operation),
+	}
+	instance.Register("mock", &mockOperation{sourceHome: sourceDir})
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	os.Stdout = w
+	_, runErr := instance.Run(Options{Source: "mock", DryRun: true, TargetHome: targetDir})
+	w.Close()
+	os.Stdout = oldStdout
+	out, err := io.ReadAll(r)
+	require.NoError(t, err)
+	require.NoError(t, runErr)
+
+	assert.Contains(t, string(out), "Migrating from mock to Kuromatsu")
+	assert.NotContains(t, string(out), "from Source")
 }

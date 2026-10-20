@@ -16,6 +16,7 @@ func newAddCommand(storePath func() string) *cobra.Command {
 		command string
 		every   int64
 		cronExp string
+		tz      string
 		channel string
 		to      string
 
@@ -34,6 +35,9 @@ func newAddCommand(storePath func() string) *cobra.Command {
 			if every <= 0 && cronExp == "" {
 				return fmt.Errorf("either --every or --cron must be specified")
 			}
+			if tz != "" && cronExp == "" {
+				return fmt.Errorf("--tz only applies to --cron")
+			}
 			if command == "" && (quiet || anomalyRegex != "" || onAnomaly != "") {
 				return fmt.Errorf("--quiet, --anomaly-regex and --on-anomaly only apply to --command jobs")
 			}
@@ -43,7 +47,7 @@ func newAddCommand(storePath func() string) *cobra.Command {
 				everyMS := every * 1000
 				schedule = cron.CronSchedule{Kind: "every", EveryMS: &everyMS}
 			} else {
-				schedule = cron.CronSchedule{Kind: "cron", Expr: cronExp}
+				schedule = cron.CronSchedule{Kind: "cron", Expr: cronExp, TZ: tz}
 			}
 
 			cs := cron.NewCronService(storePath(), nil)
@@ -89,6 +93,7 @@ func newAddCommand(storePath func() string) *cobra.Command {
 		StringVar(&command, "command", "", "Shell command run without an LLM turn (output sent to --channel/--to)")
 	cmd.Flags().Int64VarP(&every, "every", "e", 0, "Run every N seconds")
 	cmd.Flags().StringVarP(&cronExp, "cron", "c", "", "Cron expression (e.g. '0 9 * * *')")
+	cmd.Flags().StringVar(&tz, "tz", "", "IANA time zone for --cron (e.g. America/Sao_Paulo); default local time")
 	cmd.Flags().StringVar(&to, "to", "", "Recipient for delivery")
 	cmd.Flags().StringVar(&channel, "channel", "", "Channel for delivery")
 	cmd.Flags().BoolVar(&quiet, "quiet", false, "Publish nothing when the command succeeds (only anomalies)")

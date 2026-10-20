@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -34,6 +35,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/netbind"
 	"github.com/andre25costa-code/kuromatsu/pkg/pid"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers/localllm"
 	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 	"github.com/andre25costa-code/kuromatsu/pkg/state"
 	"github.com/andre25costa-code/kuromatsu/pkg/tools"
@@ -60,7 +62,6 @@ type services struct {
 	ChannelManager    *channels.Manager
 	DeviceService     *devices.Service
 	HealthServer      *health.Server
-	VoiceAgentCancel  context.CancelFunc
 	manualReloadChan  chan struct{}
 	reloading         atomic.Bool
 
@@ -119,6 +120,18 @@ func (p *startupBlockedProvider) GetDefaultModel() string {
 	return ""
 }
 
+// loadStartupConfig is the gateway's first config load. It applies the
+// configured timezone before any service starts; reloads use
+// config.LoadConfig directly and never touch time.Local.
+func loadStartupConfig(configPath string) (*config.Config, error) {
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		return nil, err
+	}
+	config.ApplyProcessTimezone(cfg)
+	return cfg, nil
+}
+
 // Run starts the gateway runtime using the configuration loaded from configPath.
 func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runErr error) {
 	startedAt := time.Now()
@@ -151,7 +164,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 		}
 	}()
 
-	cfg, err := config.LoadConfig(configPath)
+	cfg, err := loadStartupConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("error loading config: %w", err)
 	}
@@ -159,6 +172,7 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	if err = preCheckConfig(cfg); err != nil {
 		return fmt.Errorf("config pre-check failed: %w", err)
 	}
+	warnUnsupportedNativeCPU()
 	logger.InfoCF("gateway", "Active configuration", map[string]any{
 		"config_path": cfg.SourcePath, "workspace": cfg.Agents.Defaults.Workspace,
 	})
@@ -269,6 +283,9 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 	}
 	runningServices.HealthServer.SetReloadFunc(reloadTrigger)
 	agentLoop.SetReloadFunc(reloadTrigger)
+	// The web UI goes on the shared mux, which reloads keep; it needs the
+	// reload trigger, so it is mounted here rather than with the channels.
+	mountWebUI(runningServices.ChannelManager, cfg, webUIDeps(configPath, agentLoop, reloadTrigger))
 
 	for _, bindHost := range listenResult.BindHosts {
 		fmt.Printf("✓ Gateway started on %s\n", net.JoinHostPort(bindHost, strconv.Itoa(cfg.Gateway.Port)))
@@ -332,6 +349,20 @@ func Run(debug bool, homePath, configPath string, allowEmptyStartup bool) (runEr
 				logger.Info("Manual reload completed successfully")
 			}
 		}
+	}
+}
+
+// warnUnsupportedNativeCPU logs once at boot when this is a native build
+// running on a CPU without the build's instruction-set baseline: the
+// native model is then never wired as default or fallback, and an explicit
+// load is refused.
+func warnUnsupportedNativeCPU() {
+	if !localllm.Built() {
+		return
+	}
+	if ok, missing := localllm.CPUSupported(); !ok {
+		logger.WarnCF("localllm", "native model disabled: CPU lacks "+strings.Join(missing, "+"),
+			map[string]any{"missing": missing})
 	}
 }
 
@@ -460,6 +491,7 @@ func setupAndStartServices(
 	if err != nil {
 		return nil, fmt.Errorf("error setting up cron service: %w", err)
 	}
+	agentLoop.SetCronService(runningServices.CronService)
 	if err = runningServices.CronService.Start(); err != nil {
 		return nil, fmt.Errorf("error starting cron service: %w", err)
 	}
@@ -530,14 +562,6 @@ func setupAndStartServices(
 
 	logChannelVoiceCapabilities(runningServices.ChannelManager, transcriber != nil, ttsAvailable)
 
-	if transcriber != nil {
-		// Start Voice Agent Orchestrator after channels are ready.
-		vaCtx, vaCancel := context.WithCancel(context.Background())
-		runningServices.VoiceAgentCancel = vaCancel
-		voiceAgent := asr.NewAgent(msgBus, transcriber)
-		voiceAgent.Start(vaCtx)
-	}
-
 	healthAddr := net.JoinHostPort(listenResult.ProbeHost, strconv.Itoa(cfg.Gateway.Port))
 	fmt.Printf(
 		"✓ Health endpoints available at http://%s/health, /ready and /reload (POST)\n",
@@ -579,9 +603,6 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 	if !isReload && runningServices.ChannelManager != nil {
 		runningServices.ChannelManager.StopAll(shutdownCtx)
 	}
-	if runningServices.VoiceAgentCancel != nil {
-		runningServices.VoiceAgentCancel()
-	}
 	if runningServices.DeviceService != nil {
 		runningServices.DeviceService.Stop()
 	}
@@ -600,9 +621,10 @@ func stopAndCleanupServices(runningServices *services, shutdownTimeout time.Dura
 
 // initiateShutdown cancels ctx BEFORE running the full shutdown sequence --
 // not only via a deferred cancel() in Run, which would otherwise fire only
-// after shutdownGateway itself already returned. ctx is the same context
-// every in-flight turn's completion() call received (agentLoop.Run(ctx) ->
-// runTurnWithSteering(ctx, ...), never rerooted along the way), and
+// after shutdownGateway itself already returned. Every in-flight turn's
+// completion() call received ctx or a context derived from it
+// (agentLoop.Run(ctx) -> runTurnWithSteering(ctx, ...), which only adds the
+// user-turn deadline; sub-turns derive from Run's ctx too), and
 // completion() already arms context.AfterFunc(ctx, ...) to flip
 // llama.cpp's abort_callback on cancellation (ADR-015 point 5). Canceling
 // first lets an in-flight decode unwind immediately instead of blocking
@@ -733,6 +755,7 @@ func restartServices(
 	if err != nil {
 		return fmt.Errorf("error restarting cron service: %w", err)
 	}
+	al.SetCronService(runningServices.CronService)
 	if err = runningServices.CronService.Start(); err != nil {
 		return fmt.Errorf("error restarting cron service: %w", err)
 	}
@@ -785,12 +808,6 @@ func restartServices(
 	al.SetTranscriber(transcriber)
 	if transcriber != nil {
 		logger.InfoCF("voice", "Transcription re-enabled (agent-level)", map[string]any{"provider": transcriber.Name()})
-
-		// Start Voice Agent Orchestrator on reload
-		vaCtx, vaCancel := context.WithCancel(context.Background())
-		runningServices.VoiceAgentCancel = vaCancel
-		voiceAgent := asr.NewAgent(msgBus, transcriber)
-		voiceAgent.Start(vaCtx)
 	} else {
 		logger.InfoCF("voice", "Transcription disabled", nil)
 	}
@@ -919,9 +936,11 @@ func setupCronTool(
 			// (see createHeartbeatHandler's comment for why that was a bug).
 			// The AC-028-5 cap is applied inside CronTool to LLM turns
 			// only; command jobs keep the exec tool's own timeout.
-			result := cronTool.ExecuteJob(ctx, job)
-			return result, nil
+			// The job's real error is returned so its status tells the truth.
+			return cronTool.ExecuteJob(ctx, job)
 		})
+		cronService.SetMaxConsecutiveFailures(cfg.Tools.Cron.MaxConsecutiveFailures)
+		cronService.SetOnAutoDisable(cronTool.NotifyAutoDisabled)
 	}
 
 	return cronService, nil

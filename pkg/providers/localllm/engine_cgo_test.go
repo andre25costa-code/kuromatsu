@@ -4,6 +4,7 @@ package localllm
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -393,5 +394,36 @@ func TestCgoEngine_CoreParking_Integration(t *testing.T) {
 			a2WithParking.Usage.CachedTokens,
 			a2WithParking.Usage.PromptTokens,
 		)
+	}
+}
+
+// On a CPU without the build's instruction-set baseline, ensureLoaded must
+// refuse before any ggml code runs. The preLoad hook runs just before
+// llama_backend_init, so it not being called proves the refusal comes first.
+func TestCgoEngine_RefusesUnsupportedCPU(t *testing.T) {
+	oldCPU := cpuSupported
+	cpuSupported = func() (bool, []string) { return false, []string{"AVX2", "FMA"} }
+	t.Cleanup(func() { cpuSupported = oldCPU })
+
+	preLoadCalled := false
+	SetMemoryHooks(func(MemoryEstimate) error {
+		preLoadCalled = true
+		return errors.New("preLoad hook reached")
+	}, nil)
+	t.Cleanup(func() { SetMemoryHooks(nil, nil) })
+
+	e := &cgoEngine{}
+	e.mu.Lock()
+	err := e.ensureLoaded(Options{ModelPath: "/missing/model.gguf"}.WithDefaults())
+	e.mu.Unlock()
+
+	if err == nil || !strings.Contains(err.Error(), "needs AVX2+FMA") {
+		t.Fatalf("ensureLoaded error = %v, want one naming AVX2+FMA", err)
+	}
+	if preLoadCalled {
+		t.Fatal("ensureLoaded reached the preLoad hook; the CPU check must come first")
+	}
+	if e.lctx != nil {
+		t.Fatal("a context was created on an unsupported CPU")
 	}
 }

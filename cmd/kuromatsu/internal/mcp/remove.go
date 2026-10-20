@@ -12,7 +12,7 @@ func newRemoveCommand() *cobra.Command {
 		Short: "Remove an MCP server from config",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := loadConfig()
+			cfg, err := loadConfigForEdit()
 			if err != nil {
 				return err
 			}

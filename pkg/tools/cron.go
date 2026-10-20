@@ -22,8 +22,8 @@ import (
 
 // JobExecutor is the interface for executing cron jobs through the agent
 type JobExecutor interface {
-	ProcessDirectWithChannel(ctx context.Context, content, sessionKey, channel, chatID string) (string, error)
-	// ProcessDirectForAgent is ProcessDirectWithChannel's per-agent form
+	ProcessCronWithChannel(ctx context.Context, content, sessionKey, channel, chatID string) (string, error)
+	// ProcessDirectForAgent is ProcessCronWithChannel's per-agent form
 	// (Trilho G B.2), used when payload.AgentID is set.
 	ProcessDirectForAgent(ctx context.Context, agentID, content, sessionKey, channel, chatID string) (string, error)
 	// PublishResponseIfNeeded sends response to the outbound bus only when the
@@ -56,7 +56,17 @@ type anomalyDayCount struct {
 	count int
 }
 
-const minAgentTurnInterval = 5 * time.Minute
+// cronSilentReply is the reply that tells the scheduler a job has nothing to
+// report: a job turn whose whole final reply is this word (any case,
+// surrounding spaces and dots ignored) publishes nothing and still counts as
+// a successful run. Monitoring jobs ask the model to answer it when their
+// condition is false.
+const cronSilentReply = "NADA"
+
+// isCronSilentReply reports whether response is exactly cronSilentReply.
+func isCronSilentReply(response string) bool {
+	return strings.EqualFold(strings.Trim(strings.TrimSpace(response), "."), cronSilentReply)
+}
 
 // NewCronTool creates a new CronTool
 // execTimeout: 0 means no timeout, >0 sets the timeout duration
@@ -111,7 +121,8 @@ IMPORTANT: When user asks to be reminded or scheduled, you MUST call this tool.
 Use 'at_seconds' for one-time reminders (e.g., 'remind me in 10 minutes' → at_seconds=600). 
 Use 'every_seconds' ONLY for recurring tasks (e.g., 'every 2 hours' → every_seconds=7200). 
 Use 'cron_expr' for complex recurring schedules. 
-Use 'command' to execute shell commands directly.`
+Use 'command' to execute shell commands directly.
+A scheduled message job whose final reply is exactly NADA sends nothing (use it for checks that should stay quiet when there is nothing to report).`
 }
 
 // Parameters returns the tool parameters schema
@@ -120,9 +131,11 @@ func (t *CronTool) Parameters() map[string]any {
 		"type": "object",
 		"properties": map[string]any{
 			"action": map[string]any{
-				"type":        "string",
-				"enum":        []string{"add", "list", "get", "update", "remove", "enable", "disable"},
-				"description": "Action to perform. Use 'get' before editing and 'update' to change existing jobs without losing their payload. Remote channels can only list/get/update jobs for the current channel/chat_id.",
+				"type": "string",
+				"enum": []string{
+					"add", "list", "get", "update", "remove", "enable", "disable", "run-now", "history",
+				},
+				"description": "Action to perform. Use 'get' before editing and 'update' to change existing jobs without losing their payload. 'run-now' runs an enabled job at the scheduler's next wake-up; 'history' shows its recent runs. Remote channels can only act on jobs for the current channel/chat_id.",
 			},
 			"name": map[string]any{
 				"type":        "string",
@@ -151,6 +164,10 @@ func (t *CronTool) Parameters() map[string]any {
 			"cron_expr": map[string]any{
 				"type":        "string",
 				"description": "Cron expression for complex recurring schedules (e.g., '0 9 * * *' for daily at 9am). Use this for complex recurring schedules.",
+			},
+			"tz": map[string]any{
+				"type":        "string",
+				"description": "Optional IANA time zone for cron_expr (e.g. 'America/Sao_Paulo'); only valid together with cron_expr. Default: the host's local time; an update of cron_expr without tz keeps the job's current zone.",
 			},
 			"job_id": map[string]any{
 				"type":        "string",
@@ -187,6 +204,10 @@ func (t *CronTool) Execute(ctx context.Context, args map[string]any) *ToolResult
 		return t.enableJob(ctx, args, true)
 	case "disable":
 		return t.enableJob(ctx, args, false)
+	case "run-now":
+		return t.runJobNow(ctx, args)
+	case "history":
+		return t.jobHistory(ctx, args)
 	default:
 		return ErrorResult(fmt.Sprintf("unknown action: %s", action))
 	}
@@ -218,6 +239,15 @@ func (t *CronTool) addJob(ctx context.Context, args map[string]any) *ToolResult 
 	hasEvery = hasEvery && everySeconds > 0
 	hasCron = hasCron && cronExpr != ""
 
+	tz, _, errResult := optionalString(args, "tz")
+	if errResult != nil {
+		return errResult
+	}
+	tz = strings.TrimSpace(tz)
+	if tz != "" && (!hasCron || hasAt || hasEvery) {
+		return ErrorResult("tz only applies to cron_expr")
+	}
+
 	// Priority: at_seconds > every_seconds > cron_expr
 	if hasAt {
 		atMS := time.Now().UnixMilli() + int64(atSeconds)*1000
@@ -235,6 +265,7 @@ func (t *CronTool) addJob(ctx context.Context, args map[string]any) *ToolResult 
 		schedule = cron.CronSchedule{
 			Kind: "cron",
 			Expr: cronExpr,
+			TZ:   tz,
 		}
 	} else {
 		return ErrorResult("one of at_seconds, every_seconds, or cron_expr is required")
@@ -292,7 +323,8 @@ func (t *CronTool) addJob(ctx context.Context, args map[string]any) *ToolResult 
 }
 
 func (t *CronTool) listJobs(ctx context.Context) *ToolResult {
-	jobs := t.cronService.ListJobs(false)
+	// Disabled jobs too: an auto-disabled job must stay visible.
+	jobs := t.cronService.ListJobs(true)
 
 	var accessibleJobs []cron.CronJob
 	for _, job := range jobs {
@@ -319,10 +351,62 @@ func (t *CronTool) listJobs(ctx context.Context) *ToolResult {
 		} else {
 			scheduleInfo = "unknown"
 		}
-		result.WriteString(fmt.Sprintf("- %s (id: %s, %s)\n", j.Name, j.ID, scheduleInfo))
+		if j.Schedule.TZ != "" {
+			scheduleInfo += ", tz " + j.Schedule.TZ
+		}
+		status := "enabled"
+		if !j.Enabled {
+			status = "disabled"
+		}
+		next := "-"
+		if j.State.NextRunAtMS != nil {
+			next = time.UnixMilli(*j.State.NextRunAtMS).Format(cronTimeLayout)
+		}
+		last := j.State.LastStatus
+		if last == "" {
+			last = "-"
+		}
+		result.WriteString(fmt.Sprintf("- %s (id: %s, %s, %s, next: %s, last: %s)\n",
+			j.Name, j.ID, scheduleInfo, status, next, last))
 	}
 
 	return SilentResult(result.String())
+}
+
+// cronTimeLayout formats run times in the host's local time.
+const cronTimeLayout = "2006-01-02 15:04"
+
+func (t *CronTool) runJobNow(ctx context.Context, args map[string]any) *ToolResult {
+	jobID, errResult := requiredCronJobID(args, "run-now")
+	if errResult != nil {
+		return errResult
+	}
+	job, ok := t.cronService.GetJob(jobID)
+	if !ok {
+		return ErrorResult(fmt.Sprintf("Job %s not found", jobID))
+	}
+	if !t.canAccessJob(ctx, job) {
+		return ErrorResult(fmt.Sprintf("Job %s is not accessible from this channel", jobID))
+	}
+	if err := t.cronService.RunNow(jobID); err != nil {
+		return ErrorResult(fmt.Sprintf("Error running job %s: %v", jobID, err))
+	}
+	return SilentResult(fmt.Sprintf("Cron job '%s' scheduled to run now", job.Name))
+}
+
+func (t *CronTool) jobHistory(ctx context.Context, args map[string]any) *ToolResult {
+	jobID, errResult := requiredCronJobID(args, "history")
+	if errResult != nil {
+		return errResult
+	}
+	job, ok := t.cronService.GetJob(jobID)
+	if !ok {
+		return ErrorResult(fmt.Sprintf("Job %s not found", jobID))
+	}
+	if !t.canAccessJob(ctx, job) {
+		return ErrorResult(fmt.Sprintf("Job %s is not accessible from this channel", jobID))
+	}
+	return SilentResult(cron.FormatHistory(job, t.cronService.History(jobID)))
 }
 
 func (t *CronTool) getJob(ctx context.Context, args map[string]any) *ToolResult {
@@ -381,6 +465,10 @@ func (t *CronTool) updateJob(ctx context.Context, args map[string]any) *ToolResu
 		return errResult
 	}
 	if hasSchedule {
+		// A new cron_expr without tz keeps the job's zone; pass tz to change it.
+		if _, tzGiven := args["tz"]; !tzGiven && schedule.Kind == "cron" && job.Schedule.Kind == "cron" {
+			schedule.TZ = job.Schedule.TZ
+		}
 		job.Schedule = schedule
 		job.DeleteAfterRun = schedule.Kind == "at"
 		patches++
@@ -429,7 +517,11 @@ func (t *CronTool) removeJob(ctx context.Context, args map[string]any) *ToolResu
 		return ErrorResult(fmt.Sprintf("Job %s is not accessible from this channel", jobID))
 	}
 
-	if t.cronService.RemoveJob(jobID) {
+	removed, err := t.cronService.RemoveJob(jobID)
+	if err != nil {
+		return ErrorResult(fmt.Sprintf("Error removing job %s: %v", jobID, err))
+	}
+	if removed {
 		return SilentResult(fmt.Sprintf("Cron job removed: %s", jobID))
 	}
 	return ErrorResult(fmt.Sprintf("Job %s not found", jobID))
@@ -509,6 +601,17 @@ func schedulePatch(args map[string]any) (cron.CronSchedule, bool, *ToolResult) {
 	if patches > 1 {
 		return cron.CronSchedule{}, false, ErrorResult("only one of at_seconds, every_seconds, or cron_expr can be set")
 	}
+
+	tz, _, errResult := optionalString(args, "tz")
+	if errResult != nil {
+		return cron.CronSchedule{}, false, errResult
+	}
+	if tz = strings.TrimSpace(tz); tz != "" {
+		if schedule.Kind != "cron" {
+			return cron.CronSchedule{}, false, ErrorResult("tz only applies to cron_expr")
+		}
+		schedule.TZ = tz
+	}
 	return schedule, patches == 1, nil
 }
 
@@ -535,16 +638,10 @@ func positiveSeconds(args map[string]any, key string) (int64, *ToolResult) {
 }
 
 func validateAgentTurnSchedule(schedule cron.CronSchedule, command string) *ToolResult {
-	if strings.TrimSpace(command) != "" || schedule.Kind != "every" || schedule.EveryMS == nil {
-		return nil
+	if err := cron.CheckAgentTurnInterval(schedule, command); err != nil {
+		return ErrorResult(err.Error())
 	}
-	if *schedule.EveryMS >= minAgentTurnInterval.Milliseconds() {
-		return nil
-	}
-	return ErrorResult(fmt.Sprintf(
-		"recurring agent turns must run at least %d seconds apart; use a deterministic command for faster schedules",
-		int64(minAgentTurnInterval/time.Second),
-	))
+	return nil
 }
 
 func (t *CronTool) validateCommandMutation(ctx context.Context, args map[string]any) *ToolResult {
@@ -589,12 +686,19 @@ func isCommandAllowedRemote(channel, chatID string, allowed []string) bool {
 }
 
 func (t *CronTool) canAccessJob(ctx context.Context, job *cron.CronJob) bool {
-	channel := ToolChannel(ctx)
+	return CanAccessCronJob(job, ToolChannel(ctx), ToolChatID(ctx), t.commandAllowedRemotes)
+}
+
+// CanAccessCronJob is the rule for which chat may see and change a cron job,
+// shared by the cron tool and the /cron chat command: an internal channel
+// may access every job; any other channel only the jobs delivered to its own
+// chat (Payload.Channel and Payload.To), and a command job only when that
+// chat is also listed in commandAllowedRemotes
+// (tools.cron.command_allowed_remotes).
+func CanAccessCronJob(job *cron.CronJob, channel, chatID string, commandAllowedRemotes []string) bool {
 	if constants.IsInternalChannel(channel) {
 		return true
 	}
-
-	chatID := ToolChatID(ctx)
 	if channel == "" || chatID == "" {
 		return false
 	}
@@ -602,7 +706,7 @@ func (t *CronTool) canAccessJob(ctx context.Context, job *cron.CronJob) bool {
 		return false
 	}
 	if job.Payload.Command != "" {
-		return isCommandAllowedRemote(channel, chatID, t.commandAllowedRemotes)
+		return isCommandAllowedRemote(channel, chatID, commandAllowedRemotes)
 	}
 	return true
 }
@@ -629,9 +733,12 @@ func (t *CronTool) enableJob(ctx context.Context, args map[string]any, enable bo
 		return ErrorResult(fmt.Sprintf("Job %s is not accessible from this channel", jobID))
 	}
 
-	updatedJob := t.cronService.EnableJob(jobID, enable)
-	if updatedJob == nil {
+	updatedJob, err := t.cronService.EnableJob(jobID, enable)
+	if errors.Is(err, cron.ErrJobNotFound) {
 		return ErrorResult(fmt.Sprintf("Job %s not found", jobID))
+	}
+	if err != nil {
+		return ErrorResult(fmt.Sprintf("Error updating job %s: %v", jobID, err))
 	}
 
 	status := "enabled"
@@ -641,39 +748,57 @@ func (t *CronTool) enableJob(ctx context.Context, args map[string]any, enable bo
 	return SilentResult(fmt.Sprintf("Cron job '%s' %s", updatedJob.Name, status))
 }
 
-// ExecuteJob executes a cron job through the agent
-func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
-	// Get channel/chatID from job payload
-	channel := job.Payload.Channel
-	chatID := job.Payload.To
-
-	// Default values if not set
+// cronJobDestination is where a job's output goes: its payload's channel and
+// chat, defaulting to the local CLI.
+func cronJobDestination(job *cron.CronJob) (channel, chatID string) {
+	channel, chatID = job.Payload.Channel, job.Payload.To
 	if channel == "" {
 		channel = "cli"
 	}
 	if chatID == "" {
 		chatID = "direct"
 	}
+	return channel, chatID
+}
+
+func (t *CronTool) publish(channel, chatID, content string) {
+	pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer pubCancel()
+	t.msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
+		Context: bus.NewOutboundContext(channel, chatID, ""),
+		Content: content,
+	})
+}
+
+// NotifyAutoDisabled tells the job's destination that the scheduler switched
+// the job off after repeated failures.
+func (t *CronTool) NotifyAutoDisabled(job cron.CronJob) {
+	channel, chatID := cronJobDestination(&job)
+	t.publish(channel, chatID, fmt.Sprintf(
+		"Cron job '%s' (%s) was disabled after %d consecutive failures. Last error: %s. "+
+			"Re-enable with `kuromatsu cron enable %s`.",
+		job.Name, job.ID, job.State.ConsecutiveFailures, cron.StripAutoDisabledPrefix(job.State.LastError), job.ID,
+	))
+}
+
+// ExecuteJob executes a cron job and reports whether it did its work. It
+// fails when command execution is disabled, when a command without anomaly
+// handling fails, when a command with anomaly handling hits its timeout, and
+// when the agent turn fails. An anomaly of a job that handles anomalies is
+// the designed signal and not a failure. A run stopped by shutdown returns
+// an error wrapping context.Canceled, which the scheduler records as neither
+// success nor failure.
+func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) (string, error) {
+	channel, chatID := cronJobDestination(job)
 
 	// Execute command if present
 	if job.Payload.Command != "" {
 		if !t.execEnabled || t.execTool == nil {
-			output := "Error executing scheduled command: command execution is disabled"
-			pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer pubCancel()
-			t.msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
-				Context: bus.NewOutboundContext(channel, chatID, ""),
-				Content: output,
-			})
-			return "ok"
+			t.publish(channel, chatID, "Error executing scheduled command: command execution is disabled")
+			return "", errors.New("command execution is disabled")
 		}
 
-		args := map[string]any{
-			"action":    "run",
-			"command":   job.Payload.Command,
-			"__channel": channel,
-			"__chat_id": chatID,
-		}
+		args := map[string]any{"action": "run", "command": job.Payload.Command}
 
 		// The scheduler is trusted, not a remote chat user: a command job was
 		// created from the CLI or through the cron tool's own remote gate
@@ -681,13 +806,18 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 		// context and is not blocked by tools.exec.allow_remote=false.
 		// Deny patterns and the workspace restriction still apply.
 		result := t.execTool.Execute(WithToolContext(ctx, "system", chatID), args)
+		// Shutdown killed the command: its output says nothing about the job.
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return "", ctx.Err()
+		}
 		anomaly := result.IsError || anomalyRegexMatches(job, result.ForLLM)
+		failure := commandFailure(job, result)
 
 		// AC-028-1: a quiet routine that passed its check costs nothing --
 		// no message, no LLM turn (ADR-020 P3).
 		if job.Payload.Quiet && !anomaly {
 			logger.InfoCF("cron", "Quiet command job passed", map[string]any{"job_id": job.ID, "name": job.Name})
-			return "ok"
+			return "ok", nil
 		}
 
 		// AC-028-2/3: the model only interprets the anomaly, within a daily cap.
@@ -696,7 +826,14 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 			if window == "" {
 				window = job.Payload.Window
 			}
-			return t.runAgentTurn(ctx, job, anomalyPrompt(job, result.ForLLM), window, channel, chatID)
+			res, err := t.runAgentTurn(ctx, job, anomalyPrompt(job, result.ForLLM), window, channel, chatID)
+			if err != nil {
+				return "", err
+			}
+			if failure != nil {
+				return "", failure
+			}
+			return res, nil
 		}
 
 		var output string
@@ -706,16 +843,32 @@ func (t *CronTool) ExecuteJob(ctx context.Context, job *cron.CronJob) string {
 			output = fmt.Sprintf("Scheduled command '%s' executed:\n%s", job.Payload.Command, result.ForLLM)
 		}
 
-		pubCtx, pubCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer pubCancel()
-		t.msgBus.PublishOutbound(pubCtx, bus.OutboundMessage{
-			Context: bus.NewOutboundContext(channel, chatID, ""),
-			Content: output,
-		})
-		return "ok"
+		t.publish(channel, chatID, output)
+		if failure != nil {
+			return "", failure
+		}
+		return "ok", nil
 	}
 
 	return t.runAgentTurn(ctx, job, job.Payload.Message, job.Payload.Window, channel, chatID)
+}
+
+// commandFailure classifies a finished command run. A job without anomaly
+// handling fails on any error; a job with it (quiet, anomaly_regex or
+// on_anomaly) fails only when the command hit its timeout, because a
+// non-zero exit is the anomaly it was built to report.
+func commandFailure(job *cron.CronJob, result *ToolResult) error {
+	if !result.IsError {
+		return nil
+	}
+	if errors.Is(result.Err, context.DeadlineExceeded) {
+		return result.Err
+	}
+	handlesAnomaly := job.Payload.Quiet || job.Payload.AnomalyRegex != "" || job.Payload.OnAnomaly != nil
+	if handlesAnomaly {
+		return nil
+	}
+	return fmt.Errorf("command failed: %s", utils.Truncate(result.ForLLM, 200))
 }
 
 // anomalyRegexMatches reports whether a command's output matches the job's
@@ -777,12 +930,15 @@ func anomalyPrompt(job *cron.CronJob, output string) string {
 }
 
 // runAgentTurn dispatches message to the agent as a cron-originated turn
-// and publishes the response.
+// and publishes the response, unless the reply is the silent marker
+// (cronSilentReply). A turn that errors or is cut by its time
+// limit is a failure; one stopped by shutdown returns an error wrapping
+// context.Canceled.
 func (t *CronTool) runAgentTurn(
 	ctx context.Context,
 	job *cron.CronJob,
 	message, window, channel, chatID string,
-) string {
+) (string, error) {
 	if t.nonUserTurnMaxMinutes > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, time.Duration(t.nonUserTurnMaxMinutes)*time.Minute)
@@ -817,7 +973,7 @@ func (t *CronTool) runAgentTurn(
 			chatID,
 		)
 	} else {
-		response, err = t.executor.ProcessDirectWithChannel(
+		response, err = t.executor.ProcessCronWithChannel(
 			ctx,
 			jobMessage,
 			sessionKey,
@@ -825,12 +981,25 @@ func (t *CronTool) runAgentTurn(
 			chatID,
 		)
 	}
+	if err == nil && ctx.Err() != nil {
+		// The turn returned without an error but its context ended under
+		// it: the reply is partial at best.
+		err = fmt.Errorf("agent turn ended early: %w", ctx.Err())
+	}
 	if err != nil {
-		return fmt.Sprintf("Error: %v", err)
+		if errors.Is(ctx.Err(), context.Canceled) && !errors.Is(err, context.Canceled) {
+			err = fmt.Errorf("%w: %v", context.Canceled, err)
+		}
+		return "", err
 	}
 
+	if isCronSilentReply(response) {
+		logger.InfoCF("cron", "Job replied with the silent marker; nothing published",
+			map[string]any{"job_id": job.ID, "name": job.Name})
+		return "(silent)", nil
+	}
 	if response != "" {
 		t.executor.PublishResponseIfNeeded(ctx, channel, chatID, sessionKey, response)
 	}
-	return "ok"
+	return "ok", nil
 }

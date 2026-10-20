@@ -5361,9 +5361,9 @@ func TestAgentLoop_ToolLimitUsesDedicatedFallback(t *testing.T) {
 	al := NewAgentLoop(cfg, msgBus, provider)
 	al.RegisterTool(&toolLimitTestTool{})
 
-	response, err := al.ProcessDirectWithChannel(context.Background(), "hello", "tool-limit", "test", "chat1")
+	response, err := al.ProcessCronWithChannel(context.Background(), "hello", "tool-limit", "test", "chat1")
 	if err != nil {
-		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
+		t.Fatalf("ProcessCronWithChannel failed: %v", err)
 	}
 	if response != toolLimitResponse {
 		t.Fatalf("response = %q, want %q", response, toolLimitResponse)

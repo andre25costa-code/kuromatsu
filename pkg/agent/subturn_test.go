@@ -2329,3 +2329,205 @@ func TestDelegateToolRegistered_MultiAgent(t *testing.T) {
 		}
 	}
 }
+
+// ====================== Global per-depth sub-turn slots ======================
+
+// newGlobalSlotsLoop builds a loop with one global slot per depth level and a
+// 1s concurrency timeout (the shortest the config can express).
+func newGlobalSlotsLoop(t *testing.T, provider providers.LLMProvider) *AgentLoop {
+	t.Helper()
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace: t.TempDir(),
+				ModelName: "gpt-4o-mini",
+				MaxTokens: 4096,
+				SubTurn: config.SubTurnConfig{
+					MaxConcurrentGlobal:   1,
+					ConcurrencyTimeoutSec: 1,
+				},
+			},
+		},
+	}
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), provider)
+	t.Cleanup(al.Close)
+	if got := len(al.subTurnSlots); got != defaultMaxSubTurnDepth+1 {
+		t.Fatalf("len(subTurnSlots) = %d, want %d", got, defaultMaxSubTurnDepth+1)
+	}
+	for d := 1; d <= defaultMaxSubTurnDepth; d++ {
+		if got := cap(al.subTurnSlots[d]); got != 1 {
+			t.Fatalf("cap(subTurnSlots[%d]) = %d, want 1", d, got)
+		}
+	}
+	return al
+}
+
+func globalSlotsParent(turnID string, depth int) *turnState {
+	return &turnState{
+		ctx:            context.Background(),
+		turnID:         turnID,
+		depth:          depth,
+		session:        newEphemeralSession(nil),
+		pendingResults: make(chan *tools.ToolResult, 16),
+	}
+}
+
+func TestGlobalSubTurnSlots_NestedSyncChildDoesNotStarve(t *testing.T) {
+	al := newGlobalSlotsLoop(t, &simpleMockProviderAPI{response: "nested ok"})
+
+	// The parent sub-turn (depth 1) holds the only depth-1 slot.
+	al.subTurnSlots[1] <- struct{}{}
+	defer func() { <-al.subTurnSlots[1] }()
+
+	parent := globalSlotsParent("parent-depth-1", 1)
+	start := time.Now()
+	result, err := spawnSubTurn(context.Background(), al, parent, SubTurnConfig{Model: "gpt-4o-mini"})
+	if err != nil {
+		t.Fatalf("depth-2 child failed while depth 1 is full: %v (after %v)", err, time.Since(start))
+	}
+	if result == nil || result.ForLLM != "nested ok" {
+		t.Fatalf("result = %+v, want ForLLM %q", result, "nested ok")
+	}
+	if got := len(al.subTurnSlots[2]); got != 0 {
+		t.Fatalf("depth-2 slot still held after the child returned: len = %d", got)
+	}
+}
+
+func TestGlobalSubTurnSlots_Timeout(t *testing.T) {
+	al := newGlobalSlotsLoop(t, &simpleMockProviderAPI{response: "unreachable"})
+
+	al.subTurnSlots[1] <- struct{}{}
+	defer func() { <-al.subTurnSlots[1] }()
+
+	parent := globalSlotsParent("parent-depth-0", 0)
+	start := time.Now()
+	_, err := spawnSubTurn(context.Background(), al, parent, SubTurnConfig{Model: "gpt-4o-mini"})
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, ErrConcurrencyTimeout) {
+		t.Fatalf("err = %v, want ErrConcurrencyTimeout", err)
+	}
+	if !strings.Contains(err.Error(), "all 1 global slots at depth 1 occupied") {
+		t.Fatalf("err = %q, want it to name the global slots at depth 1", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("spawnSubTurn took %v, want < 2s", elapsed)
+	}
+}
+
+func TestGlobalSubTurnSlots_ReleasedAfterRun(t *testing.T) {
+	al := newGlobalSlotsLoop(t, &simpleMockProviderAPI{response: "done"})
+
+	for depth := 0; depth < defaultMaxSubTurnDepth; depth++ {
+		parent := globalSlotsParent(fmt.Sprintf("parent-depth-%d", depth), depth)
+		parent.concurrencySem = make(chan struct{}, testMaxConcurrentSubTurns)
+		if _, err := spawnSubTurn(context.Background(), al, parent, SubTurnConfig{Model: "gpt-4o-mini"}); err != nil {
+			t.Fatalf("spawnSubTurn from depth %d: %v", depth, err)
+		}
+		if got := len(parent.concurrencySem); got != 0 {
+			t.Fatalf("per-parent semaphore still held after depth %d child: len = %d", depth+1, got)
+		}
+	}
+
+	// A child rejected by the depth limit never touches the pools.
+	tooDeep := globalSlotsParent("parent-too-deep", defaultMaxSubTurnDepth)
+	if _, err := spawnSubTurn(context.Background(), al, tooDeep, SubTurnConfig{Model: "gpt-4o-mini"}); !errors.Is(
+		err,
+		ErrDepthLimitExceeded,
+	) {
+		t.Fatalf("err = %v, want ErrDepthLimitExceeded", err)
+	}
+
+	for d, slots := range al.subTurnSlots {
+		if got := len(slots); got != 0 {
+			t.Fatalf("subTurnSlots[%d] len = %d after the sub-turns finished, want 0", d, got)
+		}
+	}
+}
+
+func TestSubTurn_CanceledWhenRootContextEnds(t *testing.T) {
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace: t.TempDir(),
+				ModelName: "gpt-4o-mini",
+				MaxTokens: 4096,
+			},
+		},
+	}
+	msgBus := bus.NewMessageBus()
+	defer msgBus.Close()
+	al := NewAgentLoop(cfg, msgBus, ctxBlockingProvider{})
+	t.Cleanup(al.Close)
+
+	rootCtx, cancelRoot := context.WithCancel(context.Background())
+	defer cancelRoot()
+	runDone := make(chan struct{})
+	go func() {
+		defer close(runDone)
+		_ = al.Run(rootCtx)
+	}()
+	defer func() {
+		cancelRoot()
+		<-runDone
+	}()
+
+	waitUntil := time.Now().Add(2 * time.Second)
+	for al.lifetimeContext() != rootCtx {
+		if time.Now().After(waitUntil) {
+			t.Fatal("Run did not record its context within 2s")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// The parent turn's context stays alive; only the root context ends.
+	parent := globalSlotsParent("parent-root-cancel", 0)
+	errCh := make(chan error, 1)
+	go func() {
+		_, err := spawnSubTurn(context.Background(), al, parent, SubTurnConfig{Model: "gpt-4o-mini"})
+		errCh <- err
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case err := <-errCh:
+		t.Fatalf("sub-turn ended before the root context was canceled: %v", err)
+	default:
+	}
+
+	cancelRoot()
+	select {
+	case err := <-errCh:
+		if err == nil {
+			t.Fatal("sub-turn finished without error after the root context was canceled")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("sub-turn still running 2s after the root context was canceled")
+	}
+}
+
+func TestLifetimeContext_DefaultsToBackground(t *testing.T) {
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{Workspace: t.TempDir(), ModelName: "gpt-4o-mini"},
+		},
+	}
+	al := NewAgentLoop(cfg, bus.NewMessageBus(), &simpleMockProviderAPI{})
+	t.Cleanup(al.Close)
+
+	ctx := al.lifetimeContext()
+	if ctx == nil {
+		t.Fatal("lifetimeContext() = nil before Run")
+	}
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("lifetimeContext().Err() = %v before Run, want nil", err)
+	}
+	if ctx.Done() != nil {
+		t.Fatal("lifetimeContext() before Run can be canceled, want context.Background()")
+	}
+
+	var literal AgentLoop
+	if err := literal.lifetimeContext().Err(); err != nil {
+		t.Fatalf("zero AgentLoop lifetimeContext().Err() = %v, want nil", err)
+	}
+}

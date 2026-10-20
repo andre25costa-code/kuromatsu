@@ -59,6 +59,17 @@ type Config struct {
 	// Sleep is the modo dormir bridge config (FR-010/ADR-006/018, Trilho C
 	// C5/E9 parte 2). Zero value keeps sleep disabled (BR-005).
 	Sleep SleepConfig `json:"sleep,omitempty" yaml:"-"`
+	// Timezone is the IANA zone (e.g. "America/Sao_Paulo") the process uses
+	// for local time. Empty keeps TZ or the system zone; TZ, when set, wins.
+	// Applied once at startup, so a change needs a restart.
+	Timezone string `json:"timezone,omitempty" yaml:"-" env:"KUROMATSU_TIMEZONE"`
+	// WebUI is the local configuration page at /ui; its token is kept in
+	// the security file only.
+	// The block is left out of config.json while it holds the defaults
+	// (WebUIConfig.IsZero), so a config saved now still loads on a binary
+	// that predates it. The YAML side has no omitempty: the token must
+	// always reach the security file.
+	WebUI WebUIConfig `json:"webui,omitzero" yaml:"webui"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 
@@ -470,6 +481,9 @@ type SubTurnConfig struct {
 	DefaultTimeoutMinutes int `json:"default_timeout_minutes" env:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_DEFAULT_TIMEOUT_MINUTES"`
 	DefaultTokenBudget    int `json:"default_token_budget"    env:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_DEFAULT_TOKEN_BUDGET"`
 	ConcurrencyTimeoutSec int `json:"concurrency_timeout_sec" env:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_CONCURRENCY_TIMEOUT_SEC"`
+	// MaxConcurrentGlobal caps how many sub-turns of one depth level run at
+	// once across the whole process; <= 0 uses the built-in default (8).
+	MaxConcurrentGlobal int `json:"max_concurrent_global" env:"KUROMATSU_AGENTS_DEFAULTS_SUBTURN_MAX_CONCURRENT_GLOBAL"`
 }
 
 type ToolFeedbackConfig struct {
@@ -492,6 +506,8 @@ type AgentDefaults struct {
 	Temperature               *float64           `json:"temperature,omitempty"            env:"KUROMATSU_AGENTS_DEFAULTS_TEMPERATURE"`
 	MaxToolIterations         int                `json:"max_tool_iterations"              env:"KUROMATSU_AGENTS_DEFAULTS_MAX_TOOL_ITERATIONS"`
 	NonUserTurnMaxMinutes     int                `json:"non_user_turn_max_minutes"        env:"KUROMATSU_AGENTS_DEFAULTS_NON_USER_TURN_MAX_MINUTES"` // AC-028-5 cap on heartbeat/cron turns; 0 = off, default 60 (one heartbeat interval)
+	UserTurnMaxMinutes        int                `json:"user_turn_max_minutes"            env:"KUROMATSU_AGENTS_DEFAULTS_USER_TURN_MAX_MINUTES"`     // wall-clock cap on a whole user turn; 0 = off, default 30
+	MaxRepeatedToolCalls      int                `json:"max_repeated_tool_calls"          env:"KUROMATSU_AGENTS_DEFAULTS_MAX_REPEATED_TOOL_CALLS"`   // identical call with identical result: warn at this count, then end the turn; 0 = off, 1 is invalid, default 3
 	MemoryBudgetOverTokens    int                `json:"memory_budget_over_tokens"        env:"KUROMATSU_AGENTS_DEFAULTS_MEMORY_BUDGET_OVER_TOKENS"` // FR-022 phase 1: memory above this is budgeted; 0 = off
 	MemoryBudgetTokens        int                `json:"memory_budget_tokens"             env:"KUROMATSU_AGENTS_DEFAULTS_MEMORY_BUDGET_TOKENS"`      // FR-022 phase 1: size of the budgeted memory block
 	SummarizeMessageThreshold int                `json:"summarize_message_threshold"      env:"KUROMATSU_AGENTS_DEFAULTS_SUMMARIZE_MESSAGE_THRESHOLD"`
@@ -813,7 +829,7 @@ func (c *ModelConfig) SetAPIKey(value string) {
 type ToolDiscoveryConfig struct {
 	Enabled          bool `json:"enabled"            env:"KUROMATSU_TOOLS_DISCOVERY_ENABLED"`
 	TTL              int  `json:"ttl"                env:"KUROMATSU_TOOLS_DISCOVERY_TTL"`
-	MaxSearchResults int  `json:"max_search_results" env:"KUROMATSU_MAX_SEARCH_RESULTS"`
+	MaxSearchResults int  `json:"max_search_results" env:"KUROMATSU_TOOLS_DISCOVERY_MAX_SEARCH_RESULTS"`
 	UseBM25          bool `json:"use_bm25"           env:"KUROMATSU_TOOLS_DISCOVERY_USE_BM25"`
 	UseRegex         bool `json:"use_regex"          env:"KUROMATSU_TOOLS_DISCOVERY_USE_REGEX"`
 }
@@ -996,6 +1012,9 @@ type CronToolsConfig struct {
 	ExecTimeoutMinutes    int      `json:"exec_timeout_minutes"    env:"KUROMATSU_TOOLS_CRON_EXEC_TIMEOUT_MINUTES"`
 	AllowCommand          bool     `json:"allow_command"           env:"KUROMATSU_TOOLS_CRON_ALLOW_COMMAND"`
 	CommandAllowedRemotes []string `json:"command_allowed_remotes" env:"KUROMATSU_TOOLS_CRON_COMMAND_ALLOWED_REMOTES"`
+	// MaxConsecutiveFailures disables a job after this many failed runs in
+	// a row, once at least an hour has passed since the first; 0 never does.
+	MaxConsecutiveFailures int `json:"max_consecutive_failures" env:"KUROMATSU_TOOLS_CRON_MAX_CONSECUTIVE_FAILURES"`
 }
 
 type ExecConfig struct {
@@ -1004,7 +1023,7 @@ type ExecConfig struct {
 	AllowRemote         bool     `                                  json:"allow_remote"          env:"KUROMATSU_TOOLS_EXEC_ALLOW_REMOTE"`
 	CustomDenyPatterns  []string `                                  json:"custom_deny_patterns"  env:"KUROMATSU_TOOLS_EXEC_CUSTOM_DENY_PATTERNS"`
 	CustomAllowPatterns []string `                                  json:"custom_allow_patterns" env:"KUROMATSU_TOOLS_EXEC_CUSTOM_ALLOW_PATTERNS"`
-	TimeoutSeconds      int      `                                  json:"timeout_seconds"       env:"KUROMATSU_TOOLS_EXEC_TIMEOUT_SECONDS"` // 0 means use default (60s)
+	TimeoutSeconds      int      `                                  json:"timeout_seconds"       env:"KUROMATSU_TOOLS_EXEC_TIMEOUT_SECONDS"` // default 60; an explicit 0 means no timeout
 }
 
 type SkillsToolsConfig struct {
@@ -1239,17 +1258,59 @@ func (c *MCPConfig) GetMaxInlineTextChars() int {
 var missingConfigWarnOnce sync.Once
 
 func LoadConfig(path string) (*Config, error) {
-	updateResolver(filepath.Dir(path))
+	return loadConfigWith(path, loadOpts{global: true})
+}
+
+// loadOpts selects the process-wide effects of a config load.
+type loadOpts struct {
+	// global points the process-wide secret resolver at the config's
+	// directory and logs the one-time "no config yet" warning. Without it
+	// the load resolves secrets through whatever resolver is already set.
+	global bool
+}
+
+// ValidateForSave reports whether cfg, once saved, would load: it writes cfg
+// (config.json and the security file) to a private scratch directory (mode
+// 0700, removed afterwards) and loads it back through the same migration,
+// channel and validation steps as LoadConfig. It changes no process-wide
+// state: the secret resolver is left as it is, so relative file:// secrets
+// resolve against the directory of the config last loaded with LoadConfig or
+// LoadConfigForEdit, no warning is logged once, and time.Local is never
+// touched. Like SaveConfig it may raise cfg.Version to CurrentVersion.
+// Do not call it on a config other goroutines read.
+func ValidateForSave(cfg *Config) error {
+	if cfg == nil {
+		return errors.New("config is nil")
+	}
+	dir, err := os.MkdirTemp("", "kuromatsu-validate-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	path := filepath.Join(dir, "config.json")
+	if err = SaveConfig(path, cfg); err != nil {
+		return err
+	}
+	_, err = loadConfigWith(path, loadOpts{})
+	return err
+}
+
+func loadConfigWith(path string, o loadOpts) (*Config, error) {
+	if o.global {
+		updateResolver(filepath.Dir(path))
+	}
 
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			missingConfigWarnOnce.Do(func() {
-				logger.WarnF(
-					"config file not found, using default config; run `kuromatsu onboard` to create it",
-					map[string]any{"path": path},
-				)
-			})
+			if o.global {
+				missingConfigWarnOnce.Do(func() {
+					logger.WarnF(
+						"config file not found, using default config; run `kuromatsu onboard` to create it",
+						map[string]any{"path": path},
+					)
+				})
+			}
 			defaultCfg := DefaultConfig()
 			ApplyNativeFallback(defaultCfg)
 			return defaultCfg, nil
@@ -1473,10 +1534,40 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, fmt.Errorf("unsupported config version: %d", versionInfo.Version)
 	}
 
+	if migratedToSave != nil {
+		// The migrated config is written back together with the security
+		// file, so both copies need the secrets that file already holds, and
+		// the copy to save needs typed channel settings so channel secrets
+		// serialize to the security file only.
+		secPath := securityPath(path)
+		for _, c := range []*Config{cfg, migratedToSave} {
+			err = loadSecurityConfig(c, secPath)
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("failed to load security config: %w", err)
+			}
+		}
+		for name, bc := range migratedToSave.Channels {
+			if bc == nil {
+				delete(migratedToSave.Channels, name)
+				continue
+			}
+			if err = decodeChannelSettings(name, bc); err != nil {
+				return nil, err
+			}
+		}
+	}
+
 	applyLegacyBindingsMigration(data, cfg)
+	if migratedToSave != nil && cfg.Agents.Dispatch != nil {
+		// The migration drops the legacy "bindings" key, so the rules derived
+		// from it must be part of what is written back, or routing is lost.
+		dispatch := *cfg.Agents.Dispatch
+		migratedToSave.Agents.Dispatch = &dispatch
+	}
 
 	gatewayHostBeforeEnv := cfg.Gateway.Host
 
+	applyRenamedEnvKeys()
 	if err = env.Parse(cfg); err != nil {
 		return nil, err
 	}
@@ -1504,7 +1595,15 @@ func LoadConfig(path string) (*Config, error) {
 	if err = cfg.ValidateSleep(); err != nil {
 		return nil, err
 	}
+	if err = cfg.ValidateAgentLoopGuards(); err != nil {
+		return nil, err
+	}
 	if err = cfg.ValidatePlatformPaths(); err != nil {
+		return nil, err
+	}
+	// Validation only: time.Local is set once per process by
+	// ApplyProcessTimezone, never on a (re)load.
+	if err = cfg.ValidateTimezone(); err != nil {
 		return nil, err
 	}
 	cfg.SourcePath, err = filepath.Abs(path)
@@ -1547,6 +1646,103 @@ func LoadConfig(path string) (*Config, error) {
 		}
 	}
 
+	return cfg, nil
+}
+
+// LoadConfigForEdit returns the config as stored on disk (config.json plus the
+// security file), without environment overrides or runtime defaults. Use it in
+// commands that modify and save the config.
+//
+// Contract for callers that load, change and save the config:
+//   - Applied: the file content, the security file, model enablement inferred
+//     from keys in the file, the same legacy "bindings" conversion LoadConfig
+//     runs on the file bytes, and decoding of each channel's typed settings,
+//     so channel secrets keep serializing to the security file, never to
+//     config.json.
+//   - Skipped: every KUROMATSU_* environment override (renamed keys included),
+//     the gateway host from the environment, skills registry environment
+//     values, multi-key model expansion, the sole-keyed default model, the
+//     native model fallback, the default workspace, the derived DM scope, and
+//     the runtime validations, which only check and do not change what is
+//     saved.
+//   - A missing file, or one of at most 10 bytes, yields DefaultConfig().
+//   - A file older than CurrentVersion is migrated once through LoadConfig,
+//     which backs up and rewrites the file (the rewritten file holds no
+//     environment values). LoadConfig also normalizes renamed KUROMATSU_*
+//     variables in the process environment as a side effect. If the rewrite
+//     did not reach the disk, an error is returned instead of retrying.
+//
+// The result is not the runtime view: do not use it to decide which models are
+// available or which defaults apply; use LoadConfig for that.
+func LoadConfigForEdit(path string) (*Config, error) {
+	updateResolver(filepath.Dir(path))
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return DefaultConfig(), nil
+		}
+		return nil, err
+	}
+	var versionInfo struct {
+		Version int `json:"version"`
+	}
+	if err = json.Unmarshal(data, &versionInfo); err != nil {
+		return nil, wrapJSONError(data, err, "config.json")
+	}
+	if len(data) <= 10 {
+		return DefaultConfig(), nil
+	}
+	if versionInfo.Version > CurrentVersion {
+		return nil, fmt.Errorf("unsupported config version: %d", versionInfo.Version)
+	}
+	if versionInfo.Version < CurrentVersion {
+		// Migrate and rewrite the file once; the returned runtime view is
+		// discarded because it carries environment values.
+		if _, err = LoadConfig(path); err != nil {
+			return nil, err
+		}
+		if data, err = os.ReadFile(path); err != nil {
+			return nil, err
+		}
+		versionInfo.Version = 0
+		if err = json.Unmarshal(data, &versionInfo); err != nil {
+			return nil, wrapJSONError(data, err, "config.json")
+		}
+		if versionInfo.Version < CurrentVersion {
+			return nil, fmt.Errorf(
+				"config migration did not persist (version %d); run 'kuromatsu migrate' or fix permissions",
+				versionInfo.Version,
+			)
+		}
+	}
+
+	cfg, err := loadConfig(data)
+	if err != nil {
+		return nil, err
+	}
+	err = loadSecurityConfig(cfg, securityPath(path))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("failed to load security config: %w", err)
+	}
+	inferModelEnabledFromKeys(data, cfg)
+	applyLegacyBindingsMigration(data, cfg)
+
+	// Decode typed channel settings without environment overrides, so secure
+	// fields keep serializing to the security file only.
+	for name, bc := range cfg.Channels {
+		if bc == nil {
+			delete(cfg.Channels, name)
+			continue
+		}
+		if err = decodeChannelSettings(name, bc); err != nil {
+			return nil, err
+		}
+	}
+
+	if cfg.SourcePath, err = filepath.Abs(path); err != nil {
+		return nil, err
+	}
 	return cfg, nil
 }
 
@@ -1753,6 +1949,19 @@ func (c *Config) ValidateModelList() error {
 		if err := c.ModelList[i].Validate(); err != nil {
 			return fmt.Errorf("model_list[%d]: %w", i, err)
 		}
+	}
+	return nil
+}
+
+// ValidateAgentLoopGuards rejects a repeated-tool-call limit of 1 or less
+// (other than 0, which turns the guard off): with 1 the guard would block
+// the very first call of every tool.
+func (c *Config) ValidateAgentLoopGuards() error {
+	if c == nil {
+		return nil
+	}
+	if n := c.Agents.Defaults.MaxRepeatedToolCalls; n != 0 && n < 2 {
+		return errors.New("agents.defaults.max_repeated_tool_calls must be 0 (off) or >= 2")
 	}
 	return nil
 }

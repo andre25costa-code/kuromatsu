@@ -1003,11 +1003,20 @@ func (p *DuckDuckGoSearchProvider) Search(
 		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
+	if !reDDGLink.Match(body) {
+		// An empty page is how rate limiting and challenge pages show up; the
+		// status distinguishes them from a query that simply matched nothing.
+		logger.WarnCF("web", "duckduckgo returned no results", map[string]any{
+			"status": resp.StatusCode,
+			"query":  query,
+		})
+	}
+
 	return p.extractResults(string(body), count, query)
 }
 
 func (p *DuckDuckGoSearchProvider) extractResults(
-	html string,
+	page string,
 	count int,
 	query string,
 ) (string, error) {
@@ -1017,7 +1026,7 @@ func (p *DuckDuckGoSearchProvider) extractResults(
 	// Try finding the result links directly first, as they are the most critical
 	// Pattern: <a class="result__a" href="...">Title</a>
 	// The previous regex was a bit strict. Let's make it more flexible for attributes order/content
-	matches := reDDGLink.FindAllStringSubmatch(html, count+5)
+	matches := reDDGLink.FindAllStringSubmatch(page, count+5)
 
 	if len(matches) == 0 {
 		return fmt.Sprintf("No results found or extraction failed. Query: %s", query), nil
@@ -1034,7 +1043,7 @@ func (p *DuckDuckGoSearchProvider) extractResults(
 
 	// A better regex approach: iterate through text and find matches in order
 	// But for now, let's grab all snippets too
-	snippetMatches := reDDGSnippet.FindAllStringSubmatch(html, count+5)
+	snippetMatches := reDDGSnippet.FindAllStringSubmatch(page, count+5)
 
 	maxItems := min(len(matches), count)
 
@@ -1043,12 +1052,12 @@ func (p *DuckDuckGoSearchProvider) extractResults(
 		title := stripTags(matches[i][2])
 		title = strings.TrimSpace(title)
 
-		// URL decoding if needed
+		// Unwrap DDG's redirect: the href is HTML-escaped and the target is
+		// the uddg parameter, followed by a per-query "rut" hash.
 		if strings.Contains(urlStr, "uddg=") {
-			if u, err := url.QueryUnescape(urlStr); err == nil {
-				_, after, ok := strings.Cut(u, "uddg=")
-				if ok {
-					urlStr = after
+			if u, err := url.Parse(html.UnescapeString(urlStr)); err == nil {
+				if target := u.Query().Get("uddg"); target != "" {
+					urlStr = target
 				}
 			}
 		}

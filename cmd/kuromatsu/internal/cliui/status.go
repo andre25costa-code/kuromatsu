@@ -25,6 +25,9 @@ type StatusReport struct {
 	Model         string
 	Providers     []ProviderRow
 	OAuthLines    []string // each full line "provider (method): state"
+	// Hardware holds ready-to-print lines (detected hardware, profile,
+	// native CPU support); the section is omitted when empty.
+	Hardware []string
 }
 
 // PrintStatus renders kuromatsu status (plain or fancy).
@@ -57,6 +60,13 @@ func printStatusPlain(r StatusReport) {
 			for _, line := range r.OAuthLines {
 				fmt.Printf("  %s\n", line)
 			}
+		}
+	}
+
+	if len(r.Hardware) > 0 {
+		fmt.Println()
+		for _, line := range r.Hardware {
+			fmt.Println(line)
 		}
 	}
 }
@@ -106,6 +116,14 @@ func printStatusFancy(r StatusReport) {
 		}
 		fmt.Println()
 		fmt.Println(borderStyle().Width(inner).Render(ob.String()))
+	}
+
+	if len(r.Hardware) > 0 {
+		var hb strings.Builder
+		hb.WriteString(titleBarStyle().Render("Hardware") + "\n\n")
+		hb.WriteString(strings.Join(r.Hardware, "\n"))
+		fmt.Println()
+		fmt.Println(borderStyle().Width(inner).Render(hb.String()))
 	}
 }
 

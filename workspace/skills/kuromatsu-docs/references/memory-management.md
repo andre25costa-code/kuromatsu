@@ -1,10 +1,10 @@
 # Orçamento de RAM e motor de estados
 
-Fonte real: `pkg/runstate/`, `pkg/sysinfo/`, ADR-015/016/017.
+Fonte real: `pkg/runstate/`, `pkg/sysinfo/`, `pkg/providers/localllm/`.
 
 ## `runstate` — motor de estados (bitmask com refcount)
 
-`pkg/runstate.Engine`: bits `Idle=0`, `Inference`, `ToolExec`, `Dream`,
+`pkg/runstate` (tipo `Engine`): bits `Idle=0`, `Inference`, `ToolExec`, `Dream`,
 `Suspended`, `Reflex`, `Throttled` (informativo — ligado quando `steal` de
 CPU passa de 50% por ≥60s, sem ação automática, só log/telemetria).
 `Inc(bit)`/`release()` contam referência; `Inc(Inference)` com `Dream`
@@ -28,7 +28,10 @@ transição real via `Engine.Subscribe()` em vez de aplicar o backoff fixo —
 cada tentativa que colide com suspensão ainda consome um slot de retry, mas
 pode esperar até `runstate_resume_wait_secs` em vez de só 2-4s.
 
-## `memguard` — guarda de memória (ADR-017)
+## `memguard` — guarda de memória
+
+Decisão de projeto: o limite de memória do Go é derivado da carga real do
+modelo, não um `GOMEMLIMIT` fixo.
 
 Lê `pkg/sysinfo` (cgroup v2/v1, `/proc/meminfo`, PSI, `/proc/stat`) —
 pacote único reusado também por `pkg/tools/sysmon.go`, sem duplicar parser.
@@ -61,10 +64,9 @@ restaura o núcleo em milissegundos em vez de reprocessar do zero.
 
 **Núcleo estacionado não é contexto reservado**: se um novo prompt não
 cabe porque núcleos antigos ainda ocupam espaço, o engine evicta os núcleos
-inativos em ordem LRU antes de rejeitar por overflow (achado real de
-produção, incidente NATIVE-02 do audit de 2026-09-17 — sem essa eviction,
-a virada de dia no system prompt, que gera um núcleo novo, ficava
-permanentemente bloqueada depois que o cache enchia). O núcleo ativo nunca
+inativos em ordem LRU antes de rejeitar por overflow (sem essa eviction,
+a virada de dia no system prompt, que gera um núcleo novo, ficaria
+permanentemente bloqueada depois que o cache enchesse). O núcleo ativo nunca
 é evictado; overflow real (nem evictando dá espaço) continua erro.
 
 `keep_alive_secs: -1` (nunca descarrega o modelo entre chamadas) é seguro

@@ -2,6 +2,7 @@ package model
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/setup"
 )
 
 const defaultAliasName = "custom-prefer"
@@ -117,7 +119,26 @@ func runAdd(opt addOptions) error {
 	return upsertModelDefault(opt.apiBase, opt.apiKey, opt.alias, selected, opt.stdout)
 }
 
-func pickModel(stdin io.Reader, stdout io.Writer, entries []modelEntry) (string, error) {
+func pickModel(stdin io.Reader, stdout io.Writer, entries []setup.ModelEntry) (string, error) {
+	in, ok := stdin.(*bufio.Reader)
+	if !ok {
+		in = bufio.NewReader(stdin)
+	}
+	return PickModel(in, stdout, entries, "")
+}
+
+// ErrPickQuit is returned by PickModel when the user types its quit word.
+var ErrPickQuit = errors.New("model selection aborted")
+
+// ErrNoSelection is returned by PickModel when the input ends before a
+// choice.
+var ErrNoSelection = errors.New("no selection provided")
+
+// PickModel lists entries and reads a choice (number or id) from in, one
+// line at a time, so a caller that shares in with other prompts loses no
+// buffered input. When quitWord is not empty and no model has that id,
+// typing it returns ErrPickQuit.
+func PickModel(in *bufio.Reader, stdout io.Writer, entries []setup.ModelEntry, quitWord string) (string, error) {
 	fmt.Fprintf(stdout, "\n%d model(s) available:\n", len(entries))
 	for i, m := range entries {
 		line := m.ID
@@ -127,20 +148,20 @@ func pickModel(stdin io.Reader, stdout io.Writer, entries []modelEntry) (string,
 		fmt.Fprintf(stdout, "  %3d) %s\n", i+1, line)
 	}
 
-	scanner := bufio.NewScanner(stdin)
 	for {
 		fmt.Fprint(stdout, "Pick a model (number or id): ")
-		if !scanner.Scan() {
-			if err := scanner.Err(); err != nil {
-				return "", fmt.Errorf("read input: %w", err)
+		raw, err := in.ReadString('\n')
+		if err != nil && (!errors.Is(err, io.EOF) || raw == "") {
+			if errors.Is(err, io.EOF) {
+				return "", ErrNoSelection
 			}
-			return "", fmt.Errorf("no selection provided")
+			return "", fmt.Errorf("read input: %w", err)
 		}
-		text := strings.TrimSpace(scanner.Text())
+		text := strings.TrimSpace(raw)
 		if text == "" {
 			continue
 		}
-		if idx, err := strconv.Atoi(text); err == nil {
+		if idx, convErr := strconv.Atoi(text); convErr == nil {
 			if idx < 1 || idx > len(entries) {
 				fmt.Fprintf(stdout, "Out of range. Enter 1-%d.\n", len(entries))
 				continue
@@ -152,44 +173,36 @@ func pickModel(stdin io.Reader, stdout io.Writer, entries []modelEntry) (string,
 				return m.ID, nil
 			}
 		}
+		if quitWord != "" && strings.EqualFold(text, quitWord) {
+			return "", ErrPickQuit
+		}
 		fmt.Fprintln(stdout, "Not a valid number or model id; try again.")
 	}
 }
 
 func upsertModelDefault(apiBase, apiKey, alias, modelID string, stdout io.Writer) error {
 	configPath := internal.GetConfigPath()
-	cfg, err := config.LoadConfig(configPath)
+	cfg, err := config.LoadConfigForEdit(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	secureKeys := config.SimpleSecureStrings(apiKey)
-
-	found := false
+	// `model add` never sets the provider: an existing entry keeps its own,
+	// a new one has none (resolution infers it from the model).
+	provider := ""
 	for _, m := range cfg.ModelList {
-		if m == nil {
-			continue
-		}
-		if m.ModelName == alias {
-			m.Model = modelID
-			m.APIBase = apiBase
-			m.APIKeys = secureKeys
-			m.Enabled = true
-			found = true
+		if m != nil && m.ModelName == alias {
+			provider = m.Provider
 			break
 		}
 	}
-	if !found {
-		cfg.ModelList = append(cfg.ModelList, &config.ModelConfig{
-			ModelName: alias,
-			Model:     modelID,
-			APIBase:   apiBase,
-			APIKeys:   secureKeys,
-			Enabled:   true,
-		})
-	}
-
-	cfg.Agents.Defaults.ModelName = alias
+	setup.ApplyModelChoice(cfg, setup.ModelChoice{
+		Alias:    alias,
+		Provider: provider,
+		Model:    modelID,
+		APIBase:  apiBase,
+		APIKey:   apiKey,
+	})
 
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)

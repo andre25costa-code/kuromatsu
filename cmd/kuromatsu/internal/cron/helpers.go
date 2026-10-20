@@ -1,23 +1,25 @@
 package cron
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/cron"
 )
 
-func cronListCmd(storePath string) {
+func cronListCmd(w io.Writer, storePath string) {
 	cs := cron.NewCronService(storePath, nil)
 	jobs := cs.ListJobs(true) // Show all jobs, including disabled
 
 	if len(jobs) == 0 {
-		fmt.Println("No scheduled jobs.")
+		fmt.Fprintln(w, "No scheduled jobs.")
 		return
 	}
 
-	fmt.Println("\nScheduled Jobs:")
-	fmt.Println("----------------")
+	fmt.Fprintln(w, "\nScheduled Jobs:")
+	fmt.Fprintln(w, "----------------")
 	for _, job := range jobs {
 		var schedule string
 		if job.Schedule.Kind == "every" && job.Schedule.EveryMS != nil {
@@ -27,8 +29,11 @@ func cronListCmd(storePath string) {
 		} else {
 			schedule = "one-time"
 		}
+		if job.Schedule.TZ != "" {
+			schedule += " (" + job.Schedule.TZ + ")"
+		}
 
-		nextRun := "scheduled"
+		nextRun := "-"
 		if job.State.NextRunAtMS != nil {
 			nextTime := time.UnixMilli(*job.State.NextRunAtMS)
 			nextRun = nextTime.Format("2006-01-02 15:04")
@@ -39,28 +44,49 @@ func cronListCmd(storePath string) {
 			status = "disabled"
 		}
 
-		fmt.Printf("  %s (%s)\n", job.Name, job.ID)
-		fmt.Printf("    Schedule: %s\n", schedule)
-		fmt.Printf("    Status: %s\n", status)
-		fmt.Printf("    Next run: %s\n", nextRun)
+		lastRun := "-"
+		if job.State.LastStatus != "" {
+			lastRun = job.State.LastStatus
+			if job.State.LastError != "" {
+				lastRun += ": " + job.State.LastError
+			}
+		}
+
+		fmt.Fprintf(w, "  %s (%s)\n", job.Name, job.ID)
+		fmt.Fprintf(w, "    Schedule: %s\n", schedule)
+		fmt.Fprintf(w, "    Status: %s\n", status)
+		fmt.Fprintf(w, "    Next run: %s\n", nextRun)
+		fmt.Fprintf(w, "    Last run: %s\n", lastRun)
 	}
 }
 
-func cronRemoveCmd(storePath, jobID string) {
+func cronRemoveCmd(w io.Writer, storePath, jobID string) error {
 	cs := cron.NewCronService(storePath, nil)
-	if cs.RemoveJob(jobID) {
-		fmt.Printf("✓ Removed job %s\n", jobID)
-	} else {
-		fmt.Printf("✗ Job %s not found\n", jobID)
+	removed, err := cs.RemoveJob(jobID)
+	if err != nil {
+		return fmt.Errorf("job %s: %w", jobID, err)
 	}
+	if removed {
+		fmt.Fprintf(w, "✓ Removed job %s\n", jobID)
+	} else {
+		fmt.Fprintf(w, "✗ Job %s not found\n", jobID)
+	}
+	return nil
 }
 
-func cronSetJobEnabled(storePath, jobID string, enabled bool) {
+func cronSetJobEnabled(w io.Writer, storePath, jobID string, enabled bool) error {
 	cs := cron.NewCronService(storePath, nil)
-	job := cs.EnableJob(jobID, enabled)
-	if job != nil {
-		fmt.Printf("✓ Job '%s' enabled\n", job.Name)
-	} else {
-		fmt.Printf("✗ Job %s not found\n", jobID)
+	job, err := cs.EnableJob(jobID, enabled)
+	if errors.Is(err, cron.ErrJobNotFound) {
+		return fmt.Errorf("job %s not found", jobID)
 	}
+	if err != nil {
+		return fmt.Errorf("job %s: %w", jobID, err)
+	}
+	status := "enabled"
+	if !enabled {
+		status = "disabled"
+	}
+	fmt.Fprintf(w, "✓ Job '%s' %s\n", job.Name, status)
+	return nil
 }

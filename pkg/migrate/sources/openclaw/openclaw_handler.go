@@ -90,6 +90,10 @@ func (o *OpenclawHandler) GetMigrateableDirs() []string {
 	return migrateableDirs
 }
 
+// buildStandardConfig turns the converted OpenClaw config into a Kuromatsu
+// config; it is a variable so tests can force an invalid result.
+var buildStandardConfig = (*KuromatsuConfig).ToStandardConfig
+
 func (o *OpenclawHandler) ExecuteConfigMigration(srcConfigPath, dstConfigPath string) error {
 	openclawCfg, err := LoadOpenClawConfig(srcConfigPath)
 	if err != nil {
@@ -105,11 +109,17 @@ func (o *OpenclawHandler) ExecuteConfigMigration(srcConfigPath, dstConfigPath st
 		fmt.Printf("  Warning: %s\n", w)
 	}
 
-	incoming := picoCfg.ToStandardConfig()
-	if err := os.MkdirAll(filepath.Dir(dstConfigPath), 0o755); err != nil {
-		return err
+	incoming := buildStandardConfig(picoCfg)
+	// A config the binary would refuse is caught before anything reaches the
+	// destination.
+	if err := config.ValidateForSave(incoming); err != nil {
+		return fmt.Errorf("migrated config is invalid, nothing was written: %w", err)
 	}
 
+	dstDir := filepath.Dir(dstConfigPath)
+	if err := os.MkdirAll(dstDir, 0o755); err != nil {
+		return err
+	}
 	return config.SaveConfig(dstConfigPath, incoming)
 }
 

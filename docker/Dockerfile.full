@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: Build the kuromatsu binary
 # ============================================================
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 RUN apk add --no-cache git make
 
@@ -23,6 +23,7 @@ FROM node:24-alpine3.23
 # Install runtime dependencies
 RUN apk add --no-cache \
   ca-certificates \
+  tzdata \
   curl \
   git \
   python3 \
@@ -38,7 +39,11 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
 COPY --from=builder /src/build/kuromatsu /usr/local/bin/kuromatsu
 
 # Create kuromatsu home directory
-RUN /usr/local/bin/kuromatsu onboard
+RUN /usr/local/bin/kuromatsu onboard --non-interactive
 
-ENTRYPOINT ["kuromatsu"]
-CMD ["gateway"]
+# First-run entrypoint: runs onboard when the mounted home is empty,
+# otherwise starts the gateway (same as the other images).
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]

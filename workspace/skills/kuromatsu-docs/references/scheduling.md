@@ -2,7 +2,8 @@
 
 Fonte real: `pkg/tools/cron.go`, `pkg/cron/service.go`,
 `pkg/heartbeat/service.go`, `pkg/agent/focus.go`, `pkg/config/focus.go`,
-`pkg/routing/focus.go`, ADR-014.
+`pkg/routing/focus.go` (decisão de projeto: o roteamento de foco e os
+reflexos são determinísticos e não gastam token de LLM).
 
 ## Janelas de foco (`agents.defaults.focus`)
 
@@ -58,7 +59,7 @@ hardware modesto.
 **`keep_alive_secs` tem que ser maior que o intervalo do heartbeat** (ou
 `-1`, nunca descarrega) — senão o modelo nativo recarrega do zero em todo
 heartbeat, o oposto do que o cache de prefixo existe pra evitar. Ver
-`memory-management.md`/S39 para o número real medido em produção.
+`memory-management.md`.
 
 ## Cron (`tools.cron`)
 
@@ -79,17 +80,85 @@ tarefa que não precisa de raciocínio.
 **Cuidado com erro técnico virando resposta ao usuário**: um job cujo
 payload é uma mensagem de LLM, se uma tool dentro do turno falhar, o
 próprio modelo formula a resposta final — inclusive podendo errar o
-diagnóstico do que aconteceu (ver `docs/internal-audit-2026-09-16.md`,
-seção "Mensagem espontânea no Telegram"). Confirmado ao vivo em 2026-09-21
-(ver `BACKLOG.md`, "Incidente ao vivo") que esse é exatamente o mecanismo
-por trás de um caso real: um job com `payload.message` em vez de
-`payload.command` acabou custando 7 cron jobs duplicados, porque
-`cron add` não é idempotente por `job_id` e o modelo, seguindo uma
-instrução de `HEARTBEAT.md` que não fazia sentido nesse servidor, insistiu
-em "agendar" a mesma coisa turno após turno. Prefira sempre
+diagnóstico do que aconteceu e chegando ao chat como uma mensagem
+espontânea. Um turno de LLM também pode repetir ações: um modelo seguindo
+uma instrução do `HEARTBEAT.md` que não fazia sentido já "agendou" a mesma
+coisa turno após turno. Hoje um `add` idêntico (mesmo nome, agenda,
+mensagem e destino) devolve o job existente em vez de duplicar, e um `add`
+idêntico com outro comando falha sem mudar nada; mesmo assim, prefira
 `payload.command` para qualquer notificação/checagem que não precise de
 raciocínio — não só é mais barato, é a diferença entre "um erro repetido"
 e "N efeitos colaterais reais repetidos".
+
+### Status, histórico e auto-desligamento
+
+`state.lastStatus` é `ok`, `error` ou `canceled`, com a mensagem em
+`state.lastError`. Conta como falha (`error`): exec desligado num job de
+comando; comando sem tratamento de anomalia (`quiet`, `anomaly_regex`,
+`on_anomaly`) que termina com erro; comando com tratamento de anomalia que
+estoura o timeout do exec; turno de agente com erro (inclusive o teto
+`non_user_turn_max_minutes`). Uma anomalia num job que a trata **não** é
+falha: é o sinal previsto, entregue como antes. Um job interrompido pelo
+desligamento ou reload do gateway fica `canceled`, que não conta nem como
+falha nem como sucesso.
+
+`tools.cron.max_consecutive_failures` (default 5; 0 = nunca;
+env `KUROMATSU_TOOLS_CRON_MAX_CONSECUTIVE_FAILURES`) desliga um job depois
+de N falhas seguidas, **desde que** já tenha passado pelo menos 1 h desde a
+primeira delas, para que uma queda curta do provedor não desligue um job de
+alta frequência. O `lastError` ganha o prefixo
+`auto-disabled after N consecutive failures: ` e o destino do job
+(`payload.channel`/`.to`, default `cli`/`direct`) recebe um aviso com o
+comando para religar. `kuromatsu cron enable <id>` (ou `update` mudando
+schedule/payload) zera a sequência.
+
+As últimas 20 execuções de cada job ficam em `runs.json`, ao lado de
+`jobs.json` (início, duração, status e erro truncado em 512 bytes). Só o
+gateway grava esse arquivo; a CLI só lê. Um job `at` removido depois de
+rodar perde o histórico junto. Um job `at` interrompido pelo desligamento
+não é apagado: continua ativo e roda de novo 1 min depois (ou logo após o
+reinício).
+
+### Validação, fuso e CLI com o gateway rodando
+
+`add` recusa expressão cron inválida, `at` no passado e fuso inexistente;
+`update`/`edit` só validam quando o schedule muda, então um job antigo com
+schedule vencido continua editável (mas `enable` de um `at` vencido falha).
+`tz` (IANA, ex. `America/Sao_Paulo`) vale só para `cron_expr` (tool) /
+`--cron` (CLI); sem ele, a expressão usa o fuso local do host. Mudar só a
+expressão de um job cron mantém o fuso que ele já tinha.
+
+A CLI (`kuromatsu cron list|add|edit|enable|disable|remove|run-now|history`)
+pode alterar jobs com o gateway rodando: o gateway relê `jobs.json` quando
+o conteúdo muda (no máximo a cada 1 min, e antes de cada alteração e de
+cada leitura da tool), sem recalcular o próximo disparo. `run-now` só marca
+o job como devido; quem o executa é o gateway (um `run-now` feito enquanto o
+job roda, ou com o gateway parado, se perde).
+
+### Riscos residuais do cron
+
+- **Lost update entre CLI e gateway:** não há trava entre processos. O
+  gateway relê o `jobs.json` antes de cada alteração, mas uma gravação da
+  CLI no mesmo instante de uma gravação do gateway pode se perder (a
+  última grava por cima). Depois de editar pela CLI com o gateway
+  rodando, confira com `kuromatsu cron list`.
+- **Rename no Windows:** o `jobs.json` é gravado de forma atômica
+  (arquivo temporário + rename). No Windows o rename pode falhar se outro
+  processo estiver com o arquivo aberto (antivírus, indexador, um editor).
+  A falha é registrada (`Failed to write cron store`) e quem pediu a
+  alteração recebe erro; o processo que falhou continua com o estado novo
+  em memória (o do outro processo pode diferir) e a próxima alteração grava
+  o arquivo inteiro de novo.
+- **Auto-desligamento:** um job de alta frequência que falha por mais de
+  1 h seguida (e pelo menos `max_consecutive_failures` vezes) é desligado
+  e fica desligado até alguém religar (ver
+  [automations.md](automations.md#reabilitar-um-job-auto-desligado)).
+
+### Criar e gerir automações
+
+As formas de criar uma automação, o catálogo de modelos, os comandos
+`/cron` e `/config`, a regra de dono, a resposta silenciosa `NADA` e como
+religar um job auto-desligado estão em [automations.md](automations.md).
 
 ## Reflexos (`agents.defaults.reflexes`)
 

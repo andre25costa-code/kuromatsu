@@ -1,13 +1,15 @@
 # ============================================================
 # Native (nativellm) image: the Bonsai-1.7B-Q1_0 GGUF runs in-process via
 # cgo (ADR-001/002/003) instead of a separate llama-server. Built elsewhere
-# and shipped as a ready image -- the 1 GB Oracle deploy target never builds
+# and shipped as a ready image -- the 1 GB deploy target never builds
 # anything (S32, ADR-012).
 #
-# Target: amd64/x86_64, pinned to the Oracle box's real CPU baseline
-# (VM.Standard.E2.1.Micro -- AMD EPYC 7551 "Naples"/Zen1: AVX2+FMA+F16C, no
-# AVX-512/AVX-VNNI). Build host and target are the same architecture, so
-# this is always a plain native compile -- no cross-toolchain, no QEMU
+# Target: amd64/x86_64, pinned to the reference VM's CPU baseline.
+# Reference deploy VM: Google Cloud e2-micro. The pinned baseline
+# AVX2+FMA+F16C (no AVX-512/AVX-VNNI) also covers the Oracle
+# VM.Standard.E2.1.Micro (AMD EPYC 7551, Zen1) used earlier. Build host and
+# target are the same architecture, so this is always a plain native
+# compile -- no cross-toolchain, no QEMU
 # (ADR-012 corrects an earlier ARM64 assumption, see ADR-011).
 #
 # Build via GitHub Actions (primary path, 16GB RAM runner -- no RAM ceiling):
@@ -20,7 +22,7 @@
 #   docker buildx build -f docker/Dockerfile.native -t kuromatsu:native-amd64 --load .
 # ============================================================
 
-FROM golang:1.25-bookworm AS builder
+FROM golang:1.26-bookworm AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
         cmake make build-essential \
@@ -42,7 +44,12 @@ COPY . .
 # isn't fighting the same ceiling.
 ARG LLAMA_BUILD_JOBS=1
 RUN make llama-lib-x86-64 LLAMA_BUILD_JOBS=${LLAMA_BUILD_JOBS}
-RUN make build-native-x86-64
+# .git is not in the build context (.dockerignore), so the Makefile cannot
+# derive these; the release workflow passes the tag and commit. Declared
+# after the llama.cpp build so a new version does not invalidate its cache.
+ARG VERSION=dev
+ARG GIT_COMMIT=dev
+RUN make build-native-x86-64 VERSION=${VERSION} GIT_COMMIT=${GIT_COMMIT}
 RUN make nativebench-x86-64
 RUN make localllm-integration-test-x86-64
 

@@ -274,6 +274,10 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 				if exec.allResponsesHandled {
 					finalContent = ""
 				}
+				// The repeated-tool-call guard ended the turn: tell the user why.
+				if exec.repeatGuardTripped {
+					finalContent = fmt.Sprintf(repeatedToolCallResponse, exec.repeatGuardTool)
+				}
 				result, finalizeErr := pipeline.Finalize(ctx, turnCtx, ts, exec, turnStatus, finalContent)
 				if finalizeErr != nil {
 					turnStatus = TurnEndStatusError

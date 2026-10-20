@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestDynamicServeMuxExactMatch(t *testing.T) {
@@ -158,5 +159,55 @@ func TestDynamicServeMuxHandleUsesHandler(t *testing.T) {
 	dm.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/handler", nil))
 	if !called {
 		t.Fatal("handler was not called")
+	}
+}
+
+// A long-running handler must not block registrations (or the requests
+// queued behind a waiting registration).
+func TestDynamicServeMuxLongHandlerDoesNotBlockHandle(t *testing.T) {
+	dm := newDynamicServeMux()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	dm.HandleFunc("/slow", func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-release
+	})
+
+	done := make(chan struct{})
+	go func() {
+		dm.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/slow", nil))
+		close(done)
+	}()
+	<-entered
+
+	registered := make(chan struct{})
+	go func() {
+		dm.HandleFunc("/new", func(w http.ResponseWriter, r *http.Request) {})
+		close(registered)
+	}()
+	select {
+	case <-registered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Handle blocked while another handler was running")
+	}
+	close(release)
+	<-done
+}
+
+func TestManagerHandleHTTP_RequiresSetup(t *testing.T) {
+	m := &Manager{}
+	if err := m.HandleHTTP("/ui/", http.NotFoundHandler()); err == nil {
+		t.Fatal("HandleHTTP before SetupHTTPServerListeners must fail")
+	}
+	m.SetupHTTPServerListeners(nil, "127.0.0.1:0", nil)
+	if err := m.HandleHTTP("/ui/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	})); err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	m.mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui/x", nil))
+	if rec.Code != http.StatusTeapot {
+		t.Fatalf("got %d, want 418", rec.Code)
 	}
 }

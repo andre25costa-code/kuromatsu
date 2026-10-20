@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -216,9 +217,11 @@ func TestConvertToKuromatsu(t *testing.T) {
 	if picoCfg.Channels.WhatsApp.BridgeURL != "http://localhost:3000" {
 		t.Errorf("expected whatsapp bridge URL 'http://localhost:3000', got '%s'", picoCfg.Channels.WhatsApp.BridgeURL)
 	}
-
-	if picoCfg.Channels.Feishu.AppID != "app-id" {
-		t.Errorf("expected feishu app ID 'app-id', got '%s'", picoCfg.Channels.Feishu.AppID)
+	if picoCfg.Channels.Telegram == nil || picoCfg.Channels.WhatsApp == nil {
+		t.Fatal("telegram and whatsapp are present in the source and must be converted")
+	}
+	if !warningsContain(warnings, "Channel 'feishu': not supported by Kuromatsu; ignored") {
+		t.Errorf("expected feishu to be reported as ignored, warnings=%v", warnings)
 	}
 
 	if len(picoCfg.ModelList) != 1 {
@@ -251,179 +254,182 @@ func TestToStandardConfig_ExecAllowRemoteDefaultsFalse(t *testing.T) {
 	}
 }
 
-func TestConvertToKuromatsuWithQQAndDingTalk(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "openclaw.json")
-
-	testConfig := `{
-		"agents": {
-			"defaults": {
-				"model": {
-					"primary": "anthropic/claude-sonnet-4-20250514"
-				}
-			}
-		},
-		"channels": {
-			"qq": {
-				"enabled": true,
-				"appId": "qq-app-id",
-				"appSecret": "qq-app-secret"
-			},
-			"dingtalk": {
-				"enabled": true,
-				"appId": "ding-app-id",
-				"appSecret": "ding-app-secret"
-			},
-			"maixcam": {
-				"enabled": true,
-				"host": "192.168.1.100",
-				"port": 9000
-			},
-			"slack": {
-				"enabled": true,
-				"botToken": "xoxb-test",
-				"appToken": "xapp-test"
-			}
-		}
-	}`
-
-	err := os.WriteFile(configPath, []byte(testConfig), 0o644)
-	if err != nil {
-		t.Fatalf("failed to write test config: %v", err)
-	}
-
-	cfg, err := LoadOpenClawConfig(configPath)
-	if err != nil {
-		t.Fatalf("failed to load config: %v", err)
-	}
-
-	picoCfg, _, err := cfg.ConvertToKuromatsu("")
-	if err != nil {
-		t.Fatalf("failed to convert config: %v", err)
-	}
-
-	if !picoCfg.Channels.QQ.Enabled {
-		t.Error("qq should be enabled")
-	}
-	if picoCfg.Channels.QQ.AppID != "qq-app-id" {
-		t.Errorf("expected qq app ID 'qq-app-id', got '%s'", picoCfg.Channels.QQ.AppID)
-	}
-
-	if !picoCfg.Channels.DingTalk.Enabled {
-		t.Error("dingtalk should be enabled")
-	}
-	if picoCfg.Channels.DingTalk.ClientID != "ding-app-id" {
-		t.Errorf("expected dingtalk client ID 'ding-app-id', got '%s'", picoCfg.Channels.DingTalk.ClientID)
-	}
-
-	if !picoCfg.Channels.MaixCam.Enabled {
-		t.Error("maixcam should be enabled")
-	}
-	if picoCfg.Channels.MaixCam.Host != "192.168.1.100" {
-		t.Errorf("expected maixcam host '192.168.1.100', got '%s'", picoCfg.Channels.MaixCam.Host)
-	}
-	if picoCfg.Channels.MaixCam.Port != 9000 {
-		t.Errorf("expected maixcam port 9000, got %d", picoCfg.Channels.MaixCam.Port)
-	}
-
-	if !picoCfg.Channels.Slack.Enabled {
-		t.Error("slack should be enabled")
-	}
-	if picoCfg.Channels.Slack.BotToken != "xoxb-test" {
-		t.Errorf("expected slack bot token 'xoxb-test', got '%s'", picoCfg.Channels.Slack.BotToken)
-	}
-	if picoCfg.Channels.Slack.AppToken != "xapp-test" {
-		t.Errorf("expected slack app token 'xapp-test', got '%s'", picoCfg.Channels.Slack.AppToken)
-	}
-}
-
-func TestConvertToKuromatsuWithMatrix(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "openclaw.json")
-
-	testConfig := `{
-		"channels": {
-			"matrix": {
-				"enabled": true,
-				"homeserver": "https://matrix.example.com",
-				"userId": "@bot:matrix.example.com",
-				"accessToken": "syt_test_token",
-				"allowFrom": ["@alice:matrix.example.com"]
-			}
-		}
-	}`
-
-	err := os.WriteFile(configPath, []byte(testConfig), 0o644)
-	if err != nil {
-		t.Fatalf("failed to write test config: %v", err)
-	}
-
-	cfg, err := LoadOpenClawConfig(configPath)
-	if err != nil {
-		t.Fatalf("failed to load config: %v", err)
-	}
-
-	picoCfg, warnings, err := cfg.ConvertToKuromatsu("")
-	if err != nil {
-		t.Fatalf("failed to convert config: %v", err)
-	}
-
-	if !picoCfg.Channels.Matrix.Enabled {
-		t.Error("matrix should be enabled")
-	}
-	if picoCfg.Channels.Matrix.Homeserver != "https://matrix.example.com" {
-		t.Errorf("expected matrix homeserver, got %q", picoCfg.Channels.Matrix.Homeserver)
-	}
-	if picoCfg.Channels.Matrix.UserID != "@bot:matrix.example.com" {
-		t.Errorf("expected matrix user_id, got %q", picoCfg.Channels.Matrix.UserID)
-	}
-	if picoCfg.Channels.Matrix.AccessToken != "syt_test_token" {
-		t.Errorf("expected matrix access_token, got %q", picoCfg.Channels.Matrix.AccessToken)
-	}
-	if len(picoCfg.Channels.Matrix.AllowFrom) != 1 ||
-		picoCfg.Channels.Matrix.AllowFrom[0] != "@alice:matrix.example.com" {
-		t.Errorf("unexpected matrix allow_from: %#v", picoCfg.Channels.Matrix.AllowFrom)
-	}
-
+func warningsContain(warnings []string, want string) bool {
 	for _, w := range warnings {
-		if strings.Contains(w, "Channel 'matrix'") {
-			t.Fatalf("matrix should no longer be reported as unsupported, warning=%q", w)
+		if w == want {
+			return true
 		}
 	}
+	return false
 }
 
-func TestConvertToKuromatsuWithMatrixDisabled(t *testing.T) {
-	tmpDir := t.TempDir()
-	configPath := filepath.Join(tmpDir, "openclaw.json")
-
-	testConfig := `{
-		"channels": {
-			"matrix": {
-				"enabled": false,
-				"homeserver": "https://matrix.example.com",
-				"userId": "@bot:matrix.example.com",
-				"accessToken": "syt_test_token"
-			}
-		}
-	}`
-
-	err := os.WriteFile(configPath, []byte(testConfig), 0o644)
-	if err != nil {
+func convertFromJSON(t *testing.T, src string) (KuromatsuConfig, []string) {
+	t.Helper()
+	configPath := filepath.Join(t.TempDir(), "openclaw.json")
+	if err := os.WriteFile(configPath, []byte(src), 0o644); err != nil {
 		t.Fatalf("failed to write test config: %v", err)
 	}
-
 	cfg, err := LoadOpenClawConfig(configPath)
 	if err != nil {
 		t.Fatalf("failed to load config: %v", err)
 	}
-
-	picoCfg, _, err := cfg.ConvertToKuromatsu("")
+	out, warnings, err := cfg.ConvertToKuromatsu("")
 	if err != nil {
 		t.Fatalf("failed to convert config: %v", err)
 	}
+	return *out, warnings
+}
 
-	if picoCfg.Channels.Matrix.Enabled {
-		t.Error("matrix should respect enabled=false from source config")
+func TestConvertChannels_OnlySupportedAndPresent(t *testing.T) {
+	out, warnings := convertFromJSON(t, `{
+		"channels": {
+			"telegram": {"botToken": "t", "allowFrom": ["123"]},
+			"discord": {"enabled": true, "token": "d"},
+			"matrix": {"enabled": true, "homeserver": "https://m.example"},
+			"qq": {"enabled": true},
+			"dingtalk": {"enabled": true},
+			"maixcam": {"enabled": true},
+			"slack": {"enabled": true},
+			"feishu": {"enabled": true}
+		}
+	}`)
+
+	if out.Channels.Telegram == nil {
+		t.Fatal("telegram must be converted")
+	}
+	if out.Channels.WhatsApp != nil {
+		t.Fatal("whatsapp is absent from the source and must not be emitted")
+	}
+	for _, name := range []string{"discord", "matrix", "qq", "dingtalk", "maixcam", "slack", "feishu"} {
+		want := "Channel '" + name + "': not supported by Kuromatsu; ignored"
+		if !warningsContain(warnings, want) {
+			t.Errorf("missing warning %q in %v", want, warnings)
+		}
+	}
+	std := out.Channels.ToStandardChannels()
+	if len(std) != 1 || std["telegram"] == nil {
+		t.Fatalf("expected only telegram, got %v", std)
+	}
+}
+
+func TestConvertChannels_EmptyAllowFromWarns(t *testing.T) {
+	out, warnings := convertFromJSON(t, `{
+		"channels": {
+			"whatsapp": {"enabled": true, "bridgeUrl": "http://localhost:3000"},
+			"telegram": {"botToken": "t", "allowFrom": ["1"]}
+		}
+	}`)
+
+	if out.Channels.WhatsApp == nil {
+		t.Fatal("whatsapp must be emitted")
+	}
+	want := "Channel 'whatsapp': allow_from is empty; it will reject all senders until you set it"
+	if !warningsContain(warnings, want) {
+		t.Errorf("missing warning %q in %v", want, warnings)
+	}
+	if warningsContain(
+		warnings,
+		"Channel 'telegram': allow_from is empty; it will reject all senders until you set it",
+	) {
+		t.Error("telegram has allow_from and must not warn")
+	}
+}
+
+func TestToStandardChannels_CarriesAllowFrom(t *testing.T) {
+	out, _ := convertFromJSON(t, `{
+		"channels": {
+			"telegram": {"botToken": "tok", "allowFrom": ["123", "456"], "useMarkdownV2": true},
+			"whatsapp": {"enabled": true, "bridgeUrl": "ws://bridge", "allowFrom": ["+1555"]}
+		}
+	}`)
+	std := out.Channels.ToStandardChannels()
+
+	tg := std["telegram"]
+	if tg == nil {
+		t.Fatal("telegram missing")
+	}
+	if got := []string(tg.AllowFrom); len(got) != 2 || got[0] != "123" || got[1] != "456" {
+		t.Errorf("telegram allow_from = %v", got)
+	}
+	if !tg.Enabled {
+		t.Error("telegram must be enabled")
+	}
+	data, err := json.Marshal(tg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"use_markdown_v2":true`) {
+		t.Errorf("use_markdown_v2 was not carried: %s", data)
+	}
+
+	wa := std["whatsapp"]
+	if wa == nil {
+		t.Fatal("whatsapp missing")
+	}
+	if got := []string(wa.AllowFrom); len(got) != 1 || got[0] != "+1555" {
+		t.Errorf("whatsapp allow_from = %v", got)
+	}
+	data, _ = json.Marshal(wa)
+	if !strings.Contains(string(data), `"bridge_url":"ws://bridge"`) {
+		t.Errorf("bridge_url was not carried: %s", data)
+	}
+}
+
+func TestConvertToKuromatsu_NoChannelsEmitsNone(t *testing.T) {
+	out, _ := convertFromJSON(t, `{"channels": {}}`)
+	if std := out.Channels.ToStandardChannels(); len(std) != 0 {
+		t.Fatalf("expected no channels, got %v", std)
+	}
+}
+
+func TestConvertToKuromatsuWithUnsupportedChannelsOnly(t *testing.T) {
+	out, warnings := convertFromJSON(t, `{
+		"channels": {
+			"qq": {"enabled": true, "appId": "a", "appSecret": "s"},
+			"matrix": {"enabled": false, "homeserver": "https://m.example"}
+		}
+	}`)
+	if out.Channels.Telegram != nil || out.Channels.WhatsApp != nil {
+		t.Fatal("nothing must be emitted")
+	}
+	for _, name := range []string{"qq", "matrix"} {
+		if !warningsContain(warnings, "Channel '"+name+"': not supported by Kuromatsu; ignored") {
+			t.Errorf("missing ignored warning for %s: %v", name, warnings)
+		}
+	}
+}
+
+func TestConvertChannels_WarnsForEveryUnknownChannelKey(t *testing.T) {
+	out, warnings := convertFromJSON(t, `{
+		"channels": {
+			"telegram": {"botToken": "t", "allowFrom": ["123"]},
+			"onebot": {"enabled": true},
+			"line": {"enabled": true},
+			"foo": {"anything": 1},
+			"discord": {"enabled": true, "token": "d"},
+			"slack": null
+		}
+	}`)
+
+	var ignored []string
+	for _, w := range warnings {
+		if strings.HasSuffix(w, ": not supported by Kuromatsu; ignored") {
+			ignored = append(ignored, w)
+		}
+	}
+	want := []string{
+		"Channel 'discord': not supported by Kuromatsu; ignored",
+		"Channel 'foo': not supported by Kuromatsu; ignored",
+		"Channel 'line': not supported by Kuromatsu; ignored",
+		"Channel 'onebot': not supported by Kuromatsu; ignored",
+	}
+	if !slices.Equal(ignored, want) {
+		t.Fatalf("ignored-channel warnings = %q, want %q", ignored, want)
+	}
+
+	std := out.Channels.ToStandardChannels()
+	if len(std) != 1 || std["telegram"] == nil {
+		t.Fatalf("expected only telegram, got %v", std)
 	}
 }
 
@@ -450,38 +456,6 @@ func TestOpenClawAgentModel(t *testing.T) {
 	primary2 := model2.GetPrimary()
 	if primary2 != "claude-3-opus" {
 		t.Errorf("expected primary 'claude-3-opus' from Simple, got '%s'", primary2)
-	}
-}
-
-func TestChannelEnabled(t *testing.T) {
-	cfg := &OpenClawConfig{
-		Channels: &OpenClawChannels{
-			Telegram: &OpenClawTelegramConfig{
-				Enabled: boolPtr(true),
-			},
-			Discord: &OpenClawDiscordConfig{
-				Enabled: boolPtr(false),
-			},
-			Slack: &OpenClawSlackConfig{
-				Enabled: boolPtr(true),
-			},
-		},
-	}
-
-	if !cfg.IsChannelEnabled("telegram") {
-		t.Error("telegram should be enabled")
-	}
-	if cfg.IsChannelEnabled("discord") {
-		t.Error("discord should be disabled")
-	}
-	if !cfg.IsChannelEnabled("slack") {
-		t.Error("slack should be enabled (explicitly set)")
-	}
-	if !cfg.IsChannelEnabled("matrix") {
-		t.Error("matrix should be enabled (nil config defaults to enabled)")
-	}
-	if cfg.IsChannelEnabled("line") {
-		t.Error("line should return false (not in switch cases)")
 	}
 }
 
@@ -579,12 +553,12 @@ func TestToStandardConfig(t *testing.T) {
 			},
 		},
 		Channels: ChannelsConfig{
-			Telegram: TelegramConfig{
+			Telegram: &TelegramConfig{
 				Enabled:   true,
 				Token:     "test-token",
 				AllowFrom: []string{"user1"},
 			},
-			WhatsApp: WhatsAppConfig{
+			WhatsApp: &WhatsAppConfig{
 				Enabled:   true,
 				BridgeURL: "http://localhost:3000",
 			},
@@ -742,8 +716,4 @@ func TestGetProviderConfigFromDirNotExist(t *testing.T) {
 
 func strPtr(s string) *string {
 	return &s
-}
-
-func boolPtr(b bool) *bool {
-	return &b
 }

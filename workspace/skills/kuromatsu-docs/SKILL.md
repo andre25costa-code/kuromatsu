@@ -1,11 +1,11 @@
 ---
 name: kuromatsu-docs
-description: Documentação canônica do Kuromatsu (config, modelos, canais, tools, cron/heartbeat, sono, RAM, deploy) — árvore de decisão por tópico. Use ao configurar/depurar o Kuromatsu, ao explicar como um subsistema funciona, ou antes de escrever documentação nova sobre ele (evita duplicar o que já existe em outro arquivo). ADR-010.
+description: Documentação canônica do Kuromatsu (config, modelos, canais, tools, cron/heartbeat, sono, RAM, deploy, instalação, interface web, automações) — árvore de decisão por tópico. Use ao configurar/depurar o Kuromatsu, ao explicar como um subsistema funciona, ou antes de escrever documentação nova sobre ele (evita duplicar o que já existe em outro arquivo).
 ---
 
 # Documentação do Kuromatsu
 
-Fonte canônica única (ADR-010): um arquivo por tópico, sem duplicação. Se a
+Fonte canônica única: um arquivo por tópico, sem duplicação. Se a
 pergunta cabe num dos tópicos abaixo, a resposta já existe em `references/` —
 leia o arquivo certo antes de explicar de memória ou de criar documentação
 nova sobre o mesmo assunto.
@@ -19,10 +19,13 @@ nova sobre o mesmo assunto.
 | `model_list`, providers, fallback entre modelos, o modelo nativo Bonsai | [references/models.md](references/models.md) |
 | Telegram, WhatsApp, Pico, como adicionar um canal novo | [references/channels.md](references/channels.md) |
 | Tools do agente (exec, arquivos, memória/seahorse, web, skills) | [references/tools.md](references/tools.md) |
-| cron, heartbeat, janelas de foco (`/foco`), reflexos | [references/scheduling.md](references/scheduling.md) |
+| Mecanismo do cron (status, histórico, auto-desligamento, `tz`, CLI com o gateway), heartbeat, janelas de foco (`/foco`), reflexos | [references/scheduling.md](references/scheduling.md) |
+| Criar e gerir automações: catálogo de modelos, `/cron`, `/config`, regra de dono, religar job desligado | [references/automations.md](references/automations.md) |
 | Modo dormir, consolidação de `MEMORY.md`, `pkg/sleep` | [references/sleep.md](references/sleep.md) |
 | Orçamento de RAM, `memguard`, PSI, `GOMEMLIMIT`, motor `runstate` | [references/memory-management.md](references/memory-management.md) |
-| Deploy em produção, systemd, CI | [references/deploy.md](references/deploy.md) |
+| Instalar (`install.sh`/`install.ps1`), `onboard`, perfis de hardware, `kuromatsu status`, `update`, atualizar uma instalação existente (checklist), `uninstall`, build do fonte e do nativo | [references/install.md](references/install.md) |
+| Interface web local (`/ui`): telas, token, `kuromatsu ui token\|open`, segurança, túnel SSH, Docker | [references/webui.md](references/webui.md) |
+| Deploy em servidor, systemd, Docker, CI | [references/deploy.md](references/deploy.md) |
 | Voz — transcrição (ASR) e síntese de fala (TTS) | [references/voice.md](references/voice.md) |
 | Isolamento de processos filhos (`bwrap`, tokens restritos) | [references/isolation.md](references/isolation.md) |
 | Como rodar/adicionar testes, suítes de integração | [references/testing.md](references/testing.md) |

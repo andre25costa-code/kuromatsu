@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -2068,4 +2070,279 @@ func TestShellTool_TruncationKeepsValidUTF8(t *testing.T) {
 	desc := tool.Description()
 	require.Contains(t, desc, "10000 bytes")
 	require.NotContains(t, desc, "Output buffer limit: 1MB.")
+}
+
+// TestShellTool_DotDotTokenBlocked verifies that ".." used as a path token is
+// blocked under restrict_to_workspace while "..." and git ranges are not.
+func TestShellTool_DotDotTokenBlocked(t *testing.T) {
+	tmpDir := t.TempDir()
+	tool, err := NewExecTool(tmpDir, true)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	blocked := []string{
+		"cd .. && cat config.json",
+		"ls ..",
+		"cat ..",
+		`cd ".." && ls`,
+		"ls ..;id",
+		"make -C.. x",
+		"tar -xf a.tar --directory=..",
+		"PATH=..:$PATH ls",
+		"cat <..",
+		"cd..; type config.json",
+		"CD..",
+	}
+	for _, cmd := range blocked {
+		result := tool.Execute(ctx, map[string]any{"action": "run", "command": cmd})
+		if !result.IsError || !strings.Contains(result.ForLLM, "path traversal") {
+			t.Errorf("%q should be blocked as path traversal, got: %s", cmd, result.ForLLM)
+		}
+	}
+
+	// The guard itself is checked so the commands are not run. Only the
+	// traversal check is asserted: on Windows "~" expands to the home
+	// directory, which the path check then rejects for "HEAD~3..".
+	allowed := []string{
+		"echo ...",
+		"ls ...",
+		"git log a..b",
+		"echo v1..v2",
+		"git log ..HEAD",
+		"git log HEAD~3..",
+		"git diff origin/main..HEAD",
+		"echo {1..5}",
+	}
+	for _, cmd := range allowed {
+		if msg := tool.guardCommand(cmd, tmpDir); strings.Contains(msg, "path traversal") {
+			t.Errorf("%q should not be blocked as path traversal, got: %s", cmd, msg)
+		}
+	}
+}
+
+// TestShellTool_MkfsVariantsBlocked verifies mkfs.<fs> and mkfs -t are denied.
+func TestShellTool_MkfsVariantsBlocked(t *testing.T) {
+	tool, err := NewExecTool("", false)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	for _, cmd := range []string{"mkfs.ext4 /dev/sdb1", "mkfs.vfat /dev/sdc", "mkfs -t ext4 /dev/sdb1"} {
+		result := tool.Execute(ctx, map[string]any{"action": "run", "command": cmd})
+		if !result.IsError || !strings.Contains(result.ForLLM, "dangerous pattern") {
+			t.Errorf("%q should be blocked as a dangerous pattern, got: %s", cmd, result.ForLLM)
+		}
+	}
+	for _, cmd := range []string{"echo mkfsfoo", "cat mkfs_notes.txt"} {
+		if msg := tool.guardCommand(cmd, t.TempDir()); strings.Contains(msg, "dangerous pattern") {
+			t.Errorf("%q should not be a dangerous pattern, got: %s", cmd, msg)
+		}
+	}
+}
+
+// TestWindowsDenyPatterns_EncodedCommandPrefixes checks the PowerShell
+// -EncodedCommand patterns on any OS by iterating the slice directly.
+func TestWindowsDenyPatterns_EncodedCommandPrefixes(t *testing.T) {
+	matches := func(cmd string) bool {
+		lower := strings.ToLower(cmd)
+		for _, p := range windowsDenyPatterns {
+			if p.MatchString(lower) {
+				return true
+			}
+		}
+		return false
+	}
+
+	mustMatch := []string{
+		"powershell -enco ZQBjAGgAbwA=",
+		"powershell -encodedc ZQ==",
+		"pwsh -EncodedCommand ZQ==",
+		"powershell -ec ZQ==",
+		"powershell -e ZQ==",
+		"powershell -EncodedCommand:ZQ==",
+	}
+	const flag = "-encodedcommand"
+	for n := 2; n <= len(flag); n++ {
+		mustMatch = append(mustMatch, "powershell "+flag[:n]+" ZQ==", "powershell "+flag[:n])
+	}
+	for _, cmd := range mustMatch {
+		if !matches(cmd) {
+			t.Errorf("%q should match a Windows deny pattern", cmd)
+		}
+	}
+	for _, cmd := range []string{"powershell -NoProfile -Command Get-Date", "powershell -ExecutionPolicy Bypass -File x.ps1"} {
+		if matches(cmd) {
+			t.Errorf("%q should not match a Windows deny pattern", cmd)
+		}
+	}
+}
+
+// TestShellTool_RelFailureBlocks verifies that a path filepath.Rel cannot
+// relate to the working dir (another volume) is blocked, not accepted.
+func TestShellTool_RelFailureBlocks(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("filepath.Rel only fails across volumes on Windows")
+	}
+	cwd := t.TempDir()
+	vol := strings.ToUpper(filepath.VolumeName(cwd))
+	other := "D:"
+	if vol == "D:" {
+		other = "E:"
+	}
+	tool, err := NewExecTool(cwd, true)
+	require.NoError(t, err)
+
+	msg := tool.guardCommand(`type `+other+`\secret.txt`, cwd)
+	require.Contains(t, msg, "path outside working dir")
+}
+
+// TestShellTool_EffectiveTimeout covers how the per-call timeout argument is
+// resolved against the configured timeout.
+func TestShellTool_EffectiveTimeout(t *testing.T) {
+	tool, err := NewExecTool("", false)
+	require.NoError(t, err)
+
+	cases := []struct {
+		name       string
+		configured time.Duration
+		arg        any
+		want       time.Duration
+		wantErr    bool
+	}{
+		{"absent uses config", 60 * time.Second, nil, 60 * time.Second, false},
+		{"zero uses config", 60 * time.Second, float64(0), 60 * time.Second, false},
+		{"smaller wins", 60 * time.Second, float64(5), 5 * time.Second, false},
+		{"capped by config", 10 * time.Second, float64(30), 10 * time.Second, false},
+		{"no cap when config is 0", 0, float64(30), 30 * time.Second, false},
+		{"int", 0, 7, 7 * time.Second, false},
+		{"int64", 0, int64(8), 8 * time.Second, false},
+		{"numeric string", 0, "30", 30 * time.Second, false},
+		{"negative", 0, float64(-1), 0, true},
+		{"fractional", 0, 1.5, 0, true},
+		{"negative int", 0, -3, 0, true},
+		{"non-numeric string", 0, "soon", 0, true},
+		{"fractional string", 0, "1.5", 0, true},
+		{"bool", 0, true, 0, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tool.timeout = tc.configured
+			args := map[string]any{}
+			if tc.arg != nil {
+				args["timeout"] = tc.arg
+			}
+			got, err := tool.effectiveTimeout(args)
+			if tc.wantErr {
+				require.EqualError(t, err, "timeout must be a non-negative integer")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// sleepFiveCommand returns a command that sleeps for 5 seconds in the shell
+// runSync uses on this OS.
+func sleepFiveCommand() string {
+	if runtime.GOOS == "windows" {
+		return "Start-Sleep 5"
+	}
+	return "sleep 5"
+}
+
+// TestShellTool_PerCallTimeoutCappedByConfig runs real commands with the
+// per-call timeout argument.
+func TestShellTool_PerCallTimeoutCappedByConfig(t *testing.T) {
+	tool, err := NewExecTool("", false)
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	// Config 0 (no limit), per-call 1s.
+	tool.timeout = 0
+	start := time.Now()
+	result := tool.Execute(ctx, map[string]any{"action": "run", "command": sleepFiveCommand(), "timeout": float64(1)})
+	require.Less(t, time.Since(start), 5*time.Second)
+	require.True(t, result.IsError)
+	require.Contains(t, result.ForLLM, "timed out after 1s")
+
+	// Config 1s caps a per-call 30s.
+	tool.timeout = time.Second
+	start = time.Now()
+	result = tool.Execute(ctx, map[string]any{"action": "run", "command": sleepFiveCommand(), "timeout": float64(30)})
+	require.Less(t, time.Since(start), 5*time.Second)
+	require.True(t, result.IsError)
+	require.Contains(t, result.ForLLM, "after 1s")
+
+	for _, bad := range []any{float64(-1), 1.5} {
+		result = tool.Execute(ctx, map[string]any{"action": "run", "command": "echo x", "timeout": bad})
+		require.True(t, result.IsError)
+		require.Contains(t, result.ForLLM, "timeout must be a non-negative integer")
+	}
+}
+
+// TestShellTool_TimeoutErrWrapsDeadlineExceeded verifies callers can detect a
+// timeout with errors.Is.
+func TestShellTool_TimeoutErrWrapsDeadlineExceeded(t *testing.T) {
+	tool, err := NewExecTool("", false)
+	require.NoError(t, err)
+
+	result := tool.Execute(context.Background(),
+		map[string]any{"action": "run", "command": sleepFiveCommand(), "timeout": float64(1)})
+	require.True(t, result.IsError)
+	require.Error(t, result.Err)
+	require.True(t, errors.Is(result.Err, context.DeadlineExceeded), "Err = %v", result.Err)
+}
+
+// TestShellTool_WaitDelayDoesNotHangOnBackgroundChild verifies a grandchild
+// left holding the output pipe does not block a foreground run.
+func TestShellTool_WaitDelayDoesNotHangOnBackgroundChild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses job control from a POSIX shell")
+	}
+	tool, err := NewExecTool("", false)
+	require.NoError(t, err)
+	tool.timeout = 0
+
+	start := time.Now()
+	result := tool.Execute(context.Background(),
+		map[string]any{"action": "run", "command": "sleep 30 & echo started"})
+	require.Less(t, time.Since(start), 6*time.Second)
+	require.False(t, result.IsError, "result: %s", result.ForLLM)
+	require.Contains(t, result.ForLLM, "started")
+	require.Contains(t, result.ForLLM, "processos em segundo plano mantiveram a saída aberta")
+}
+
+// TestShellTool_BackgroundSessionCap verifies the running-session cap.
+func TestShellTool_BackgroundSessionCap(t *testing.T) {
+	tool, err := NewExecTool("", false)
+	require.NoError(t, err)
+	sm := NewSessionManager()
+	t.Cleanup(sm.Stop)
+	tool.sessionManager = sm
+	for i := 0; i < maxRunningBackgroundSessions; i++ {
+		sm.Add(&ProcessSession{ID: fmt.Sprint(i), Status: "running"})
+	}
+
+	result := tool.Execute(context.Background(),
+		map[string]any{"action": "run", "command": "echo x", "background": true})
+	require.True(t, result.IsError)
+	require.Contains(t, result.ForLLM, "too many background sessions running (max 8); kill or wait for one")
+	require.Len(t, sm.List(), maxRunningBackgroundSessions)
+}
+
+// TestShellTool_ExecuteRunIgnoresChannelArg is a regression test: a channel
+// passed in args must not unlock exec when remote exec is disabled.
+func TestShellTool_ExecuteRunIgnoresChannelArg(t *testing.T) {
+	tool, err := NewExecTool("", false)
+	require.NoError(t, err)
+	tool.allowRemote = false
+	args := map[string]any{"action": "run", "command": "echo x", "__channel": "cli"}
+
+	result := tool.Execute(context.Background(), args)
+	require.True(t, result.IsError)
+	require.Contains(t, result.ForLLM, "exec is restricted to internal channels")
+
+	result = tool.executeRun(context.Background(), args)
+	require.True(t, result.IsError)
+	require.Contains(t, result.ForLLM, "exec is restricted to internal channels")
 }

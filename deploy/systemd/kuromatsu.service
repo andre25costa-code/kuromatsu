@@ -28,7 +28,7 @@ Restart=on-failure
 RestartSec=10
 
 # Recursos — orcamento de 1GB (S29/NFR-001), ver ADR-013/017. 900M/850M
-# replica o mem_limit/memswap_limit provados no deploy Docker da Oracle (E7);
+# replica o mem_limit/memswap_limit provados no deploy Docker anterior (E7);
 # com n_ctx=4096 (necessario ate a Trilha A/B reduzirem o prompt-base) o KV
 # q8_0 sobe para ~238MB -- 850M seria arriscado.
 MemoryMax=900M

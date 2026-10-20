@@ -1117,6 +1117,17 @@ func (m *Manager) SetupHTTPServerListeners(listeners []net.Listener, addr string
 	m.httpListeners = append([]net.Listener(nil), listeners...)
 }
 
+// HandleHTTP registers a handler that is not a channel (the web UI) on the
+// shared gateway mux. Call it after SetupHTTPServerListeners; the mux, and so
+// the registration, survives channel reloads.
+func (m *Manager) HandleHTTP(pattern string, h http.Handler) error {
+	if m.mux == nil {
+		return errors.New("channels: HTTP server not set up")
+	}
+	m.mux.Handle(pattern, h)
+	return nil
+}
+
 // registerHTTPHandlersLocked registers webhook and health-check handlers for
 // all channels currently in m.channels. Caller must hold m.mu (or ensure
 // exclusive access).

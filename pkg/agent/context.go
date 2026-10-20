@@ -214,9 +214,8 @@ Your workspace is at: %s
 // full identity block (workspace paths, memory/skills pointers, tool
 // discovery rule, etc). It intentionally does not touch the workspace's own
 // AGENT.md/SOUL.md/USER.md content (LoadBootstrapFiles) — that's the
-// user's own prompt budget, not framework overhead (see the code-analyst
-// note in .claude/team/research/enxugar.md), and trimming it is out of
-// scope here.
+// user's own prompt budget, not framework overhead, and trimming it is out
+// of scope here.
 func (cb *ContextBuilder) getIdentityCompact(includeToolUseRule bool) string {
 	workspacePath, _ := filepath.Abs(filepath.Join(cb.workspace))
 

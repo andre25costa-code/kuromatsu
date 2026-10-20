@@ -158,24 +158,7 @@ toolLoop:
 			}
 			exec.allResponsesHandled = false
 			denyContent := fmt.Sprintf("Tool %q is not allowed by the active turn profile.", toolName)
-			al.emitEvent(
-				runtimeevents.KindAgentToolExecSkipped,
-				ts.eventMeta("runTurn", "turn.tool.skipped"),
-				ToolExecSkippedPayload{
-					Tool:   toolName,
-					Reason: denyContent,
-				},
-			)
-			deniedMsg := providers.Message{
-				Role:       "tool",
-				Content:    denyContent,
-				ToolCallID: tc.ID,
-			}
-			messages = append(messages, deniedMsg)
-			if !ts.opts.NoHistory {
-				ts.agent.Sessions.AddFullMessage(ts.sessionKey, deniedMsg)
-				ts.recordPersistedMessage(deniedMsg)
-			}
+			messages = al.appendSkippedToolResult(ts, messages, toolName, tc.ID, denyContent, denyContent)
 			return true
 		}
 
@@ -211,6 +194,46 @@ toolLoop:
 			continue
 		}
 
+		// Repeated-tool-call guard. The signature is taken before hooks may
+		// rewrite the call, and the same signature is recorded after it runs.
+		toolSig := toolCallSignature(toolName, toolArgs)
+		repeatLimit := al.cfg.Agents.Defaults.MaxRepeatedToolCalls
+		switch checkRepeatedToolCall(exec, toolSig, repeatLimit) {
+		case repeatGuardWarn:
+			exec.allResponsesHandled = false
+			logger.WarnCF("agent", "Repeated tool call blocked; warning the model",
+				map[string]any{
+					"agent_id":  ts.agent.ID,
+					"tool":      toolName,
+					"iteration": iteration,
+					"repeats":   repeatLimit - 1,
+				})
+			messages = al.appendSkippedToolResult(
+				ts, messages, toolName, tc.ID, repeatedToolCallReason,
+				fmt.Sprintf(repeatedToolCallWarning, toolName, repeatLimit-1),
+			)
+			continue
+		case repeatGuardStop:
+			exec.allResponsesHandled = false
+			exec.repeatGuardTripped = true
+			exec.repeatGuardTool = toolName
+			logger.WarnCF("agent", "Repeated tool call after warning; ending turn",
+				map[string]any{
+					"agent_id":  ts.agent.ID,
+					"tool":      toolName,
+					"iteration": iteration,
+					"skipped":   len(normalizedToolCalls) - i,
+				})
+			for j := i; j < len(normalizedToolCalls); j++ {
+				skippedTC := normalizedToolCalls[j]
+				messages = al.appendSkippedToolResult(
+					ts, messages, skippedTC.Name, skippedTC.ID, repeatedToolCallReason, repeatedToolCallSkipMessage,
+				)
+			}
+			exec.messages = messages
+			return ToolControlBreak
+		}
+
 		if al.hooks != nil {
 			toolReq, decision := al.hooks.BeforeTool(turnCtx, &ToolCallHookRequest{
 				Meta:      ts.eventMeta("runTurn", "turn.tool.before"),
@@ -227,6 +250,7 @@ toolLoop:
 			case HookActionRespond:
 				if toolReq != nil && toolReq.HookResult != nil {
 					hookResult := toolReq.HookResult
+					recordToolResult(exec, toolSig, hookResult)
 
 					argsJSON, _ := json.Marshal(toolArgs)
 					argsPreview := utils.Truncate(string(argsJSON), 200)
@@ -407,24 +431,9 @@ toolLoop:
 								})
 							for j := i + 1; j < len(normalizedToolCalls); j++ {
 								skippedTC := normalizedToolCalls[j]
-								al.emitEvent(
-									runtimeevents.KindAgentToolExecSkipped,
-									ts.eventMeta("runTurn", "turn.tool.skipped"),
-									ToolExecSkippedPayload{
-										Tool:   skippedTC.Name,
-										Reason: skipReason,
-									},
+								messages = al.appendSkippedToolResult(
+									ts, messages, skippedTC.Name, skippedTC.ID, skipReason, skipMessage,
 								)
-								skippedMsg := providers.Message{
-									Role:       "tool",
-									Content:    skipMessage,
-									ToolCallID: skippedTC.ID,
-								}
-								messages = append(messages, skippedMsg)
-								if !ts.opts.NoHistory {
-									ts.agent.Sessions.AddFullMessage(ts.sessionKey, skippedMsg)
-									ts.recordPersistedMessage(skippedMsg)
-								}
 							}
 						}
 						break toolLoop
@@ -456,24 +465,7 @@ toolLoop:
 			case HookActionDenyTool:
 				exec.allResponsesHandled = false
 				denyContent := hookDeniedToolContent("Tool execution denied by hook", decision.Reason)
-				al.emitEvent(
-					runtimeevents.KindAgentToolExecSkipped,
-					ts.eventMeta("runTurn", "turn.tool.skipped"),
-					ToolExecSkippedPayload{
-						Tool:   toolName,
-						Reason: denyContent,
-					},
-				)
-				deniedMsg := providers.Message{
-					Role:       "tool",
-					Content:    denyContent,
-					ToolCallID: tc.ID,
-				}
-				messages = append(messages, deniedMsg)
-				if !ts.opts.NoHistory {
-					ts.agent.Sessions.AddFullMessage(ts.sessionKey, deniedMsg)
-					ts.recordPersistedMessage(deniedMsg)
-				}
+				messages = al.appendSkippedToolResult(ts, messages, toolName, tc.ID, denyContent, denyContent)
 				continue
 			case HookActionAbortTurn:
 				exec.abortedByHook = true
@@ -495,24 +487,7 @@ toolLoop:
 			if !approval.Approved {
 				exec.allResponsesHandled = false
 				denyContent := hookDeniedToolContent("Tool execution denied by approval hook", approval.Reason)
-				al.emitEvent(
-					runtimeevents.KindAgentToolExecSkipped,
-					ts.eventMeta("runTurn", "turn.tool.skipped"),
-					ToolExecSkippedPayload{
-						Tool:   toolName,
-						Reason: denyContent,
-					},
-				)
-				deniedMsg := providers.Message{
-					Role:       "tool",
-					Content:    denyContent,
-					ToolCallID: tc.ID,
-				}
-				messages = append(messages, deniedMsg)
-				if !ts.opts.NoHistory {
-					ts.agent.Sessions.AddFullMessage(ts.sessionKey, deniedMsg)
-					ts.recordPersistedMessage(deniedMsg)
-				}
+				messages = al.appendSkippedToolResult(ts, messages, toolName, tc.ID, denyContent, denyContent)
 				continue
 			}
 		}
@@ -663,6 +638,7 @@ toolLoop:
 		if toolResult == nil {
 			toolResult = tools.ErrorResult("hook returned nil tool result")
 		}
+		recordToolResult(exec, toolSig, toolResult)
 
 		if len(toolResult.Media) > 0 && toolResult.ResponseHandled {
 			parts := make([]bus.MediaPart, 0, len(toolResult.Media))
@@ -795,24 +771,7 @@ toolLoop:
 					})
 				for j := i + 1; j < len(normalizedToolCalls); j++ {
 					skippedTC := normalizedToolCalls[j]
-					al.emitEvent(
-						runtimeevents.KindAgentToolExecSkipped,
-						ts.eventMeta("runTurn", "turn.tool.skipped"),
-						ToolExecSkippedPayload{
-							Tool:   skippedTC.Name,
-							Reason: skipReason,
-						},
-					)
-					skippedMsg := providers.Message{
-						Role:       "tool",
-						Content:    skipMessage,
-						ToolCallID: skippedTC.ID,
-					}
-					messages = append(messages, skippedMsg)
-					if !ts.opts.NoHistory {
-						ts.agent.Sessions.AddFullMessage(ts.sessionKey, skippedMsg)
-						ts.recordPersistedMessage(skippedMsg)
-					}
+					messages = al.appendSkippedToolResult(ts, messages, skippedTC.Name, skippedTC.ID, skipReason, skipMessage)
 				}
 			}
 			break toolLoop
@@ -912,6 +871,38 @@ toolLoop:
 	return ToolControlContinue
 }
 
+// appendSkippedToolResult answers a tool call that was not executed (denied,
+// skipped, refused or held back by the repeated-tool-call guard): it emits
+// turn.tool.skipped with reason and appends a role="tool" message with
+// content keyed to the call's ToolCallID, persisting it unless the turn has
+// no history. Every tool_call therefore keeps its result, as the provider
+// contract requires.
+func (al *AgentLoop) appendSkippedToolResult(
+	ts *turnState,
+	messages []providers.Message,
+	toolName, toolCallID, reason, content string,
+) []providers.Message {
+	al.emitEvent(
+		runtimeevents.KindAgentToolExecSkipped,
+		ts.eventMeta("runTurn", "turn.tool.skipped"),
+		ToolExecSkippedPayload{
+			Tool:   toolName,
+			Reason: reason,
+		},
+	)
+	msg := providers.Message{
+		Role:       "tool",
+		Content:    content,
+		ToolCallID: toolCallID,
+	}
+	messages = append(messages, msg)
+	if !ts.opts.NoHistory {
+		ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
+		ts.recordPersistedMessage(msg)
+	}
+	return messages
+}
+
 // suspendedToolSkipReason is the tool-result content every pending tool
 // call gets when refuseToolsSuspended fires -- worded for the model, not
 // the end user (it becomes the content of a role="tool" message the model
@@ -934,24 +925,9 @@ func (al *AgentLoop) refuseToolsSuspended(
 ) ToolControl {
 	messages := exec.messages
 	for _, tc := range calls {
-		al.emitEvent(
-			runtimeevents.KindAgentToolExecSkipped,
-			ts.eventMeta("runTurn", "turn.tool.skipped"),
-			ToolExecSkippedPayload{
-				Tool:   tc.Name,
-				Reason: suspendedToolSkipReason,
-			},
+		messages = al.appendSkippedToolResult(
+			ts, messages, tc.Name, tc.ID, suspendedToolSkipReason, suspendedToolSkipReason,
 		)
-		msg := providers.Message{
-			Role:       "tool",
-			Content:    suspendedToolSkipReason,
-			ToolCallID: tc.ID,
-		}
-		messages = append(messages, msg)
-		if !ts.opts.NoHistory {
-			ts.agent.Sessions.AddFullMessage(ts.sessionKey, msg)
-			ts.recordPersistedMessage(msg)
-		}
 	}
 	exec.messages = messages
 	exec.allResponsesHandled = false

@@ -43,7 +43,7 @@ func TestBaseChannel_TypingConfig(t *testing.T) {
 			msgBus := bus.NewMessageBus()
 			defer msgBus.Close()
 			ch := &typingMockChannel{}
-			ch.BaseChannel = *NewBaseChannel("test", nil, msgBus, nil,
+			ch.BaseChannel = *NewBaseChannel("test", nil, msgBus, []string{"*"},
 				WithTyping(config.TypingConfig{Enabled: tc.enabled}))
 			ch.SetOwner(ch)
 			ch.SetPlaceholderRecorder(nopPlaceholderRecorder{})

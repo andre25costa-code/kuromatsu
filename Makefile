@@ -1,4 +1,4 @@
-.PHONY: all build install uninstall clean help test integration-test build-all llama-lib llama-lib-arm64 llama-lib-x86-64 build-native build-native-arm64 build-native-x86-64 nativebench-x86-64 localllm-integration-test-x86-64 run-native bench-native docker-build-native docker-save-native
+.PHONY: all build install uninstall uninstall-all test-install clean help test integration-test build-all llama-lib llama-lib-arm64 llama-lib-x86-64 build-native build-native-arm64 build-native-x86-64 nativebench-x86-64 localllm-integration-test-x86-64 run-native bench-native docker-build-native docker-save-native
 
 # Build variables
 BINARY_NAME=kuromatsu
@@ -89,7 +89,6 @@ INSTALL_TMP_SUFFIX=.new
 
 # Workspace and Skills
 KUROMATSU_HOME?=$(HOME)/.kuromatsu
-WORKSPACE_DIR?=$(KUROMATSU_HOME)/workspace
 
 LNCMD=ln -sf
 
@@ -287,11 +286,13 @@ llama-lib:
 	@echo "Static libs in $(LLAMA_BUILD_DIR)/lib:"
 	@ls $(LLAMA_BUILD_DIR)/lib/*.a
 
-## llama-lib-x86-64: PRIMARY deploy target (ADR-012). Pinned CPU baseline for
-## the real Oracle box (VM.Standard.E2.1.Micro -- AMD EPYC 7551 "Naples",
-## Zen1: AVX2+FMA+F16C, no AVX-512/AVX-VNNI). GGML_NATIVE=OFF on purpose: the
-## build host (GitHub Actions runner, or a dev machine) may have a newer CPU
-## with AVX-512, which would SIGILL on the Oracle box if auto-detected.
+## llama-lib-x86-64: PRIMARY deploy target. Pinned CPU baseline.
+## Reference deploy VM: Google Cloud e2-micro. The pinned baseline
+## AVX2+FMA+F16C (no AVX-512/AVX-VNNI) also covers the Oracle
+## VM.Standard.E2.1.Micro (AMD EPYC 7551, Zen1) used earlier.
+## GGML_NATIVE=OFF on purpose: the build host (GitHub Actions runner, or a dev
+## machine) may have a newer CPU with AVX-512, which would SIGILL on the
+## reference VM if auto-detected.
 ## Always a native compile (build host and target are both amd64) -- no
 ## cross-toolchain, no QEMU, ever.
 llama-lib-x86-64:
@@ -308,7 +309,7 @@ llama-lib-x86-64:
 	@cp -f $(LLAMA_BUILD_DIR_X86_64)/lib/*.a $(LLAMA_BUILD_DIR)/lib/
 
 ## llama-lib-arm64: SECONDARY/future target (superseded as the primary path
-## by ADR-012 -- the real Oracle box turned out to be x86_64, not ARM64).
+## because the reference VM is x86_64, not ARM64).
 ## Kept for a possible future ARM64 deploy (Raspberry Pi, or if an A1 shape
 ## becomes available). True cross-compile for linux/arm64 (Ampere/Neoverse-N1
 ## class -- dotprod yes, i8mm NO), running natively on an amd64 build host via
@@ -423,12 +424,27 @@ uninstall:
 	@echo "Note: Only the executable file has been deleted."
 	@echo "If you need to delete all configurations (config.json, workspace, etc.), run 'make uninstall-all'"
 
-## uninstall-all: Remove kuromatsu and all data
+## uninstall-all: Remove kuromatsu and all data (backed up to ~/kuromatsu-backup-<date>.zip)
 uninstall-all:
-	@echo "Removing workspace and skills..."
-	@rm -rf $(KUROMATSU_HOME)
-	@echo "Removed workspace: $(KUROMATSU_HOME)"
+	@if [ -x $(INSTALL_BIN_DIR)/$(BINARY_NAME) ]; then \
+		KUROMATSU_HOME=$(KUROMATSU_HOME) $(INSTALL_BIN_DIR)/$(BINARY_NAME) uninstall --purge --yes; \
+	else \
+		echo "WARNING: $(INSTALL_BIN_DIR)/$(BINARY_NAME) not found; deleting $(KUROMATSU_HOME) WITHOUT a backup"; \
+		rm -rf $(KUROMATSU_HOME); \
+		echo "Removed workspace: $(KUROMATSU_HOME)"; \
+	fi
 	@echo "Complete uninstallation done!"
+
+## test-install: shellcheck the installers and run the install test in Docker (DIST=dist)
+test-install:
+	@if command -v shellcheck >/dev/null 2>&1; then \
+		shellcheck -s sh scripts/install.sh scripts/test-install-docker.sh; \
+	elif command -v docker >/dev/null 2>&1; then \
+		docker run --rm -v "$(CURDIR):/mnt" koalaman/shellcheck:v0.10.0 -s sh /mnt/scripts/install.sh /mnt/scripts/test-install-docker.sh; \
+	else \
+		echo "shellcheck skipped"; \
+	fi
+	@DIST=$${DIST:-dist} sh scripts/test-install-docker.sh
 
 ## clean: Remove build artifacts
 clean:
@@ -458,11 +474,11 @@ fmt:
 
 ## lint: Run linters
 lint:
-	@$(GOLANGCI_LINT) run --build-tags $(GO_BUILD_TAGS)
+	@$(GOLANGCI_LINT) run
 
 ## fix: Fix linting issues
 fix:
-	@$(GOLANGCI_LINT) run --fix --build-tags $(GO_BUILD_TAGS)
+	@$(GOLANGCI_LINT) run --fix
 
 ## deps: Download dependencies
 deps:
@@ -534,7 +550,7 @@ docker-build-native:
 		-t kuromatsu:native-amd64 --load .
 
 ## docker-save-native: Package the built native image as a portable .tar.gz for
-## `scp` to the Oracle box -- the deploy target never builds anything, it only
+## `scp` to the reference VM -- the deploy target never builds anything, it only
 ## `docker load`s this file (ADR-012, S32).
 docker-save-native: docker-build-native
 	@mkdir -p $(BUILD_DIR)
@@ -556,18 +572,15 @@ help:
 	@echo "Examples:"
 	@echo "  make build              # Build for current platform"
 	@echo "  make install            # Install to ~/.local/bin"
-	@echo "  make uninstall          # Remove from /usr/local/bin"
-	@echo "  make install-skills     # Install skills to workspace"
+	@echo "  make uninstall          # Remove from $(INSTALL_BIN_DIR)"
 	@echo "  make docker-build       # Build minimal Docker image"
 	@echo "  make docker-test        # Test MCP tools in Docker"
 	@echo ""
 	@echo "Environment Variables:"
 	@echo "  INSTALL_PREFIX          # Installation prefix (default: ~/.local)"
-	@echo "  WORKSPACE_DIR           # Workspace directory (default: ~/.kuromatsu/workspace)"
 	@echo "  VERSION                 # Version string (default: git describe)"
 	@echo ""
 	@echo "Current Configuration:"
 	@echo "  Platform: $(PLATFORM)/$(ARCH)"
 	@echo "  Binary: $(BINARY_PATH)"
 	@echo "  Install Prefix: $(INSTALL_PREFIX)"
-	@echo "  Workspace: $(WORKSPACE_DIR)"

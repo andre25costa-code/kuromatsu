@@ -1,6 +1,6 @@
 //go:build !whatsapp_native
 
-package whatsapp
+package whatsappnative
 
 import (
 	"fmt"

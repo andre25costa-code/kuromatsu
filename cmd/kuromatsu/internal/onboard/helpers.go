@@ -1,6 +1,8 @@
 package onboard
 
 import (
+	"bufio"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -14,19 +16,119 @@ import (
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/cliui"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
 	"github.com/andre25costa-code/kuromatsu/pkg/credential"
+	"github.com/andre25costa-code/kuromatsu/pkg/hwprofile"
+	"github.com/andre25costa-code/kuromatsu/pkg/sysinfo"
 )
 
-func onboard(encrypt, force bool) {
+// detect is a seam over sysinfo.Detect so tests can simulate hardware.
+var detect = sysinfo.Detect
+
+// profileAuto is the --profile value that applies the detected profile.
+const profileAuto = "auto"
+
+// parseProfileFlag validates --profile: "" (not given), "auto" or a
+// profile name.
+func parseProfileFlag(flag string) (name hwprofile.Name, auto bool, err error) {
+	switch {
+	case flag == "":
+		return "", false, nil
+	case strings.EqualFold(flag, profileAuto):
+		return "", true, nil
+	}
+	if n, ok := hwprofile.ParseName(flag); ok {
+		return n, false, nil
+	}
+	return "", false, fmt.Errorf(
+		"unknown --profile %q (use ultra-light, light, balanced, performance or auto)", flag)
+}
+
+// applyProfile applies the named profile, or the detected one when name is
+// empty, and prints what it did.
+func applyProfile(cfg *config.Config, name hwprofile.Name) {
+	hw := detect()
+	detected := hwprofile.Select(hw)
+	if name == "" {
+		name = detected
+		if hw.Budget() == 0 {
+			fmt.Println(hwprofile.UnknownRAMNote)
+		}
+	}
+	warnings := hwprofile.Apply(cfg, name, hw)
+	fmt.Printf("Hardware: %s RAM, %d CPUs → profile %s (applied)\n",
+		hwprofile.FormatGiB(hw.Budget()), hw.CPUs, name)
+	for _, w := range warnings {
+		fmt.Printf("Warning: %s\n", w)
+	}
+}
+
+// stdioIsTerminal reports whether stdin and stdout are both terminals.
+// It reads os.Stdin/os.Stdout at call time, so a test can swap them.
+func stdioIsTerminal() bool {
+	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+}
+
+// interactive reports whether onboard runs the wizard: only on a terminal,
+// and never with --non-interactive or --enc (which keeps its own flow).
+func interactive(encrypt, nonInteractive bool) bool {
+	return !nonInteractive && !encrypt && stdioIsTerminal()
+}
+
+// Exit codes of an interactive onboard. Installers treat
+// exitCodeSetupNotCompleted as "setup skipped" and still finish.
+const (
+	exitCodeError             = 1 // something failed
+	exitCodeSetupNotCompleted = 2 // quit, declined or input ended: nothing written
+)
+
+// wizardExitCode maps runWizard's result to the process exit code.
+func wizardExitCode(err error) int {
+	switch {
+	case err == nil:
+		return 0
+	case errors.Is(err, errWizardQuit):
+		return exitCodeSetupNotCompleted
+	default:
+		return exitCodeError
+	}
+}
+
+// terminalSecret reads a hidden line from the terminal.
+func terminalSecret() (string, error) {
+	b, err := term.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	return string(b), err
+}
+
+func onboard(encrypt, force bool, profileFlag string, nonInteractive bool) {
+	profile, profileAutoSet, err := parseProfileFlag(profileFlag)
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+	profileRequested := profile != "" || profileAutoSet
+
 	configPath := internal.GetConfigPath()
 
+	if interactive(encrypt, nonInteractive) {
+		wio := wizardIO{in: bufio.NewReader(os.Stdin), out: os.Stdout, readSecret: terminalSecret}
+		err = runWizard(wio, configPath, force, profile, profileRequested)
+		if code := wizardExitCode(err); code != 0 {
+			if code == exitCodeError {
+				fmt.Printf("Error: %v\n", err)
+			}
+			os.Exit(code)
+		}
+		return
+	}
+
 	configExists := false
-	if _, err := os.Stat(configPath); err == nil {
+	if _, statErr := os.Stat(configPath); statErr == nil {
 		configExists = true
 		if encrypt {
 			// Only ask for confirmation when *both* config and SSH key already exist,
 			// indicating a full re-onboard that would reset the config to defaults.
 			sshKeyPath, _ := credential.DefaultSSHKeyPath()
-			if _, err := os.Stat(sshKeyPath); err == nil {
+			if _, statErr := os.Stat(sshKeyPath); statErr == nil {
 				// Both exist — confirm a full reset.
 				fmt.Printf("Config already exists at %s\n", configPath)
 				fmt.Print("Overwrite config with defaults? (y/n): ")
@@ -42,7 +144,6 @@ func onboard(encrypt, force bool) {
 		}
 	}
 
-	var err error
 	if encrypt {
 		fmt.Println("\nSet up credential encryption")
 		fmt.Println("-----------------------------")
@@ -65,22 +166,41 @@ func onboard(encrypt, force bool) {
 
 	var cfg *config.Config
 	if configExists {
-		// Preserve the existing config; SaveConfig will re-encrypt api_keys with the new passphrase.
-		cfg, err = config.LoadConfig(configPath)
+		// Preserve the existing config as stored on disk (no environment
+		// values); SaveConfig will re-encrypt api_keys with the new passphrase.
+		cfg, err = config.LoadConfigForEdit(configPath)
 		if err != nil {
 			fmt.Printf("Error loading existing config: %v\n", err)
 			os.Exit(1)
 		}
+		// An existing config changes only on an explicit --profile.
+		if profileRequested {
+			applyProfile(cfg, profile)
+		}
 	} else {
+		// A new config starts from the detected profile (or the requested one).
 		cfg = config.DefaultConfig()
+		applyProfile(cfg, profile)
 	}
-	if err := config.SaveConfig(configPath, cfg); err != nil {
+	// The web UI token is created once, here or by `kuromatsu ui token`;
+	// an existing one is kept.
+	if _, err = cfg.WebUI.EnsureToken(); err != nil {
+		fmt.Printf("Error: %v\n", err)
+		os.Exit(1)
+	}
+	if err = config.SaveConfig(configPath, cfg); err != nil {
 		fmt.Printf("Error saving config: %v\n", err)
 		os.Exit(1)
 	}
 
-	workspace := cfg.WorkspacePath()
-	createWorkspaceTemplates(workspace, force)
+	// The workspace comes from the runtime view, so an environment override
+	// of the workspace applies here without being written to the file.
+	rt, err := config.LoadConfig(configPath)
+	if err != nil {
+		fmt.Printf("Error loading config: %v\n", err)
+		os.Exit(1)
+	}
+	createWorkspaceTemplates(rt.WorkspacePath(), force)
 
 	cliui.PrintOnboardComplete(internal.Logo, encrypt, configPath)
 }

@@ -15,6 +15,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 	"github.com/andre25costa-code/kuromatsu/pkg/routing"
+	"github.com/andre25costa-code/kuromatsu/pkg/setup"
 )
 
 func (al *AgentLoop) handleCommand(
@@ -446,7 +447,7 @@ func (al *AgentLoop) buildCommandsRuntime(
 			return fr.Current(opts.Dispatch.SessionKey)
 		},
 		QueryStats: func(ctx context.Context, window string, hours int) (string, error) {
-			return al.telemetrySnapshot().queryStats(ctx, window, hours)
+			return al.QueryStats(ctx, window, hours)
 		},
 		GetActiveTurn: func() any {
 			info := al.GetActiveTurn()
@@ -476,9 +477,32 @@ func (al *AgentLoop) buildCommandsRuntime(
 	}
 	rt.ReloadConfig = func() error {
 		if al.reloadFunc == nil {
-			return fmt.Errorf("reload not configured")
+			return commands.ErrReloadUnavailable
 		}
 		return al.reloadFunc()
+	}
+	rt.CanMutate = func(channel, senderID string) bool {
+		return setup.CanMutate(cfg, channel, senderID)
+	}
+	rt.ConfigSummary = func() (string, error) {
+		var model, provider string
+		if rt.GetModelInfo != nil {
+			model, provider = rt.GetModelInfo()
+		}
+		return setup.Summary(cfg, model, provider), nil
+	}
+	if cfg != nil && cfg.SourcePath != "" {
+		path := cfg.SourcePath
+		rt.SetConfigKey = func(key, value string) (string, string, error) {
+			return setup.SaveKey(path, key, value)
+		}
+	}
+	rt.Cron = func() commands.CronAPI {
+		cs := al.cronService.Load()
+		if cs == nil {
+			return nil
+		}
+		return newCronCommands(cs, cfg)
 	}
 	if agent != nil {
 		if agent.ContextBuilder != nil {
