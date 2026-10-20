@@ -73,7 +73,7 @@ Details, PATH handling per shell and every refusal: [install guide (pt-BR)](./wo
 ### Build from source
 
 ```bash
-# requires Go 1.25+ and git
+# requires Go 1.26.9+ and git
 git clone https://github.com/andre25costa-code/kuromatsu.git
 cd kuromatsu
 go build -o kuromatsu ./cmd/kuromatsu   # on Windows: -o kuromatsu.exe
