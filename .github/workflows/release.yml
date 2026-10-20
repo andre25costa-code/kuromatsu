@@ -108,6 +108,10 @@ jobs:
     permissions:
       contents: write
       packages: write
+    # Docker Hub is optional: without both secrets and the DOCKERHUB_REPOSITORY
+    # variable the login is skipped and images go to ghcr.io only.
+    env:
+      DOCKERHUB_ENABLED: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' && vars.DOCKERHUB_REPOSITORY != '' }}
     steps:
       - name: Verify tag exists
         shell: bash
@@ -156,6 +160,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to Docker Hub
+        if: env.DOCKERHUB_ENABLED == 'true'
         uses: docker/login-action@v4
         with:
           registry: docker.io
@@ -174,7 +179,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
-          DOCKERHUB_IMAGE_NAME: ${{ vars.DOCKERHUB_REPOSITORY }}
+          DOCKERHUB_IMAGE_NAME: ${{ env.DOCKERHUB_ENABLED == 'true' && vars.DOCKERHUB_REPOSITORY || '' }}
           GOVERSION: ${{ steps.setup-go.outputs.go-version }}
           MACOS_SIGN_P12: ${{ secrets.MACOS_SIGN_P12 }}
           MACOS_SIGN_PASSWORD: ${{ secrets.MACOS_SIGN_PASSWORD }}

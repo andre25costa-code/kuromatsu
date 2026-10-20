@@ -78,7 +78,9 @@ dockers_v2:
       - kuromatsu
     images:
       - "ghcr.io/{{ .Env.GITHUB_REPOSITORY_OWNER }}/kuromatsu"
-      - 'docker.io/{{ .Env.DOCKERHUB_IMAGE_NAME }}'
+      # Docker Hub only when the workflow passes a repository; an empty entry
+      # is dropped, so without it images go to ghcr.io alone.
+      - '{{ if isEnvSet "DOCKERHUB_IMAGE_NAME" }}docker.io/{{ .Env.DOCKERHUB_IMAGE_NAME }}{{ end }}'
     tags:
       - '{{ if isEnvSet "NIGHTLY_BUILD" }}nightly{{ else }}{{ .Tag }}{{ end }}'
       - '{{ if isEnvSet "NIGHTLY_BUILD" }}nightly{{ else }}latest{{ end }}'
