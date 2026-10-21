@@ -6,7 +6,7 @@ Kuromatsu is a Go personal AI assistant derived from PicoClaw. `cmd/kuromatsu/` 
 
 ## Build, Test, and Development Commands
 
-Install Go 1.26.9 or newer and Make; formatting and linting require golangci-lint v2. Docker integration commands also require Bash and Docker Compose.
+Install Go 1.26.10 or newer and Make; formatting and linting require golangci-lint v2. Docker integration commands also require Bash and Docker Compose.
 
 - `make build`: generate sources and build the CLI into `build/`.
 - `make run ARGS="--help"`: build and run the CLI locally.
