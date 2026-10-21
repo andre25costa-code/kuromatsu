@@ -1,6 +1,6 @@
 module github.com/andre25costa-code/kuromatsu
 
-go 1.26.9
+go 1.26.10
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.22.0
