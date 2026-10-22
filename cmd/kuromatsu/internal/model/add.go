@@ -12,10 +12,17 @@ import (
 
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 	"github.com/andre25costa-code/kuromatsu/pkg/setup"
 )
 
 const defaultAliasName = "custom-prefer"
+
+// Endpoint types accepted by --type.
+const (
+	typeOpenAICompatible = "openai-compatible"
+	type9Router          = "9router" // also the model_list provider written
+)
 
 func newAddCommand() *cobra.Command {
 	var (
@@ -28,9 +35,14 @@ func newAddCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "add",
-		Short: "Add a model from an OpenAI-compatible endpoint",
+		Short: "Add a model from an OpenAI-compatible endpoint or 9router",
 		Long: `Add a model entry by querying an OpenAI-compatible endpoint exposing
 GET <api-base>/models, then setting it as the default model.
+
+--type openai-compatible (the default) needs --api-base and --api-key.
+--type 9router targets a 9router instance: --api-base defaults to its local
+address, --api-key is optional, and the entry is written with provider
+"9router" so prefixed ids (cc/..., glm/...) and combo names are sent as is.
 
 If --model is omitted, the available models are listed and you can pick one
 interactively. If --model is provided, the entry is written without contacting
@@ -53,7 +65,9 @@ Sample interactive session (key shown masked):
     Pick a model (number or id): 48
     ✓ Saved model 'custom-prefer' (deepseek-r1-250120) and set as default.`,
 		Example: `  kuromatsu model add --api-base https://api.openai.com/v1 --api-key sk-...
-  kuromatsu model add -b http://localhost:8000/v1 -k dummy -m my-model -n local`,
+  kuromatsu model add -b http://localhost:8000/v1 -k dummy -m my-model -n local
+  kuromatsu model add --type 9router
+  kuromatsu model add --type 9router -m cc/claude-opus-4-7 -n router`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runAdd(addOptions{
@@ -69,16 +83,16 @@ Sample interactive session (key shown masked):
 	}
 
 	cmd.Flags().StringVarP(&apiBase, "api-base", "b", "",
-		"API base URL (required), e.g. https://api.openai.com/v1")
-	cmd.Flags().StringVarP(&apiKey, "api-key", "k", "", "API key (required)")
+		"API base URL, e.g. https://api.openai.com/v1 (required for openai-compatible; "+
+			"9router defaults to "+providers.DefaultAPIBaseForProtocol(type9Router)+")")
+	cmd.Flags().StringVarP(&apiKey, "api-key", "k", "",
+		"API key (required for openai-compatible; optional for 9router)")
 	cmd.Flags().StringVarP(&modelID, "model", "m", "",
 		"Model id; when set, skips the interactive picker and the network call")
 	cmd.Flags().StringVarP(&alias, "name", "n", defaultAliasName,
 		"Local alias written to model_list and used as the default model name")
-	cmd.Flags().StringVar(&modelType, "type", "openai-compatible",
-		"Endpoint type (only 'openai-compatible' is supported today)")
-	_ = cmd.MarkFlagRequired("api-base")
-	_ = cmd.MarkFlagRequired("api-key")
+	cmd.Flags().StringVar(&modelType, "type", typeOpenAICompatible,
+		"Endpoint type: 'openai-compatible' or '9router'")
 
 	return cmd
 }
@@ -94,8 +108,23 @@ type addOptions struct {
 }
 
 func runAdd(opt addOptions) error {
-	if opt.modelType != "" && opt.modelType != "openai-compatible" {
-		return fmt.Errorf("unsupported --type %q (only 'openai-compatible' is supported)", opt.modelType)
+	kind := setup.KindOpenAI
+	switch opt.modelType {
+	case "", typeOpenAICompatible:
+		opt.modelType = typeOpenAICompatible
+		if opt.apiBase == "" {
+			return errors.New("--api-base is required")
+		}
+		if opt.apiKey == "" {
+			return errors.New("--api-key is required")
+		}
+	case type9Router:
+		kind = setup.Kind9Router
+		if opt.apiBase == "" {
+			opt.apiBase = providers.DefaultAPIBaseForProtocol(type9Router)
+		}
+	default:
+		return fmt.Errorf("unsupported --type %q (supported: 'openai-compatible', '9router')", opt.modelType)
 	}
 	if opt.alias == "" {
 		opt.alias = defaultAliasName
@@ -103,7 +132,7 @@ func runAdd(opt addOptions) error {
 
 	selected := opt.modelID
 	if selected == "" {
-		entries, err := fetchOpenAIModels(opt.apiBase, opt.apiKey)
+		entries, err := fetchModels(kind, opt.apiBase, opt.apiKey)
 		if err != nil {
 			return fmt.Errorf("fetch models: %w", err)
 		}
@@ -116,7 +145,7 @@ func runAdd(opt addOptions) error {
 		}
 	}
 
-	return upsertModelDefault(opt.apiBase, opt.apiKey, opt.alias, selected, opt.stdout)
+	return upsertModelDefault(opt.modelType, opt.apiBase, opt.apiKey, opt.alias, selected, opt.stdout)
 }
 
 func pickModel(stdin io.Reader, stdout io.Writer, entries []setup.ModelEntry) (string, error) {
@@ -180,20 +209,28 @@ func PickModel(in *bufio.Reader, stdout io.Writer, entries []setup.ModelEntry, q
 	}
 }
 
-func upsertModelDefault(apiBase, apiKey, alias, modelID string, stdout io.Writer) error {
+func upsertModelDefault(modelType, apiBase, apiKey, alias, modelID string, stdout io.Writer) error {
 	configPath := internal.GetConfigPath()
 	cfg, err := config.LoadConfigForEdit(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// `model add` never sets the provider: an existing entry keeps its own,
-	// a new one has none (resolution infers it from the model).
+	// --type 9router writes provider "9router", so the model id is sent
+	// verbatim. openai-compatible keeps an existing entry's provider, except
+	// "9router", which no longer matches the endpoint; a new entry has none
+	// (resolution infers it from the model).
 	provider := ""
-	for _, m := range cfg.ModelList {
-		if m != nil && m.ModelName == alias {
-			provider = m.Provider
-			break
+	if modelType == type9Router {
+		provider = type9Router
+	} else {
+		for _, m := range cfg.ModelList {
+			if m != nil && m.ModelName == alias {
+				if m.Provider != type9Router {
+					provider = m.Provider
+				}
+				break
+			}
 		}
 	}
 	setup.ApplyModelChoice(cfg, setup.ModelChoice{

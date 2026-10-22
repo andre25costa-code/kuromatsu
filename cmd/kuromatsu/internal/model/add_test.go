@@ -8,10 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/setup"
 )
 
 func TestFetchOpenAIModels_DataEnvelope(t *testing.T) {
@@ -23,7 +25,7 @@ func TestFetchOpenAIModels_DataEnvelope(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	entries, err := fetchOpenAIModels(srv.URL, "secret")
+	entries, err := fetchModels(setup.KindOpenAI, srv.URL, "secret")
 	require.NoError(t, err)
 	require.Len(t, entries, 2)
 	assert.Equal(t, "gpt-foo", entries[0].ID)
@@ -38,7 +40,7 @@ func TestFetchOpenAIModels_BareArray(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	entries, err := fetchOpenAIModels(srv.URL, "secret")
+	entries, err := fetchModels(setup.KindOpenAI, srv.URL, "secret")
 	require.NoError(t, err)
 	require.Len(t, entries, 2)
 	assert.Equal(t, "a", entries[0].ID)
@@ -53,7 +55,7 @@ func TestFetchOpenAIModels_TrimsTrailingSlash(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := fetchOpenAIModels(srv.URL+"/", "k")
+	_, err := fetchModels(setup.KindOpenAI, srv.URL+"/", "k")
 	require.NoError(t, err)
 	assert.Equal(t, "/models", gotPath)
 }
@@ -64,7 +66,7 @@ func TestFetchOpenAIModels_HTTPError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := fetchOpenAIModels(srv.URL, "bad")
+	_, err := fetchModels(setup.KindOpenAI, srv.URL, "bad")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "HTTP 401")
 }
@@ -78,7 +80,7 @@ func TestFetchOpenAIModels_HTTPErrorReadFailure(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := fetchOpenAIModels(srv.URL, "bad")
+	_, err := fetchModels(setup.KindOpenAI, srv.URL, "bad")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "read error response")
 	assert.Contains(t, err.Error(), "unexpected EOF")
@@ -90,7 +92,7 @@ func TestFetchOpenAIModels_EmptyDataEnvelope(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	entries, err := fetchOpenAIModels(srv.URL, "k")
+	entries, err := fetchModels(setup.KindOpenAI, srv.URL, "k")
 	require.NoError(t, err)
 	assert.Empty(t, entries)
 }
@@ -101,7 +103,7 @@ func TestFetchOpenAIModels_EmptyBareArray(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	entries, err := fetchOpenAIModels(srv.URL, "k")
+	entries, err := fetchModels(setup.KindOpenAI, srv.URL, "k")
 	require.NoError(t, err)
 	assert.Empty(t, entries)
 }
@@ -112,17 +114,17 @@ func TestFetchOpenAIModels_UnrecognizedShape(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	_, err := fetchOpenAIModels(srv.URL, "k")
+	_, err := fetchModels(setup.KindOpenAI, srv.URL, "k")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unrecognized shape")
 }
 
 func TestFetchOpenAIModels_RequiresInputs(t *testing.T) {
-	_, err := fetchOpenAIModels("", "k")
+	_, err := fetchModels(setup.KindOpenAI, "", "k")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "api base")
 
-	_, err = fetchOpenAIModels("https://example.com", "")
+	_, err = fetchModels(setup.KindOpenAI, "https://example.com", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "api key")
 }
@@ -294,4 +296,138 @@ func TestRunAdd_DoesNotPersistEnv(t *testing.T) {
 	modelName, maxTokens := rawDefaults(t, configPath)
 	assert.Equal(t, "myalias", modelName)
 	assert.Equal(t, 32768, maxTokens)
+}
+
+func TestRunAdd_9RouterDefaultsAndProvider(t *testing.T) {
+	initTest(t)
+
+	out := &bytes.Buffer{}
+	require.NoError(t, runAdd(addOptions{
+		modelID:   "glm/glm-5.1",
+		alias:     "router",
+		modelType: "9router",
+		stdout:    out,
+	}))
+
+	cfg, err := config.LoadConfig(configPath)
+	require.NoError(t, err)
+	added := findModelByName(cfg, "router")
+	require.NotNil(t, added)
+	assert.Equal(t, "9router", added.Provider)
+	assert.Equal(t, "http://localhost:20128/v1", added.APIBase)
+	assert.Equal(t, "glm/glm-5.1", added.Model)
+	assert.Empty(t, added.APIKeys)
+	assert.Equal(t, "router", cfg.Agents.Defaults.GetModelName())
+}
+
+func TestRunAdd_9RouterProbeWithoutKey(t *testing.T) {
+	initTest(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, present := r.Header["Authorization"]
+		assert.False(t, present, "no key: the probe must not send Authorization")
+		assert.Equal(t, "/models", r.URL.Path)
+		_, _ = w.Write([]byte(`{"data":[{"id":"cc/claude-opus-4-7"},{"id":"premium-coding"}]}`))
+	}))
+	defer srv.Close()
+
+	require.NoError(t, runAdd(addOptions{
+		apiBase:   srv.URL,
+		alias:     "router",
+		modelType: "9router",
+		stdin:     strings.NewReader("2\n"),
+		stdout:    &bytes.Buffer{},
+	}))
+
+	cfg, err := config.LoadConfig(configPath)
+	require.NoError(t, err)
+	added := findModelByName(cfg, "router")
+	require.NotNil(t, added)
+	assert.Equal(t, "9router", added.Provider)
+	assert.Equal(t, "premium-coding", added.Model)
+	assert.Equal(t, srv.URL, added.APIBase)
+}
+
+func TestRunAdd_OpenAICompatibleStillRequiresBaseAndKey(t *testing.T) {
+	initTest(t)
+
+	for _, modelType := range []string{"", "openai-compatible"} {
+		err := runAdd(addOptions{apiKey: "k", modelID: "m", modelType: modelType, stdout: &bytes.Buffer{}})
+		require.Error(t, err, modelType)
+		assert.Contains(t, err.Error(), "--api-base is required")
+
+		err = runAdd(addOptions{
+			apiBase: "https://x/v1", modelID: "m", modelType: modelType, stdout: &bytes.Buffer{},
+		})
+		require.Error(t, err, modelType)
+		assert.Contains(t, err.Error(), "--api-key is required")
+	}
+}
+
+func TestRunAdd_9RouterOverridesExistingProvider(t *testing.T) {
+	initTest(t)
+
+	require.NoError(t, runAdd(addOptions{
+		apiBase: "https://a.example/v1", apiKey: "k1", modelID: "m1", alias: "shared", stdout: &bytes.Buffer{},
+	}))
+	cfg, err := config.LoadConfigForEdit(configPath)
+	require.NoError(t, err)
+	findModelByName(cfg, "shared").Provider = "openrouter"
+	require.NoError(t, config.SaveConfig(configPath, cfg))
+
+	require.NoError(t, runAdd(addOptions{
+		modelID: "kr/claude-sonnet-4.5", alias: "shared", modelType: "9router", stdout: &bytes.Buffer{},
+	}))
+	cfg, err = config.LoadConfig(configPath)
+	require.NoError(t, err)
+	updated := findModelByName(cfg, "shared")
+	require.NotNil(t, updated)
+	assert.Equal(t, "9router", updated.Provider)
+	assert.Equal(t, "kr/claude-sonnet-4.5", updated.Model)
+}
+
+func TestRunAdd_OpenAICompatibleClears9RouterProvider(t *testing.T) {
+	initTest(t)
+
+	require.NoError(t, runAdd(addOptions{
+		modelID: "glm/glm-5.1", alias: "router", modelType: "9router", stdout: &bytes.Buffer{},
+	}))
+	require.NoError(t, runAdd(addOptions{
+		apiBase: "https://api.example/v1", apiKey: "k", modelID: "gpt-x", alias: "router",
+		modelType: "openai-compatible", stdout: &bytes.Buffer{},
+	}))
+	cfg, err := config.LoadConfig(configPath)
+	require.NoError(t, err)
+	m := findModelByName(cfg, "router")
+	require.NotNil(t, m)
+	assert.Empty(t, m.Provider, "openai-compatible must not keep provider 9router")
+
+	// Any other provider is still preserved.
+	edit, err := config.LoadConfigForEdit(configPath)
+	require.NoError(t, err)
+	findModelByName(edit, "router").Provider = "openrouter"
+	require.NoError(t, config.SaveConfig(configPath, edit))
+	require.NoError(t, runAdd(addOptions{
+		apiBase: "https://openrouter.ai/api/v1", apiKey: "k", modelID: "a/b", alias: "router",
+		stdout: &bytes.Buffer{},
+	}))
+	cfg, err = config.LoadConfig(configPath)
+	require.NoError(t, err)
+	assert.Equal(t, "openrouter", findModelByName(cfg, "router").Provider)
+}
+
+func TestNewAddCommand_TypeFlag(t *testing.T) {
+	cmd := newAddCommand()
+	typeFlag := cmd.Flags().Lookup("type")
+	require.NotNil(t, typeFlag)
+	assert.Contains(t, typeFlag.Usage, "openai-compatible")
+	assert.Contains(t, typeFlag.Usage, "9router")
+	for _, name := range []string{"api-base", "api-key"} {
+		f := cmd.Flags().Lookup(name)
+		require.NotNil(t, f, name)
+		_, required := f.Annotations[cobra.BashCompOneRequiredFlag]
+		assert.False(t, required, "%s must not be a cobra-required flag", name)
+	}
+	assert.Contains(t, cmd.Example, "kuromatsu model add --type 9router")
+	assert.Contains(t, cmd.Example, "kuromatsu model add --type 9router -m cc/claude-opus-4-7 -n router")
 }
