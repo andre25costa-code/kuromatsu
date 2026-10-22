@@ -103,12 +103,16 @@ kuromatsu gateway                     # starts the agent, its channels and the w
 ```
 
 In a terminal, `onboard` asks for: **language**; **model provider** (OpenAI-compatible, local
-Ollama, Anthropic, Gemini or OpenRouter, with a connection test that lists the models);
+Ollama, Anthropic, Gemini, OpenRouter or a local 9router, with a connection test that lists the
+models);
 **Telegram** (bot token and your numeric ID) or no channel; **hardware profile**; **timezone**;
 and a **permission preset** (Safe, Assistant, Advanced — none lets chats run shell commands).
 `q` quits without writing anything. Running it again starts from the current config.
 `onboard --non-interactive` asks nothing (scripts, Docker, no terminal): built-in defaults plus,
 on a new config, the detected hardware profile; no provider or channel. To add a model later: `kuromatsu model add -b <api-base> -k <your-key>`.
+For a [9router](https://github.com/decolua/9router) instance, `kuromatsu model add --type 9router`
+needs neither: it uses the local default address, the key is optional, and prefixed model ids are
+sent as is (see [models.md](workspace/skills/kuromatsu-docs/references/models.md)).
 
 ### Web UI
 

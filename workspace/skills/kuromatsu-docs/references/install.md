@@ -85,7 +85,9 @@ Num terminal (stdin e stdout TTY), sem `--non-interactive` e sem `--enc`:
 2. **Provedor de modelo**, com teste de conexão (`ProbeModels` em
    `pkg/setup`): Bearer para OpenAI-compatível e OpenRouter, nada para
    Ollama, `x-api-key` + `anthropic-version` para Anthropic,
-   `x-goog-api-key` para Gemini.
+   `x-goog-api-key` para Gemini, e para o 9router Bearer só se houver
+   chave (opção 6, base padrão e chave opcional; ver
+   [models.md](models.md#9router-roteador-local)).
 3. **Canal Telegram:** token no `.security.yml` e o ID do dono em
    `allow_from` (ver [channels.md](channels.md)).
 4. **Perfil de hardware** (abaixo): numa config nova, Enter usa o
