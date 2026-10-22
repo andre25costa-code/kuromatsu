@@ -300,6 +300,7 @@ func TestRunAdd_DoesNotPersistEnv(t *testing.T) {
 
 func TestRunAdd_9RouterDefaultsAndProvider(t *testing.T) {
 	initTest(t)
+	t.Setenv(config.EnvHome, t.TempDir())
 
 	out := &bytes.Buffer{}
 	require.NoError(t, runAdd(addOptions{
@@ -322,6 +323,7 @@ func TestRunAdd_9RouterDefaultsAndProvider(t *testing.T) {
 
 func TestRunAdd_9RouterProbeWithoutKey(t *testing.T) {
 	initTest(t)
+	t.Setenv(config.EnvHome, t.TempDir())
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, present := r.Header["Authorization"]
@@ -350,6 +352,7 @@ func TestRunAdd_9RouterProbeWithoutKey(t *testing.T) {
 
 func TestRunAdd_OpenAICompatibleStillRequiresBaseAndKey(t *testing.T) {
 	initTest(t)
+	t.Setenv(config.EnvHome, t.TempDir())
 
 	for _, modelType := range []string{"", "openai-compatible"} {
 		err := runAdd(addOptions{apiKey: "k", modelID: "m", modelType: modelType, stdout: &bytes.Buffer{}})
@@ -366,6 +369,7 @@ func TestRunAdd_OpenAICompatibleStillRequiresBaseAndKey(t *testing.T) {
 
 func TestRunAdd_9RouterOverridesExistingProvider(t *testing.T) {
 	initTest(t)
+	t.Setenv(config.EnvHome, t.TempDir())
 
 	require.NoError(t, runAdd(addOptions{
 		apiBase: "https://a.example/v1", apiKey: "k1", modelID: "m1", alias: "shared", stdout: &bytes.Buffer{},
@@ -388,6 +392,7 @@ func TestRunAdd_9RouterOverridesExistingProvider(t *testing.T) {
 
 func TestRunAdd_OpenAICompatibleClears9RouterProvider(t *testing.T) {
 	initTest(t)
+	t.Setenv(config.EnvHome, t.TempDir())
 
 	require.NoError(t, runAdd(addOptions{
 		modelID: "glm/glm-5.1", alias: "router", modelType: "9router", stdout: &bytes.Buffer{},
@@ -430,4 +435,11 @@ func TestNewAddCommand_TypeFlag(t *testing.T) {
 	}
 	assert.Contains(t, cmd.Example, "kuromatsu model add --type 9router")
 	assert.Contains(t, cmd.Example, "kuromatsu model add --type 9router -m cc/claude-opus-4-7 -n router")
+
+	help := &bytes.Buffer{}
+	cmd.SetOut(help)
+	cmd.SetArgs([]string{"--help"})
+	require.NoError(t, cmd.Execute())
+	assert.Contains(t, help.String(), "'openai-compatible' or '9router'")
+	assert.Contains(t, help.String(), "--type 9router -m cc/claude-opus-4-7 -n router")
 }
