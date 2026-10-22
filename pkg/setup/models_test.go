@@ -134,3 +134,37 @@ func TestApplyModelChoice_UpsertsAndSetsDefault(t *testing.T) {
 	assert.Equal(t, "llama3", m.Model)
 	assert.Empty(t, m.APIKeys)
 }
+
+func TestProbeModels_9Router(t *testing.T) {
+	cases := []struct {
+		name     string
+		key      string
+		wantAuth string // "" = header absent
+	}{
+		{name: "no key", key: ""},
+		{name: "with key", key: "router-key", wantAuth: "Bearer router-key"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "/v1/models", r.URL.Path)
+				v, present := r.Header["Authorization"]
+				if tc.wantAuth == "" {
+					assert.False(t, present, "no key: Authorization must be absent, got %v", v)
+				} else {
+					assert.Equal(t, tc.wantAuth, r.Header.Get("Authorization"))
+				}
+				_, _ = w.Write([]byte(`{"data":[{"id":"cc/claude-opus-4-7"},{"id":"premium-coding"}]}`))
+			}))
+			defer srv.Close()
+
+			got, err := ProbeModels(context.Background(), Kind9Router, srv.URL+"/v1", tc.key)
+			require.NoError(t, err)
+			ids := make([]string, 0, len(got))
+			for _, m := range got {
+				ids = append(ids, m.ID)
+			}
+			assert.Equal(t, []string{"cc/claude-opus-4-7", "premium-coding"}, ids)
+		})
+	}
+}

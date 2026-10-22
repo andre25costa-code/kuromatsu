@@ -23,6 +23,7 @@ const (
 	KindAnthropic  = "anthropic"  // x-api-key + anthropic-version
 	KindGemini     = "gemini"     // x-goog-api-key, {"models":[{"name":"models/..."}]}
 	KindOpenRouter = "openrouter" // Bearer
+	Kind9Router    = "9router"    // local 9router: Bearer only when a key is set
 )
 
 // AnthropicVersion is the API version header sent to Anthropic.
@@ -95,18 +96,18 @@ type geminiModels struct {
 // ProbeModels GETs <baseURL>/models with the auth header of kind and returns
 // the listed models. It accepts the {"data":[...]} envelope, a bare array and
 // Gemini's {"models":[{"name":"models/<id>"}]}. A key is required for every
-// kind except Ollama. A non-200 answer is reported with its status and up to
-// 512 bytes of the body.
+// kind except Ollama and 9router. A non-200 answer is reported with its
+// status and up to 512 bytes of the body.
 func ProbeModels(ctx context.Context, kind, baseURL, apiKey string) ([]ModelEntry, error) {
 	if strings.TrimSpace(baseURL) == "" {
 		return nil, fmt.Errorf("api base is required")
 	}
 	switch kind {
-	case KindOpenAI, KindOllama, KindAnthropic, KindGemini, KindOpenRouter:
+	case KindOpenAI, KindOllama, KindAnthropic, KindGemini, KindOpenRouter, Kind9Router:
 	default:
 		return nil, fmt.Errorf("unknown provider kind %q", kind)
 	}
-	if kind != KindOllama && strings.TrimSpace(apiKey) == "" {
+	if kind != KindOllama && kind != Kind9Router && strings.TrimSpace(apiKey) == "" {
 		return nil, fmt.Errorf("api key is required")
 	}
 
@@ -121,6 +122,11 @@ func ProbeModels(ctx context.Context, kind, baseURL, apiKey string) ([]ModelEntr
 	switch kind {
 	case KindOpenAI, KindOpenRouter:
 		req.Header.Set("Authorization", "Bearer "+apiKey)
+	case Kind9Router:
+		// 9router ships with its key check off; send one only when set.
+		if strings.TrimSpace(apiKey) != "" {
+			req.Header.Set("Authorization", "Bearer "+apiKey)
+		}
 	case KindAnthropic:
 		req.Header.Set("X-Api-Key", apiKey)
 		req.Header.Set("Anthropic-Version", AnthropicVersion)
