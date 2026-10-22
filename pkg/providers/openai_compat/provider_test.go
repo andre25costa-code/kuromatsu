@@ -2196,3 +2196,22 @@ func TestSerializeMessages_StripsSystemParts(t *testing.T) {
 		t.Fatal("system_parts should not appear in serialized output")
 	}
 }
+
+func TestBuildRequestBody_9RouterKeepsPrefix(t *testing.T) {
+	msgs := []Message{{Role: "user", Content: "hi"}}
+
+	router := NewProvider("", "http://localhost:20128/v1", "")
+	router.SetProviderName("9router")
+	if got := router.buildRequestBody(msgs, nil, "minimax/x", nil)["model"]; got != "minimax/x" {
+		t.Fatalf("9router model = %#v, want %q", got, "minimax/x")
+	}
+
+	// Other providers still strip a known prefix.
+	plain := NewProvider("key", "https://example.invalid/v1", "")
+	if got := plain.buildRequestBody(msgs, nil, "minimax/x", nil)["model"]; got != "x" {
+		t.Fatalf("model without provider name = %#v, want %q", got, "x")
+	}
+	if _, listed := stripModelPrefixProviders["9router"]; listed {
+		t.Fatal("9router must not be in stripModelPrefixProviders")
+	}
+}

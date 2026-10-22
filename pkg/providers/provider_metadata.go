@@ -570,6 +570,18 @@ var modelProviderOptionsByName = map[string]ModelProviderOption{
 		Priority:            36,
 		httpAPI:             true,
 	},
+	"9router": {
+		ID:                  "9router",
+		DisplayName:         "9router",
+		DefaultAPIBase:      "http://localhost:20128/v1",
+		EmptyAPIKeyAllowed:  true,
+		CreateAllowed:       true,
+		DefaultModelAllowed: true,
+		SupportsFetch:       true,
+		Local:               true,
+		Priority:            46,
+		httpAPI:             true,
+	},
 	"litellm": {
 		ID:                  "litellm",
 		DisplayName:         "LiteLLM",
