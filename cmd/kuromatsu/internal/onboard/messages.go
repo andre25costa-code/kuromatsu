@@ -24,6 +24,7 @@ type messages struct {
 	baseRequired    string
 	apiKey          string
 	apiKeyKeep      string
+	apiKeyOptional  string
 	apiKeyRequired  string
 	secretVisible   string
 	probing         string // %s: URL
@@ -86,12 +87,14 @@ var msgPtBR = &messages{
 
 	providerTitle: "Provedor de modelo",
 	providerOptions: []string{
-		"OpenAI-compatível", "Ollama local", "Anthropic", "Gemini", "OpenRouter", "Pular",
+		"OpenAI-compatível", "Ollama local", "Anthropic", "Gemini", "OpenRouter",
+		"9router (roteador local)", "Pular",
 	},
 	baseURL:        "URL base da API",
 	baseRequired:   "A URL base é obrigatória.",
 	apiKey:         "Chave da API (oculta): ",
 	apiKeyKeep:     "Chave da API (oculta; Enter mantém a atual): ",
+	apiKeyOptional: "Chave da API (oculta; Enter = sem chave): ",
 	apiKeyRequired: "A chave é obrigatória para este provedor.",
 	secretVisible:  "Não foi possível ocultar a digitação; input will be visible (a entrada ficará visível): ",
 	probing:        "Testando a conexão com %s ...",
@@ -157,12 +160,14 @@ var msgEn = &messages{
 
 	providerTitle: "Model provider",
 	providerOptions: []string{
-		"OpenAI-compatible", "Local Ollama", "Anthropic", "Gemini", "OpenRouter", "Skip",
+		"OpenAI-compatible", "Local Ollama", "Anthropic", "Gemini", "OpenRouter",
+		"9router (local router)", "Skip",
 	},
 	baseURL:        "API base URL",
 	baseRequired:   "The base URL is required.",
 	apiKey:         "API key (hidden): ",
 	apiKeyKeep:     "API key (hidden; Enter keeps the current one): ",
+	apiKeyOptional: "API key (hidden; Enter = no key): ",
 	apiKeyRequired: "This provider needs a key.",
 	secretVisible:  "Could not hide typing; input will be visible: ",
 	probing:        "Testing the connection to %s ...",

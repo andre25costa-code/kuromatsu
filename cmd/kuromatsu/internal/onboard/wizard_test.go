@@ -3,6 +3,7 @@ package onboard
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -211,7 +212,7 @@ func TestWizard_OllamaNoAuthHeader(t *testing.T) {
 func TestWizard_RejectsEmptyOwnerID(t *testing.T) {
 	e := newWizardEnv(t)
 
-	err := e.run(t, "2", "6", "1", testToken, "", "abc", "12a", "987654", "", "", "", "y")
+	err := e.run(t, "2", "7", "1", testToken, "", "abc", "12a", "987654", "", "", "", "y")
 	require.NoError(t, err, e.out.String())
 	assert.Equal(t, 3, strings.Count(e.out.String(), "Digits only"))
 
@@ -223,7 +224,7 @@ func TestWizard_RejectsEmptyOwnerID(t *testing.T) {
 func TestWizard_QuitWritesNothing(t *testing.T) {
 	t.Run("fresh home", func(t *testing.T) {
 		e := newWizardEnv(t)
-		err := e.run(t, "1", "6", "2", "q")
+		err := e.run(t, "1", "7", "2", "q")
 		require.ErrorIs(t, err, errWizardQuit)
 		_, statErr := os.Stat(e.configPath)
 		assert.True(t, os.IsNotExist(statErr), "config.json must not be created")
@@ -238,7 +239,7 @@ func TestWizard_QuitWritesNothing(t *testing.T) {
 		before, err := os.ReadFile(e.configPath)
 		require.NoError(t, err)
 
-		err = e.run(t, "1", "6", "2", "q")
+		err = e.run(t, "1", "7", "2", "q")
 		require.ErrorIs(t, err, errWizardQuit)
 		info, err := os.Stat(e.configPath)
 		require.NoError(t, err)
@@ -249,7 +250,7 @@ func TestWizard_QuitWritesNothing(t *testing.T) {
 	})
 	t.Run("declined summary", func(t *testing.T) {
 		e := newWizardEnv(t)
-		err := e.run(t, "2", "6", "2", "", "", "", "n")
+		err := e.run(t, "2", "7", "2", "", "", "", "n")
 		require.ErrorIs(t, err, errWizardQuit)
 		_, statErr := os.Stat(e.configPath)
 		assert.True(t, os.IsNotExist(statErr))
@@ -367,7 +368,7 @@ func TestWizard_ErrorsDoNotLeakToken(t *testing.T) {
 	telegramAPIBase = dead.URL
 	dead.Close() // connection refused: the *url.Error carries the full URL
 
-	require.NoError(t, e.run(t, "2", "6", "1", testToken, "987654", "", "", "", "y"), e.out.String())
+	require.NoError(t, e.run(t, "2", "7", "1", testToken, "987654", "", "", "", "y"), e.out.String())
 	out := e.out.String()
 	assert.Contains(t, out, "could not verify the bot")
 	assert.False(t, strings.Contains(out, testToken), "the token leaked: %s", out)
@@ -428,7 +429,7 @@ func TestWizard_TimezoneUndetectedStaysEmpty(t *testing.T) {
 	e := newWizardEnv(t)
 	withZoneFiles(t, "")
 
-	require.NoError(t, e.run(t, "2", "6", "2", "", "", "", "y"), e.out.String())
+	require.NoError(t, e.run(t, "2", "7", "2", "", "", "", "y"), e.out.String())
 	cfg, err := config.LoadConfigForEdit(e.configPath)
 	require.NoError(t, err)
 	assert.Empty(t, cfg.Timezone)
@@ -446,7 +447,7 @@ func TestWizard_TimezoneDetectedDefault(t *testing.T) {
 	e := newWizardEnv(t)
 	withZoneFiles(t, "Europe/Lisbon")
 
-	require.NoError(t, e.run(t, "2", "6", "2", "", "", "", "y"), e.out.String())
+	require.NoError(t, e.run(t, "2", "7", "2", "", "", "", "y"), e.out.String())
 	cfg, err := config.LoadConfigForEdit(e.configPath)
 	require.NoError(t, err)
 	assert.Equal(t, "Europe/Lisbon", cfg.Timezone)
@@ -524,7 +525,7 @@ func TestWizardExitCode(t *testing.T) {
 	})
 	t.Run("declined summary", func(t *testing.T) {
 		e := newWizardEnv(t)
-		assert.Equal(t, exitCodeSetupNotCompleted, wizardExitCode(e.run(t, "2", "6", "2", "", "", "", "n")))
+		assert.Equal(t, exitCodeSetupNotCompleted, wizardExitCode(e.run(t, "2", "7", "2", "", "", "", "n")))
 	})
 	t.Run("input ended", func(t *testing.T) {
 		e := newWizardEnv(t)
@@ -534,7 +535,7 @@ func TestWizardExitCode(t *testing.T) {
 	})
 	t.Run("saved", func(t *testing.T) {
 		e := newWizardEnv(t)
-		assert.Equal(t, 0, wizardExitCode(e.run(t, "2", "6", "2", "", "", "", "y")))
+		assert.Equal(t, 0, wizardExitCode(e.run(t, "2", "7", "2", "", "", "", "y")))
 	})
 	t.Run("error", func(t *testing.T) {
 		e := newWizardEnv(t)
@@ -543,4 +544,52 @@ func TestWizardExitCode(t *testing.T) {
 		require.Error(t, err)
 		assert.Equal(t, exitCodeError, wizardExitCode(err))
 	})
+}
+
+// Every provider kind has a menu entry, plus the final "Skip", in both
+// languages.
+func TestWizard_ProviderOptionsMatchKinds(t *testing.T) {
+	for name, msg := range map[string]*messages{"pt-BR": msgPtBR, "en": msgEn} {
+		assert.Equal(t, len(providerKinds)+1, len(msg.providerOptions), name)
+	}
+}
+
+func TestWizard_9RouterNoKey(t *testing.T) {
+	e := newWizardEnv(t)
+	oldProbe := probeModels
+	t.Cleanup(func() { probeModels = oldProbe })
+	var probes int
+	probeModels = func(_ context.Context, kind, base, key string) ([]setup.ModelEntry, error) {
+		probes++
+		assert.Equal(t, setup.Kind9Router, kind)
+		assert.Equal(t, "http://localhost:20128/v1", base)
+		assert.Empty(t, key)
+		return []setup.ModelEntry{{ID: "cc/claude-opus-4-7"}}, nil
+	}
+
+	err := e.run(t,
+		"2", // English
+		"6", // 9router
+		"",  // default base
+		"",  // no key
+		"1", // cc/claude-opus-4-7
+		"2", // no channel
+		"",  // detected profile
+		"",  // default timezone
+		"",  // default permissions
+		"y", // save
+	)
+	require.NoError(t, err, e.out.String())
+	assert.Equal(t, 1, probes)
+	assert.Contains(t, e.out.String(), "Enter = no key")
+	assert.NotContains(t, e.out.String(), "This provider needs a key.")
+
+	cfg, err := config.LoadConfigForEdit(e.configPath)
+	require.NoError(t, err)
+	m := findModel(cfg, "default")
+	require.NotNil(t, m)
+	assert.Equal(t, "9router", m.Provider)
+	assert.Equal(t, "http://localhost:20128/v1", m.APIBase)
+	assert.Equal(t, "cc/claude-opus-4-7", m.Model)
+	assert.Empty(t, m.APIKeys)
 }
