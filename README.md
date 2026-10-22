@@ -214,18 +214,20 @@ startup; restart after changing them.
 
 ## Compatibility
 
-**Tested**: installed with the installer from a local archive, then `onboard --non-interactive` and
-`version`, on a real machine. **Cross-built, not run**: the release builds it; nobody has run it yet.
+**Tested**: installed with the installer (from the published release or a local archive), then
+`onboard --non-interactive` and `version`, on a real machine. **Run**: downloaded from the release and run as a service, without the installer.
+**Published, not run**: the release publishes it; nobody has run it yet.
+**Cross-built, not run**: the release builds it; nobody has run it yet.
 
 | Platform | Release file | Status |
 |---|---|---|
-| Linux x86-64 | `kuromatsu_Linux_x86_64.tar.gz` | **Tested** (Debian) |
+| Linux x86-64 | `kuromatsu_Linux_x86_64.tar.gz` | **Tested** (Debian, from the v0.1.0 release) |
 | Windows x86-64 | `kuromatsu_Windows_x86_64.zip` | **Tested** (Windows 11, PowerShell 5.1) |
-| Linux x86-64, native model (AVX2+FMA) | `kuromatsu-native_Linux_x86_64.tar.gz` | Cross-built, not run |
+| Linux x86-64, native model (AVX2+FMA) | `kuromatsu-native_Linux_x86_64.tar.gz` | **Run** (Debian 12 and 13, downloaded from the v0.1.0 release; the installers do not pick it) |
 | Linux arm64 | `kuromatsu_Linux_arm64.tar.gz` | Cross-built, not run |
 | macOS (Apple silicon, Intel) | `kuromatsu_Darwin_arm64.tar.gz`, `kuromatsu_Darwin_x86_64.tar.gz` | Cross-built, not run |
 | Android / Termux (arm64) | `kuromatsu_Android_arm64.tar.gz` | Cross-built, not run |
-| Docker image (linux/amd64, arm64, riscv64) | `ghcr.io/andre25costa-code/kuromatsu` (and Docker Hub when configured) | Cross-built, not run |
+| Docker image (linux/amd64, arm64, riscv64) | `ghcr.io/andre25costa-code/kuromatsu` (and Docker Hub when configured) | Published, not run |
 | Windows arm64; Linux armv6, armv7, riscv64, loong64, s390x; FreeBSD; NetBSD; `.deb`/`.rpm` | `kuromatsu_<Os>_<Arch>.tar.gz` (Windows: `.zip`); `kuromatsu_<arch>.deb`, `.rpm` | Cross-built, not run |
 
 On Termux, use the Android archive, not the Linux arm64 one. macOS binaries are not notarized unless
