@@ -113,10 +113,10 @@ func runAdd(opt addOptions) error {
 	case "", typeOpenAICompatible:
 		opt.modelType = typeOpenAICompatible
 		if opt.apiBase == "" {
-			return errors.New("--api-base is required")
+			return errors.New("--api-base is required (or use --type 9router; see 'kuromatsu model add --help')")
 		}
 		if opt.apiKey == "" {
-			return errors.New("--api-key is required")
+			return errors.New("--api-key is required (see 'kuromatsu model add --help')")
 		}
 	case type9Router:
 		kind = setup.Kind9Router

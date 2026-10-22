@@ -20,7 +20,7 @@ var probeModelList = setup.ProbeModels
 // apiBaseFor returns base, or the provider's default base when base is
 // empty and the provider is 9router, whose local address is fixed.
 func apiBaseFor(provider, base string) string {
-	if base == "" && provider == "9router" {
+	if base == "" && provider == setup.Kind9Router {
 		return providers.DefaultAPIBaseForProtocol(provider)
 	}
 	return base
