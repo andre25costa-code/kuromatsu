@@ -135,7 +135,7 @@ jobs:
       # uploads dist-native/*.tar.gz alongside its own archives.
       - name: Download native archive
         if: ${{ !inputs.skip_native }}
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: native-archive
           path: dist-native
