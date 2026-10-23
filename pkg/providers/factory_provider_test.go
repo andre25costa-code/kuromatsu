@@ -109,6 +109,12 @@ func TestExtractProtocol(t *testing.T) {
 			wantModelID:  "meta-llama/Llama-3.1-8B-Instruct",
 		},
 		{
+			name:         "9router prefix keeps the routed model id",
+			config:       &config.ModelConfig{Model: "9router/glm/glm-5.1"},
+			wantProtocol: "9router",
+			wantModelID:  "glm/glm-5.1",
+		},
+		{
 			name:         "nil config",
 			wantProtocol: "",
 			wantModelID:  "",
@@ -1446,5 +1452,106 @@ func TestCreateProviderFromConfig_InvalidToolSchemaTransform(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "tool_schema_transform") {
 		t.Fatalf("error = %v, want mention tool_schema_transform", err)
+	}
+}
+
+func TestCreateProviderFromConfig_9Router_DefaultsAndEmptyKey(t *testing.T) {
+	cfg := &config.ModelConfig{
+		ModelName: "router",
+		Provider:  "9router",
+		Model:     "cc/claude-opus-4-7",
+	}
+
+	provider, modelID, err := CreateProviderFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("CreateProviderFromConfig() error = %v", err)
+	}
+	if _, ok := unwrapSecretMask(provider).(*HTTPProvider); !ok {
+		t.Fatalf("expected *HTTPProvider, got %T", provider)
+	}
+	if modelID != "cc/claude-opus-4-7" {
+		t.Fatalf("modelID = %q, want %q", modelID, "cc/claude-opus-4-7")
+	}
+	if got := ResolveAPIBase(cfg); got != "http://localhost:20128/v1" {
+		t.Fatalf("ResolveAPIBase() = %q, want %q", got, "http://localhost:20128/v1")
+	}
+	if !isEmptyAPIKeyAllowed("9router") {
+		t.Fatal("isEmptyAPIKeyAllowed(9router) = false, want true")
+	}
+	if !IsSupportedModelProvider("9router") {
+		t.Fatal("IsSupportedModelProvider(9router) = false, want true")
+	}
+}
+
+func TestCreateProviderFromConfig_9Router_SendsModelVerbatim(t *testing.T) {
+	type seen struct {
+		model         string
+		authorization []string
+	}
+	cases := []struct {
+		name     string
+		model    string
+		key      string
+		wantAuth []string
+	}{
+		{name: "claude code prefix", model: "cc/claude-opus-4-7"},
+		{name: "glm prefix", model: "glm/glm-5.1"},
+		{name: "minimax prefix", model: "minimax/MiniMax-M2"},
+		{name: "combo", model: "premium-coding"},
+		{name: "with key", model: "kr/claude-sonnet-4.5", key: "router-key", wantAuth: []string{"Bearer router-key"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got seen
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/chat/completions" {
+					http.Error(w, "unexpected path "+r.URL.Path, http.StatusNotFound)
+					return
+				}
+				var body map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+					http.Error(w, err.Error(), http.StatusBadRequest)
+					return
+				}
+				got.model, _ = body["model"].(string)
+				got.authorization = r.Header["Authorization"]
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`))
+			}))
+			defer server.Close()
+
+			cfg := &config.ModelConfig{
+				ModelName: "router",
+				Provider:  "9router",
+				Model:     tc.model,
+				APIBase:   server.URL,
+			}
+			if tc.key != "" {
+				cfg.SetAPIKey(tc.key)
+			}
+
+			provider, modelID, err := CreateProviderFromConfig(cfg)
+			if err != nil {
+				t.Fatalf("CreateProviderFromConfig() error = %v", err)
+			}
+			if modelID != tc.model {
+				t.Fatalf("modelID = %q, want %q", modelID, tc.model)
+			}
+			if _, err := provider.Chat(
+				t.Context(),
+				[]Message{{Role: "user", Content: "hi"}},
+				nil,
+				modelID,
+				nil,
+			); err != nil {
+				t.Fatalf("Chat() error = %v", err)
+			}
+			if got.model != tc.model {
+				t.Fatalf("request model = %q, want %q", got.model, tc.model)
+			}
+			if strings.Join(got.authorization, ",") != strings.Join(tc.wantAuth, ",") {
+				t.Fatalf("Authorization = %q, want %q", got.authorization, tc.wantAuth)
+			}
+		})
 	}
 }

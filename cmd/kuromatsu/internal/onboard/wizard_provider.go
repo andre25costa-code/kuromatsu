@@ -8,6 +8,7 @@ import (
 
 	"github.com/andre25costa-code/kuromatsu/cmd/kuromatsu/internal/model"
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 	"github.com/andre25costa-code/kuromatsu/pkg/setup"
 )
 
@@ -33,6 +34,7 @@ var providerKinds = []providerKind{
 	{kind: setup.KindAnthropic, provider: "anthropic", base: "https://api.anthropic.com/v1"},
 	{kind: setup.KindGemini, provider: "gemini", base: "https://generativelanguage.googleapis.com/v1beta"},
 	{kind: setup.KindOpenRouter, provider: "openrouter", base: "https://openrouter.ai/api/v1"},
+	{kind: setup.Kind9Router, provider: "9router", base: providers.DefaultAPIBaseForProtocol("9router")},
 }
 
 // currentModel returns the default model entry when it is a remote API
@@ -52,7 +54,7 @@ func currentModel(cfg *config.Config) *config.ModelConfig {
 
 func kindOf(m *config.ModelConfig) string {
 	switch m.Provider {
-	case "ollama", "anthropic", "gemini", "openrouter":
+	case "ollama", "anthropic", "gemini", "openrouter", "9router":
 		return m.Provider
 	}
 	return setup.KindOpenAI
@@ -169,7 +171,8 @@ func (w *wizard) stepProvider() error {
 
 // askEndpoint asks the API base and, except for Ollama, the key. An empty
 // key keeps oldKeys when there are some (keep is then true and key holds
-// the current key, for the probe only).
+// the current key, for the probe only). For 9router the key is optional:
+// with no current key, Enter means no key.
 func (w *wizard) askEndpoint(
 	pk providerKind, baseDef string, oldKeys config.SecureStrings,
 ) (base, key string, keep bool, err error) {
@@ -189,9 +192,13 @@ func (w *wizard) askEndpoint(
 		current = oldKeys[0].String()
 	}
 	for {
+		optional := pk.kind == setup.Kind9Router && current == ""
 		prompt := w.msg.apiKey
-		if current != "" {
+		switch {
+		case current != "":
 			prompt = w.msg.apiKeyKeep
+		case optional:
+			prompt = w.msg.apiKeyOptional
 		}
 		if key, err = w.secret(prompt); err != nil {
 			return "", "", false, err
@@ -201,6 +208,9 @@ func (w *wizard) askEndpoint(
 		}
 		if current != "" {
 			return base, current, true, nil
+		}
+		if optional {
+			return base, "", false, nil
 		}
 		w.println(w.msg.apiKeyRequired)
 	}

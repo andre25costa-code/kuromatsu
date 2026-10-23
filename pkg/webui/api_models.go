@@ -6,12 +6,25 @@ import (
 	"time"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/config"
+	"github.com/andre25costa-code/kuromatsu/pkg/providers"
 	"github.com/andre25costa-code/kuromatsu/pkg/setup"
 )
 
 // longOpDeadline is the write deadline asked for probe and skill install,
 // past the shared server's 30 s write timeout.
 const longOpDeadline = 3 * time.Minute
+
+// probeModelList is a seam over setup.ProbeModels for tests.
+var probeModelList = setup.ProbeModels
+
+// apiBaseFor returns base, or the provider's default base when base is
+// empty and the provider is 9router, whose local address is fixed.
+func apiBaseFor(provider, base string) string {
+	if base == "" && provider == setup.Kind9Router {
+		return providers.DefaultAPIBaseForProtocol(provider)
+	}
+	return base
+}
 
 type modelView struct {
 	Alias     string `json:"alias"`
@@ -69,11 +82,12 @@ func (s *server) addModel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	provider := strings.TrimSpace(body.Provider)
 	choice := setup.ModelChoice{
 		Alias:    strings.TrimSpace(body.Alias),
-		Provider: strings.TrimSpace(body.Provider),
+		Provider: provider,
 		Model:    strings.TrimSpace(body.Model),
-		APIBase:  strings.TrimSpace(body.Base),
+		APIBase:  apiBaseFor(provider, strings.TrimSpace(body.Base)),
 		APIKey:   strings.TrimSpace(body.Key),
 	}
 	if choice.Alias == "" || choice.Model == "" {
@@ -104,7 +118,7 @@ func (s *server) addModel(w http.ResponseWriter, r *http.Request) {
 // probeKind maps a model_list provider to the probe's auth style.
 func probeKind(provider string) string {
 	switch provider {
-	case setup.KindOllama, setup.KindAnthropic, setup.KindGemini, setup.KindOpenRouter:
+	case setup.KindOllama, setup.KindAnthropic, setup.KindGemini, setup.KindOpenRouter, setup.Kind9Router:
 		return provider
 	}
 	return setup.KindOpenAI
@@ -127,6 +141,8 @@ func (s *server) probeModels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	provider := strings.TrimSpace(body.Provider)
+	base := apiBaseFor(provider, strings.TrimSpace(body.Base))
 	key := strings.TrimSpace(body.Key)
 	if key == "" && body.Alias != "" {
 		cfg, err := config.LoadConfigForEdit(s.d.ConfigPath)
@@ -138,14 +154,14 @@ func (s *server) probeModels(w http.ResponseWriter, r *http.Request) {
 			// The stored key only goes to the stored base: it must not be
 			// sent to an address typed in the form.
 			if m != nil && m.ModelName == body.Alias &&
-				strings.TrimRight(m.APIBase, "/") == strings.TrimRight(strings.TrimSpace(body.Base), "/") {
+				strings.TrimRight(m.APIBase, "/") == strings.TrimRight(base, "/") {
 				key = m.APIKey()
 			}
 		}
 	}
 	ctx, cancel := opContext(r, time.Minute)
 	defer cancel()
-	models, err := setup.ProbeModels(ctx, probeKind(body.Provider), strings.TrimSpace(body.Base), key)
+	models, err := probeModelList(ctx, probeKind(provider), base, key)
 	if err != nil {
 		msg := err.Error()
 		if key != "" {

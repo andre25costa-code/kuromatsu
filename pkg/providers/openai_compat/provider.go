@@ -71,6 +71,13 @@ var stripModelPrefixProviders = map[string]struct{}{
 	"lmstudio":    {},
 }
 
+// verbatimModelProviders send the model ID exactly as configured. On 9router
+// the prefix (cc/, glm/, minimax/...) is part of the ID that picks the
+// upstream, so stripping it would send the request elsewhere.
+var verbatimModelProviders = map[string]struct{}{
+	"9router": {},
+}
+
 func WithMaxTokensField(maxTokensField string) Option {
 	return func(p *Provider) {
 		p.maxTokensField = maxTokensField
@@ -123,7 +130,9 @@ func NewProvider(apiKey, apiBase, proxy string, opts ...Option) *Provider {
 func (p *Provider) buildRequestBody(
 	messages []Message, tools []ToolDefinition, model string, options map[string]any,
 ) map[string]any {
-	model = normalizeModel(model, p.apiBase)
+	if _, verbatim := verbatimModelProviders[p.providerName]; !verbatim {
+		model = normalizeModel(model, p.apiBase)
+	}
 
 	requestBody := map[string]any{
 		"model":    model,

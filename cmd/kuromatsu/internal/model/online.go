@@ -8,8 +8,9 @@ import (
 
 type modelEntry = setup.ModelEntry
 
-// fetchOpenAIModels GETs <baseURL>/models with Bearer auth and accepts both the
-// {data:[…]} envelope and a bare array shape used by various OpenAI-compatible servers.
-func fetchOpenAIModels(baseURL, apiKey string) ([]modelEntry, error) {
-	return setup.ProbeModels(context.Background(), setup.KindOpenAI, baseURL, apiKey)
+// fetchModels GETs <baseURL>/models with the auth of the probe kind
+// (setup.Kind*) and accepts both the {data:[…]} envelope and a bare array
+// shape used by various OpenAI-compatible servers.
+func fetchModels(kind, baseURL, apiKey string) ([]modelEntry, error) {
+	return setup.ProbeModels(context.Background(), kind, baseURL, apiKey)
 }
