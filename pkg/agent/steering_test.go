@@ -236,6 +236,22 @@ func TestAgentLoop_Steer_Enqueues(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_Steer_StripsOnlyTerminalNoiseFromUserMessage(t *testing.T) {
+	al, cfg, _, _, cleanup := newTestAgentLoop(t)
+	defer cleanup()
+
+	if cfg == nil {
+		t.Fatal("expected config to be initialized")
+	}
+
+	al.Steer(providers.Message{Role: "user", Content: "\x1b[31mmude\x1b[0m <!-- isto é meu -->"})
+
+	msgs := al.dequeueSteeringMessages()
+	if len(msgs) != 1 || msgs[0].Content != "mude <!-- isto é meu -->" {
+		t.Fatalf("unexpected dequeued message: %v", msgs)
+	}
+}
+
 func TestAgentLoop_SteeringMode_GetSet(t *testing.T) {
 	al, cfg, msgBus, provider, cleanup := newTestAgentLoop(t)
 	defer cleanup()

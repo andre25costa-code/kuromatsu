@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/andre25costa-code/kuromatsu/pkg/bus"
+	"github.com/andre25costa-code/kuromatsu/pkg/refinery"
 	"github.com/andre25costa-code/kuromatsu/pkg/routing"
 	"github.com/andre25costa-code/kuromatsu/pkg/session"
 )
@@ -72,6 +73,7 @@ func normalizeProcessOptions(opts processOptions) processOptions {
 	if opts.Dispatch.UserMessage == "" {
 		opts.Dispatch.UserMessage = opts.UserMessage
 	}
+	opts.Dispatch.UserMessage = refinery.CleanUserText(opts.Dispatch.UserMessage)
 	if len(opts.Dispatch.Media) == 0 && len(opts.Media) > 0 {
 		opts.Dispatch.Media = append([]string(nil), opts.Media...)
 	}
