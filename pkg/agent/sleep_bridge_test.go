@@ -2,6 +2,9 @@ package agent
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -295,6 +298,133 @@ func TestAgentSessionSource_EmptySummaryFallsBackToHistoryTail(t *testing.T) {
 	}
 	if !strings.Contains(digests[0].Summary, "what is the weather") || !strings.Contains(digests[0].Summary, "sunny") {
 		t.Fatalf("Summary = %q, want the rendered history tail", digests[0].Summary)
+	}
+}
+
+func digestFor(t *testing.T, store *session.SessionManager, workspace string) string {
+	t.Helper()
+	registry := &AgentRegistry{agents: map[string]*AgentInstance{
+		"default": {ID: "default", Workspace: workspace, Sessions: store},
+	}}
+	digests, err := newAgentSessionSource(registry).RecentDigests(context.Background(), workspace, time.Time{}, false)
+	if err != nil {
+		t.Fatalf("RecentDigests: %v", err)
+	}
+	if len(digests) != 1 {
+		t.Fatalf("digests = %d, want 1", len(digests))
+	}
+	return digests[0].Summary
+}
+
+func TestAgentSessionSource_DigestOmitsAssistantAcks(t *testing.T) {
+	workspace := t.TempDir()
+	store := session.NewSessionManager(workspace)
+	store.AddMessage("s1", "user", "agende a reunião")
+	store.AddMessage("s1", "assistant", "Entendido!")
+	store.AddMessage("s1", "assistant", "\x1b[32mok\x1b[0m")
+	store.AddMessage("s1", "assistant", "ok, marquei para terça")
+
+	got := digestFor(t, store, workspace)
+	if strings.Contains(got, "Entendido") || strings.Contains(got, "assistant: ok\n") {
+		t.Fatalf("Summary = %q, want the acknowledgements omitted", got)
+	}
+	if !strings.Contains(got, "assistant: ok, marquei para terça") {
+		t.Fatalf("Summary = %q, a reply that starts with ok must stay", got)
+	}
+}
+
+func TestAgentSessionSource_DigestKeepsUserAcks(t *testing.T) {
+	workspace := t.TempDir()
+	store := session.NewSessionManager(workspace)
+	store.AddMessage("s1", "user", "ok")
+
+	if got := digestFor(t, store, workspace); got != "user: ok" {
+		t.Fatalf("Summary = %q, the user's words are never removed", got)
+	}
+}
+
+func TestAgentSessionSource_DigestCleansNoiseOutsideCodeBlocks(t *testing.T) {
+	workspace := t.TempDir()
+	store := session.NewSessionManager(workspace)
+	store.AddMessage("s1", "assistant", "pronto \x1b[31mvermelho\x1b[0m<!-- x -->\n```\n<!-- fica -->\x1b[31m\n```")
+	store.AddMessage("s1", "tool", "saída\x07 limpa")
+	store.SetSummary("s1", "resumo \x1b[1mimportante\x1b[0m<!-- nota interna -->")
+
+	got := digestFor(t, store, workspace)
+	for _, noise := range []string{"nota interna", "<!-- x -->", "saída\x07"} {
+		if strings.Contains(got, noise) {
+			t.Fatalf("Summary = %q, want %q removed", got, noise)
+		}
+	}
+	for _, kept := range []string{
+		"resumo importante",
+		"pronto vermelho",
+		"```\n<!-- fica -->\x1b[31m\n```",
+		"tool: saída limpa",
+	} {
+		if !strings.Contains(got, kept) {
+			t.Fatalf("Summary = %q, want it to contain %q", got, kept)
+		}
+	}
+}
+
+func TestAgentSessionSource_DigestKeepsUserWordsAndStripsTerminalNoise(t *testing.T) {
+	workspace := t.TempDir()
+	store := session.NewSessionManager(workspace)
+	store.AddMessage("s1", "user", "\x1b[31mlembra de mim\x1b[0m <!-- isto é meu -->")
+
+	if got := digestFor(t, store, workspace); got != "user: lembra de mim <!-- isto é meu -->" {
+		t.Fatalf("Summary = %q", got)
+	}
+}
+
+func TestAgentSessionSource_DigestDoesNotMaskCredentials(t *testing.T) {
+	workspace := t.TempDir()
+	store := session.NewSessionManager(workspace)
+	store.AddMessage("s1", "user", "minha chave é sk-abcdefghijklmnop1234")
+
+	if got := digestFor(t, store, workspace); !strings.Contains(got, "sk-abcdefghijklmnop1234") {
+		t.Fatalf("Summary = %q, masking only happens when sending to an external provider", got)
+	}
+}
+
+func TestAgentSessionSource_AllAcksWithSummaryHasNoEmptyTail(t *testing.T) {
+	workspace := t.TempDir()
+	store := session.NewSessionManager(workspace)
+	store.AddMessage("s1", "assistant", "ok")
+	store.SetSummary("s1", "resumo")
+
+	if got := digestFor(t, store, workspace); got != "resumo" {
+		t.Fatalf("Summary = %q, want only the summary", got)
+	}
+}
+
+func TestNewSleepChatFunc_MasksCredentialsForExternalProvider(t *testing.T) {
+	var body string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		body = string(raw)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"feito"}}]}`))
+	}))
+	defer srv.Close()
+
+	cfg := &config.Config{
+		Sleep: config.SleepConfig{UnconsciousModel: "sonho-cloud"},
+		ModelList: config.SecureModelList{
+			{ModelName: "sonho-cloud", Provider: "9router", Model: "m", APIBase: srv.URL},
+		},
+	}
+	chat := newSleepChatFunc(cfg, "sonho-cloud", nil)
+
+	if _, err := chat(context.Background(), "system", "user: minha chave é sk-abcdefghijklmnop1234"); err != nil {
+		t.Fatalf("chat: %v", err)
+	}
+	if strings.Contains(body, "sk-abcdefghijklmnop1234") {
+		t.Fatalf("request body leaked the credential: %s", body)
+	}
+	if !strings.Contains(body, "[SECRET_1]") {
+		t.Fatalf("request body = %s, want the masked placeholder", body)
 	}
 }
 
