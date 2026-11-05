@@ -11,6 +11,7 @@ import (
 	runtimeevents "github.com/andre25costa-code/kuromatsu/pkg/events"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/refinery"
 	"github.com/andre25costa-code/kuromatsu/pkg/session"
 )
 
@@ -163,6 +164,12 @@ func (al *AgentLoop) enqueueSteeringMessage(scope, agentID string, msg providers
 		return fmt.Errorf("steering queue is not initialized")
 	}
 
+	if msg.Role == "user" {
+		msg.Content = refinery.CleanUserText(msg.Content)
+		if strings.TrimSpace(msg.Content) == "" && len(msg.Media) == 0 {
+			return nil
+		}
+	}
 	msg = steeringPromptMessage(msg)
 	if err := al.steering.pushScope(scope, msg); err != nil {
 		logger.WarnCF("agent", "Failed to enqueue steering message", map[string]any{

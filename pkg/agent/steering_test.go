@@ -236,6 +236,41 @@ func TestAgentLoop_Steer_Enqueues(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_Steer_StripsOnlyTerminalNoiseFromUserMessage(t *testing.T) {
+	al, cfg, _, _, cleanup := newTestAgentLoop(t)
+	defer cleanup()
+
+	if cfg == nil {
+		t.Fatal("expected config to be initialized")
+	}
+
+	al.Steer(providers.Message{Role: "user", Content: "\x1b[31mmude\x1b[0m <!-- isto é meu -->"})
+
+	msgs := al.dequeueSteeringMessages()
+	if len(msgs) != 1 || msgs[0].Content != "mude <!-- isto é meu -->" {
+		t.Fatalf("unexpected dequeued message: %v", msgs)
+	}
+}
+
+func TestAgentLoop_Steer_DropsMessageThatIsOnlyTerminalNoise(t *testing.T) {
+	al, cfg, _, _, cleanup := newTestAgentLoop(t)
+	defer cleanup()
+
+	if cfg == nil {
+		t.Fatal("expected config to be initialized")
+	}
+
+	al.Steer(providers.Message{Role: "user", Content: " \x1b[0m\x07 "})
+	if got := al.steering.len(); got != 0 {
+		t.Fatalf("queued %d messages, want none", got)
+	}
+
+	al.Steer(providers.Message{Role: "user", Content: "\x07", Media: []string{"media://foto"}})
+	if got := al.steering.len(); got != 1 {
+		t.Fatalf("queued %d messages, a message with media must stay", got)
+	}
+}
+
 func TestAgentLoop_SteeringMode_GetSet(t *testing.T) {
 	al, cfg, msgBus, provider, cleanup := newTestAgentLoop(t)
 	defer cleanup()

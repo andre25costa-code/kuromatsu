@@ -14,6 +14,26 @@ Bonsai nativo — ver "Exige modelo externo" abaixo), e aplica o resultado em
 `MEMORY.md` de forma atômica. Escreve um relatório
 `state/sleep-report-<data>.md` a cada execução, com ou sem `dry_run`.
 
+## O que entra no digest
+
+Antes de ir para o modelo, o digest é limpo de forma determinística, sem
+chamar LLM:
+
+- **Mensagens do usuário:** perdem só sequências ANSI e caracteres de
+  controle. Nenhuma palavra é removida.
+- **Demais mensagens e o resumo:** perdem também comentários HTML. Blocos de
+  código entre crases triplas ficam intactos.
+- **Confirmações do assistente:** uma mensagem que é só "ok", "okay", "certo",
+  "entendido", "perfeito", "combinado", "claro", "beleza" ou "feito", com ou
+  sem pontuação final, fica de fora. O "ok" do usuário fica.
+- **Credenciais:** não são mascaradas no digest. A troca por `[SECRET_n]`
+  acontece no envio ao provider externo, como em qualquer outra chamada.
+
+A limpeza de ANSI e caracteres de controle vale também para toda mensagem de
+usuário que entra num turno, inclusive as que chegam com um turno em andamento.
+Uma mensagem sem mídia que era só esse ruído é ignorada: não chama o modelo nem
+entra no histórico.
+
 ## Config (`sleep`)
 
 ```json

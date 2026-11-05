@@ -8,6 +8,20 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/session"
 )
 
+func TestNormalizeProcessOptions_StripsOnlyTerminalNoiseFromUserMessage(t *testing.T) {
+	opts := normalizeProcessOptions(processOptions{
+		Dispatch: DispatchRequest{UserMessage: "\x1b[31mlembra de mim\x1b[0m\x07 <!-- isto é meu -->\nok"},
+	})
+
+	want := "lembra de mim <!-- isto é meu -->\nok"
+	if opts.Dispatch.UserMessage != want {
+		t.Fatalf("Dispatch.UserMessage = %q, want %q", opts.Dispatch.UserMessage, want)
+	}
+	if opts.UserMessage != want {
+		t.Fatalf("UserMessage = %q, want %q", opts.UserMessage, want)
+	}
+}
+
 func TestNormalizeProcessOptions_PopulatesDispatchFromLegacyFields(t *testing.T) {
 	opts := normalizeProcessOptions(processOptions{
 		SessionKey:       "session-1",

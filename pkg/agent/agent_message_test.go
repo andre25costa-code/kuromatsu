@@ -23,6 +23,75 @@ func isolateKuromatsuHome(t *testing.T) {
 	t.Setenv(config.EnvHome, filepath.Join(t.TempDir(), "kuromatsu-home"))
 }
 
+func newRecordingAgentLoop(t *testing.T) (*AgentLoop, *recordingProvider) {
+	t.Helper()
+	isolateKuromatsuHome(t)
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         t.TempDir(),
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 10,
+			},
+		},
+	}
+	provider := &recordingProvider{}
+	return NewAgentLoop(cfg, bus.NewMessageBus(), provider), provider
+}
+
+func TestPrepareInboundMessageForAgent_StripsOnlyTerminalNoise(t *testing.T) {
+	al, _ := newRecordingAgentLoop(t)
+
+	got := al.prepareInboundMessageForAgent(context.Background(), testInboundMessage(bus.InboundMessage{
+		Channel:  "telegram",
+		SenderID: "telegram:1",
+		ChatID:   "1",
+		Content:  "\x1b[31mlembra de mim\x1b[0m\x07 <!-- isto é meu -->",
+	}))
+
+	if want := "lembra de mim <!-- isto é meu -->"; got.Content != want {
+		t.Fatalf("Content = %q, want %q", got.Content, want)
+	}
+}
+
+func TestProcessMessage_MessageThatIsOnlyTerminalNoiseStartsNoTurn(t *testing.T) {
+	al, provider := newRecordingAgentLoop(t)
+
+	response, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+		Channel:  "telegram",
+		SenderID: "telegram:1",
+		ChatID:   "1",
+		Content:  " \x1b[0m\x07 ",
+	}))
+	if err != nil {
+		t.Fatalf("processMessage() error = %v", err)
+	}
+	if response != "" {
+		t.Fatalf("response = %q, want none", response)
+	}
+	if provider.lastMessages != nil {
+		t.Fatalf("the model was called with %d messages, want no call", len(provider.lastMessages))
+	}
+}
+
+func TestProcessMessage_NoiseWithMediaStillStartsATurn(t *testing.T) {
+	al, provider := newRecordingAgentLoop(t)
+
+	if _, err := al.processMessage(context.Background(), testInboundMessage(bus.InboundMessage{
+		Channel:  "telegram",
+		SenderID: "telegram:1",
+		ChatID:   "1",
+		Content:  "\x07",
+		Media:    []string{"media://foto"},
+	})); err != nil {
+		t.Fatalf("processMessage() error = %v", err)
+	}
+	if provider.lastMessages == nil {
+		t.Fatal("a message with media must reach the model")
+	}
+}
+
 func TestProcessHeartbeatForAgent_UnknownAgentIDReturnsError(t *testing.T) {
 	isolateKuromatsuHome(t)
 	cfg := testCfg([]config.AgentConfig{

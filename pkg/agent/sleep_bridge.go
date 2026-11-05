@@ -17,6 +17,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/fileutil"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
 	"github.com/andre25costa-code/kuromatsu/pkg/providers"
+	"github.com/andre25costa-code/kuromatsu/pkg/refinery"
 	"github.com/andre25costa-code/kuromatsu/pkg/runstate"
 	"github.com/andre25costa-code/kuromatsu/pkg/sleep"
 )
@@ -412,12 +413,14 @@ func (s *agentSessionSource) RecentDigests(
 				continue
 			}
 
-			summary := strings.TrimSpace(agentInst.Sessions.GetSummary(key))
+			summary := strings.TrimSpace(refinery.Clean(agentInst.Sessions.GetSummary(key)))
 			tail := renderHistoryTail(history, sleepDigestTailMessages)
-			if summary != "" {
-				summary += "\n\nRecent messages:\n"
+			switch {
+			case summary == "":
+				summary = tail
+			case tail != "":
+				summary += "\n\nRecent messages:\n" + tail
 			}
-			summary += tail
 			snapshot, err := json.Marshal(history)
 			if err != nil {
 				return nil, err
@@ -487,8 +490,7 @@ func (s *agentSessionSource) agentsForWorkspace(workspace string) []*AgentInstan
 }
 
 // renderHistoryTail renders the last maxMessages of history as
-// "role: content" lines, skipping empty content. Used only when a session
-// has no summary yet (GetSummary returns "").
+// "role: content" lines, skipping messages with nothing to consolidate.
 func renderHistoryTail(history []providers.Message, maxMessages int) string {
 	start := 0
 	if len(history) > maxMessages {
@@ -496,11 +498,26 @@ func renderHistoryTail(history []providers.Message, maxMessages int) string {
 	}
 	var b strings.Builder
 	for _, msg := range history[start:] {
-		content := strings.TrimSpace(msg.Content)
+		content := digestContent(msg)
 		if content == "" {
 			continue
 		}
 		fmt.Fprintf(&b, "%s: %s\n", msg.Role, content)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// digestContent cleans one message for a digest: a user's words are never
+// removed, and an assistant turn that is only an acknowledgement is dropped.
+// Credentials stay as they are here; they are masked when sent to an external
+// provider.
+func digestContent(msg providers.Message) string {
+	if msg.Role == "user" {
+		return strings.TrimSpace(refinery.CleanUserText(msg.Content))
+	}
+	content := strings.TrimSpace(refinery.Clean(msg.Content))
+	if msg.Role == "assistant" && refinery.IsAssistantAck(content) {
+		return ""
+	}
+	return content
 }
