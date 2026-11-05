@@ -32,6 +32,30 @@ func TestCleanUserText_OnlyStripsTerminalNoise(t *testing.T) {
 	}
 }
 
+func TestCleanUserText_RemovesEveryEscapeSequenceKind(t *testing.T) {
+	cases := map[string]struct{ in, want string }{
+		"CSI":                {"\x1b[31mtexto\x1b[0m", "texto"},
+		"OSC ended by BEL":   {"\x1b]0;user@host: ~\x07$ ls", "$ ls"},
+		"OSC ended by ST":    {"\x1b]8;;http://x.io\x1b\\link\x1b]8;;\x1b\\ fim", "link fim"},
+		"charset":            {"bold\x1b(B\x1b[m fim", "bold fim"},
+		"keypad modes":       {"\x1b[?1h\x1b=texto\x1b[?1l\x1b>", "texto"},
+		"OSC never ended":    {"\x1b]minhas palavras ficam", "minhas palavras ficam"},
+		"literal backslash":  {`\x1b[31m fica`, `\x1b[31m fica`},
+		"tabs and new lines": {"a\tb\r\nc", "a\tb\r\nc"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := CleanUserText(c.in)
+			if got != c.want {
+				t.Fatalf("CleanUserText(%q) = %q, want %q", c.in, got, c.want)
+			}
+			if again := CleanUserText(got); again != got {
+				t.Fatalf("not idempotent: %q then %q", got, again)
+			}
+		})
+	}
+}
+
 // AC-024-2: assistant acknowledgement-only turns are dropped from digests.
 func TestIsAssistantAck(t *testing.T) {
 	for _, ack := range []string{"ok", "Ok!", "entendido.", "  Perfeito  ", "beleza", "feito…"} {

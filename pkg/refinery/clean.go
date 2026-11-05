@@ -8,7 +8,12 @@ import (
 // Ported from context-refinery's clean.py (FR-024). Deliberately
 // conservative: noise is removed, words are not.
 var (
-	ansiPattern        = regexp.MustCompile(`\x1b(?:[@-Z\\\-_]|\[[0-?]*[ -/]*[@-~])`)
+	// Alternatives, in order: OSC ended by BEL or ST (a title or link, whose
+	// body goes too; never ended, it keeps its text), charset and other
+	// intermediate-byte sequences, CSI, and the two-byte forms.
+	ansiPattern = regexp.MustCompile(
+		`\x1b(?:\][^\x07\x1b]*(?:\x07|\x1b\\)|[ -/]+[0-~]|\[[0-?]*[ -/]*[@-~]|[@-Z\\-_=>])`,
+	)
 	controlPattern     = regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]`)
 	htmlCommentPattern = regexp.MustCompile(`(?s)<!--.*?-->`)
 	fencedCodePattern  = regexp.MustCompile("(?s)```.*?```")
