@@ -166,6 +166,9 @@ func (al *AgentLoop) enqueueSteeringMessage(scope, agentID string, msg providers
 
 	if msg.Role == "user" {
 		msg.Content = refinery.CleanUserText(msg.Content)
+		if strings.TrimSpace(msg.Content) == "" && len(msg.Media) == 0 {
+			return nil
+		}
 	}
 	msg = steeringPromptMessage(msg)
 	if err := al.steering.pushScope(scope, msg); err != nil {

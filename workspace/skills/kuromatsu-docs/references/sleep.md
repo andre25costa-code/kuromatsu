@@ -23,14 +23,16 @@ chamar LLM:
   controle. Nenhuma palavra é removida.
 - **Demais mensagens e o resumo:** perdem também comentários HTML. Blocos de
   código entre crases triplas ficam intactos.
-- **Confirmações do assistente:** uma mensagem que é só "ok", "certo",
-  "entendido", "perfeito", "combinado", "claro", "beleza" ou "feito" fica de
-  fora. O "ok" do usuário fica.
+- **Confirmações do assistente:** uma mensagem que é só "ok", "okay", "certo",
+  "entendido", "perfeito", "combinado", "claro", "beleza" ou "feito", com ou
+  sem pontuação final, fica de fora. O "ok" do usuário fica.
 - **Credenciais:** não são mascaradas no digest. A troca por `[SECRET_n]`
   acontece no envio ao provider externo, como em qualquer outra chamada.
 
 A limpeza de ANSI e caracteres de controle vale também para toda mensagem de
 usuário que entra num turno, inclusive as que chegam com um turno em andamento.
+Uma mensagem sem mídia que era só esse ruído é ignorada: não chama o modelo nem
+entra no histórico.
 
 ## Config (`sleep`)
 

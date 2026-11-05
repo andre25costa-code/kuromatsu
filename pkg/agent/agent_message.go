@@ -11,6 +11,7 @@ import (
 	"github.com/andre25costa-code/kuromatsu/pkg/bus"
 	"github.com/andre25costa-code/kuromatsu/pkg/constants"
 	"github.com/andre25costa-code/kuromatsu/pkg/logger"
+	"github.com/andre25costa-code/kuromatsu/pkg/refinery"
 	"github.com/andre25costa-code/kuromatsu/pkg/routing"
 	"github.com/andre25costa-code/kuromatsu/pkg/session"
 	"github.com/andre25costa-code/kuromatsu/pkg/utils"
@@ -266,6 +267,7 @@ func (al *AgentLoop) prepareInboundMessageForAgent(
 		al.channelManager.SendPlaceholder(ctx, msg.Channel, msg.ChatID)
 	}
 
+	msg.Content = refinery.CleanUserText(msg.Content)
 	return msg
 }
 
@@ -282,6 +284,17 @@ func originForInboundMessage(msg bus.InboundMessage) string {
 
 func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage) (string, error) {
 	msg = al.prepareInboundMessageForAgent(ctx, msg)
+
+	// Channels drop empty messages before the cleaning above. Without this, a
+	// message that was only terminal noise would call the model with no user
+	// message and save an orphan reply.
+	if strings.TrimSpace(msg.Content) == "" && len(msg.Media) == 0 {
+		logger.InfoCF("agent", "Ignoring a message with no text or media", map[string]any{
+			"channel": msg.Channel,
+			"chat_id": msg.ChatID,
+		})
+		return "", nil
+	}
 
 	// Add message preview to log (show full content for error messages)
 	var logContent string
